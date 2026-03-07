@@ -200,6 +200,7 @@ Channel runtime also watches `config.toml` and hot-applies updates to:
 ### `skills`
 
 - `topclaw skills list`
+- `topclaw skills vet <source_or_name> [--json] [--sandbox docker]`
 - `topclaw skills audit <source_or_name>`
 - `topclaw skills install <source>`
 - `topclaw skills remove <name>`
@@ -223,16 +224,28 @@ Channel runtime also watches `config.toml` and hot-applies updates to:
   - `trusted_domains`
   - `blocked_domains`
 
-`skills install` always runs a built-in static security audit before the skill is accepted. The audit blocks:
+`skills vet`, `skills audit`, and `skills install` now emit a structured review with:
+- `files_scanned`
+- `overall risk`: `low`, `medium`, `high`, or `critical`
+- per-finding risk/category/message entries
+- final verdict: `installable` or `blocked`
+
+`skills vet --sandbox docker` adds an isolated read-only Docker probe with networking disabled. It does not execute the skill itself; it verifies that the skill package can be inspected in a container without write access or outbound network.
+
+`skills install` only accepts skills whose overall audit result is `low`. Any `medium`, `high`, or `critical` finding blocks installation by default.
+
+The audit blocks or escalates findings for:
 - symlinks inside the skill package
 - script-like files (`.sh`, `.bash`, `.zsh`, `.ps1`, `.bat`, `.cmd`)
+- executable files and embedded archive payloads
+- secret-like files (`.env`, private keys, credentials bundles)
 - high-risk command snippets (for example pipe-to-shell payloads)
 - prompt-injection override/exfiltration patterns
 - phishing-style credential harvesting patterns
 - obfuscated backdoor payload patterns (for example base64 decode-and-exec)
 - markdown links that escape the skill root, point to remote markdown, or target script files
 
-Use `skills audit` to manually validate a candidate skill directory (or an installed skill by name) before sharing it.
+Use `skills audit` to manually validate a candidate skill directory (or an installed skill by name) before sharing it or trusting its source.
 
 Skill manifests (`SKILL.toml`) support `prompts` and `[[tools]]`; both are injected into the agent system prompt at runtime, so the model can follow skill instructions without manually reading skill files.
 

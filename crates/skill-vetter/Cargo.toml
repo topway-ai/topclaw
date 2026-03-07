@@ -1,0 +1,15 @@
+[package]
+name = "topclaw-skill-vetter"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Skill vetting engine for TopClaw"
+
+[dependencies]
+anyhow = "1.0"
+regex = "1.10"
+serde = { version = "1.0", features = ["derive"] }
+toml = "1.0"
+
+[dev-dependencies]
+tempfile = "3.26"

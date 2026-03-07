@@ -149,6 +149,17 @@ Examples:
 pub enum SkillCommands {
     /// List all installed skills
     List,
+    /// Run the full skill vetter against a source directory or installed skill
+    Vet {
+        /// Skill path or installed skill name
+        source: String,
+        /// Emit the full report as JSON
+        #[arg(long)]
+        json: bool,
+        /// Optional sandbox probe mode (`docker`)
+        #[arg(long, value_parser = ["docker"])]
+        sandbox: Option<String>,
+    },
     /// Audit a skill source directory or installed skill name
     Audit {
         /// Skill path or installed skill name

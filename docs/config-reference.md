@@ -353,7 +353,7 @@ Notes:
   - `TOPCLAW_SKILLS_PROMPT_MODE` accepts `full` or `compact`.
 - Precedence for enable flag: `TOPCLAW_OPEN_SKILLS_ENABLED` → `skills.open_skills_enabled` in `config.toml` → default `false`.
 - `prompt_injection_mode = "compact"` is recommended on low-context local models to reduce startup prompt size while keeping skill files available on demand.
-- Skill loading and `topclaw skills install` both apply a static security audit. Skills that contain symlinks, script-like files, high-risk shell payload snippets, or unsafe markdown link traversal are rejected.
+- Skill loading and `topclaw skills install` both apply a structured security audit. Skills are classified as `low`, `medium`, `high`, or `critical` risk. By default, only `low` risk skills are installable; anything higher is rejected.
 - URL-based installs enforce first-seen domain trust. On first download from an unseen domain, TopClaw prompts for trust and persists the decision.
 - Download-source aliases and trust decisions are stored in `<workspace>/skills/.download-policy.toml`:
   - `aliases`: user-editable source shortcuts.

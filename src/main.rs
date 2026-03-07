@@ -2421,6 +2421,36 @@ mod tests {
     }
 
     #[test]
+    fn skills_vet_cli_accepts_json_and_sandbox_flags() {
+        let cli = Cli::try_parse_from([
+            "topclaw",
+            "skills",
+            "vet",
+            "find-skills",
+            "--json",
+            "--sandbox",
+            "docker",
+        ])
+        .expect("skills vet flags should parse");
+
+        match cli.command {
+            Commands::Skills {
+                skill_command:
+                    topclaw::SkillCommands::Vet {
+                        source,
+                        json,
+                        sandbox,
+                    },
+            } => {
+                assert_eq!(source, "find-skills");
+                assert!(json);
+                assert_eq!(sandbox.as_deref(), Some("docker"));
+            }
+            other => panic!("expected skills vet command, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn cli_parses_estop_default_engage() {
         let cli = Cli::try_parse_from(["topclaw", "estop"]).expect("estop command should parse");
 
