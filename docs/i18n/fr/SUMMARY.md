@@ -1,38 +1,33 @@
-# Sommaire de la documentation TopClaw (Français, i18n)
+# Sommaire de la documentation TopClaw (Français)
 
-Ce fichier est l'index de navigation pour `docs/i18n/fr/`.
+Cette page est le sommaire standard de la documentation française.
 
-Dernière mise à jour : **24 février 2026**.
+Dernière mise à jour : **7 mars 2026**.
 
 ## Points d'entrée
 
-- Hub i18n français : [README.md](README.md)
-- Hub français (compatibilité) : [docs/i18n/fr/README.md](README.md)
-- Sommaire français (compatibilité) : [../../SUMMARY.fr.md](../../SUMMARY.fr.md)
-- Index i18n : [../README.md](../README.md)
-- Carte de couverture i18n : [../../i18n-coverage.md](../../i18n-coverage.md)
+- Hub français : [README.md](README.md)
+- Hub anglais : [../../../README.md](../../../README.md)
+- Sommaire de compatibilité : [../../SUMMARY.fr.md](../../SUMMARY.fr.md)
 
-## Catégories
+## Parcours rapides
 
-- Démarrage : [../../getting-started/README.md](../../getting-started/README.md)
-- Référence : [../../reference/README.md](../../reference/README.md)
-- Opérations : [../../operations/README.md](../../operations/README.md)
-- Sécurité : [../../security/README.md](../../security/README.md)
-- Matériel : [../../hardware/README.md](../../hardware/README.md)
-- Contribution / CI : [../../contributing/README.md](../../contributing/README.md)
+- Installation et premier lancement : [../../getting-started/README.md](../../getting-started/README.md)
+- Commandes et configuration : [../../reference/README.md](../../reference/README.md)
+- Exploitation et dépannage : [../../operations/README.md](../../operations/README.md)
 
-## Documents runtime Wave 1
+## Références runtime principales
 
-- Référence des commandes : [commands-reference.md](commands-reference.md)
-- Référence des providers : [providers-reference.md](providers-reference.md)
-- Référence des canaux : [channels-reference.md](channels-reference.md)
-- Référence de configuration : [config-reference.md](config-reference.md)
-- Runbook d'exploitation : [operations-runbook.md](operations-runbook.md)
-- Dépannage : [troubleshooting.md](troubleshooting.md)
+- [commands-reference.md](commands-reference.md)
+- [providers-reference.md](providers-reference.md)
+- [channels-reference.md](channels-reference.md)
+- [config-reference.md](config-reference.md)
+- [operations-runbook.md](operations-runbook.md)
+- [troubleshooting.md](troubleshooting.md)
 
-## Gouvernance et index
+## Gouvernance documentaire
 
-- Inventaire documentaire : [docs-inventory.md](docs-inventory.md)
-- Guide i18n : [i18n-guide.md](i18n-guide.md)
-- Couverture : [i18n-coverage.md](i18n-coverage.md)
-- Suivi des écarts : [i18n-gap-backlog.md](i18n-gap-backlog.md)
+- [docs-inventory.md](docs-inventory.md)
+- [../README.md](../README.md)
+- [../../i18n-coverage.md](../../i18n-coverage.md)
+- [i18n-guide.md](i18n-guide.md)

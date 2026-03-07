@@ -1,10 +1,24 @@
 # TopClaw
 
-TopClaw is a Rust-based AI agent runtime for local and remote AI workflows.
+TopClaw is a Rust-first agent runtime for local and remote AI workflows.
 
-## Quick Start
+## Start Here
 
-### Ubuntu
+If you want the fastest path:
+
+1. Install Rust.
+2. Clone or open the TopClaw repository.
+3. Run:
+
+```bash
+./bootstrap.sh
+```
+
+`./bootstrap.sh` installs missing prerequisites when possible, builds `topclaw`, and starts onboarding.
+
+## Setup Paths
+
+### Linux
 
 ```bash
 sudo apt update
@@ -13,71 +27,43 @@ sudo apt install -y build-essential pkg-config libssl-dev ca-certificates curl g
 curl https://sh.rustup.rs -sSf | sh
 source "$HOME/.cargo/env"
 
-git clone https://github.com/jackfly8/TopClaw.git
-cd TopClaw
 ./bootstrap.sh
 topclaw status
 topclaw agent -m "Hello!"
 ```
 
-`./bootstrap.sh` installs missing prerequisites, builds TopClaw, and starts onboarding automatically.
-
-### macOS (Apple Silicon)
-
-Install Apple developer tools first:
+### macOS
 
 ```bash
 xcode-select --install
-```
-
-Install Rust:
-
-```bash
 curl https://sh.rustup.rs -sSf | sh
 source "$HOME/.cargo/env"
-```
 
-Clone and bootstrap TopClaw:
-
-```bash
-git clone https://github.com/jackfly8/TopClaw.git
-cd TopClaw
 ./bootstrap.sh
 topclaw status
 topclaw agent -m "Hello!"
 ```
 
-`./bootstrap.sh` installs missing prerequisites, builds TopClaw, and starts onboarding automatically.
+### Fast Non-Interactive Setup
 
-## What Bootstrap Does
-
-Running `./bootstrap.sh` with no flags will:
-
-1. install missing system dependencies when possible
-2. install Rust if it is not already present
-3. build and install `topclaw`
-4. start the onboarding wizard
-
-During onboarding, the default path is now:
-
-- choose your AI provider
-- enter the provider API key if needed
-- choose a channel such as Telegram or Discord
-- enter the channel token and allowed user info
-
-Everything else can be changed later in `config.toml`.
-
-## Fast Path
-
-If you already have an API key and want a minimal setup:
+If you already know your provider and API key:
 
 ```bash
 topclaw onboard --api-key "sk-..." --provider openrouter
 ```
 
-## First Commands
+## What Onboarding Covers
 
-After onboarding, these are the most useful first commands:
+The default onboarding flow is intentionally short:
+
+- choose a provider
+- enter an API key if needed
+- choose a channel
+- enter the channel token and allowed user info
+
+Everything else can be changed later in `config.toml`.
+
+## First Commands
 
 ```bash
 topclaw status
@@ -85,14 +71,14 @@ topclaw agent -m "Hello!"
 topclaw gateway
 ```
 
-## Documentation Map
+## Documentation
 
-- Getting started: [`docs/getting-started/README.md`](docs/getting-started/README.md)
-- Commands and config: [`docs/reference/README.md`](docs/reference/README.md)
+- Start with the docs hub: [`docs/README.md`](docs/README.md)
+- Install and bootstrap guides: [`docs/getting-started/README.md`](docs/getting-started/README.md)
+- CLI, config, providers, and channels: [`docs/reference/README.md`](docs/reference/README.md)
 - Operations and troubleshooting: [`docs/operations/README.md`](docs/operations/README.md)
-- Full docs hub: [`docs/README.md`](docs/README.md)
 
-### Other Platforms
+## Other Platforms
 
-- Windows: run `.\bootstrap.ps1`
-- Lower-resource machines: `./bootstrap.sh --prefer-prebuilt`
+- Windows: use `.\bootstrap.ps1`
+- Lower-resource machines: run `./bootstrap.sh --prefer-prebuilt`

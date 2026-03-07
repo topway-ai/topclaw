@@ -1,4 +1,4 @@
-# TopClaw Docs Summary (Unified TOC)
+# TopClaw Docs Summary
 
 This file is the canonical table of contents for the documentation system.
 
@@ -12,14 +12,17 @@ This file is the canonical table of contents for the documentation system.
 - French docs hub: [i18n/fr/README.md](i18n/fr/README.md)
 - Vietnamese docs hub: [i18n/vi/README.md](i18n/vi/README.md)
 - Greek docs hub: [i18n/el/README.md](i18n/el/README.md)
-- Docs structure map: [structure/README.md](structure/README.md)
-- i18n index: [i18n/README.md](i18n/README.md)
-- i18n coverage: [i18n-coverage.md](i18n-coverage.md)
-- i18n guide: [i18n-guide.md](i18n-guide.md)
+
+## Quick Paths
+
+- Install and onboarding: [getting-started/README.md](getting-started/README.md)
+- Runtime reference: [reference/README.md](reference/README.md)
+- Operations: [operations/README.md](operations/README.md)
+- Full docs inventory: [docs-inventory.md](docs-inventory.md)
 
 ## Collections
 
-### 1) Getting Started
+### Getting Started
 
 - [getting-started/README.md](getting-started/README.md)
 - [getting-started/macos-update-uninstall.md](getting-started/macos-update-uninstall.md)
@@ -27,20 +30,20 @@ This file is the canonical table of contents for the documentation system.
 - [docker-setup.md](docker-setup.md)
 - [android-setup.md](android-setup.md)
 
-### 2) Reference
+### Reference
 
 - [reference/README.md](reference/README.md)
 - [commands-reference.md](commands-reference.md)
 - [providers-reference.md](providers-reference.md)
 - [channels-reference.md](channels-reference.md)
-- [nextcloud-talk-setup.md](nextcloud-talk-setup.md)
 - [config-reference.md](config-reference.md)
 - [custom-providers.md](custom-providers.md)
+- [nextcloud-talk-setup.md](nextcloud-talk-setup.md)
 - [zai-glm-setup.md](zai-glm-setup.md)
 - [langgraph-integration.md](langgraph-integration.md)
 - [proxy-agent-playbook.md](proxy-agent-playbook.md)
 
-### 3) Operations
+### Operations
 
 - [operations/README.md](operations/README.md)
 - [operations-runbook.md](operations-runbook.md)
@@ -50,7 +53,7 @@ This file is the canonical table of contents for the documentation system.
 - [network-deployment.md](network-deployment.md)
 - [mattermost-setup.md](mattermost-setup.md)
 
-### 4) Security
+### Security
 
 - [security/README.md](security/README.md)
 - [agnostic-security.md](agnostic-security.md)
@@ -61,7 +64,7 @@ This file is the canonical table of contents for the documentation system.
 - [audit-event-schema.md](audit-event-schema.md)
 - [security-roadmap.md](security-roadmap.md)
 
-### 5) Hardware
+### Hardware
 
 - [hardware/README.md](hardware/README.md)
 - [hardware-peripherals-design.md](hardware-peripherals-design.md)
@@ -73,7 +76,7 @@ This file is the canonical table of contents for the documentation system.
 - [datasheets/arduino-uno.md](datasheets/arduino-uno.md)
 - [datasheets/esp32.md](datasheets/esp32.md)
 
-### 6) Contributing
+### Contributing
 
 - [contributing/README.md](contributing/README.md)
 - [../CONTRIBUTING.md](../CONTRIBUTING.md)
@@ -83,7 +86,7 @@ This file is the canonical table of contents for the documentation system.
 - [actions-source-policy.md](actions-source-policy.md)
 - [cargo-slicer-speedup.md](cargo-slicer-speedup.md)
 
-### 7) SOP
+### SOP
 
 - [sop/README.md](sop/README.md)
 - [sop/connectivity.md](sop/connectivity.md)
@@ -91,10 +94,13 @@ This file is the canonical table of contents for the documentation system.
 - [sop/observability.md](sop/observability.md)
 - [sop/cookbook.md](sop/cookbook.md)
 
-### 8) Project
+### Project And Docs Governance
 
 - [project/README.md](project/README.md)
 - [project-triage-snapshot-2026-02-18.md](project-triage-snapshot-2026-02-18.md)
 - [docs-audit-2026-02-24.md](docs-audit-2026-02-24.md)
-- [i18n-gap-backlog.md](i18n-gap-backlog.md)
 - [docs-inventory.md](docs-inventory.md)
+- [i18n/README.md](i18n/README.md)
+- [i18n-coverage.md](i18n-coverage.md)
+- [i18n-guide.md](i18n-guide.md)
+- [i18n-gap-backlog.md](i18n-gap-backlog.md)

@@ -1,49 +1,48 @@
 # Hub de Documentation TopClaw (Français)
 
-Cette page est le hub français aligné sur la structure canonique `docs/i18n/<locale>/`.
+Cette page est l'entrée standard de la documentation française.
 
-Dernière mise à jour : **24 février 2026**.
+Dernière mise à jour : **7 mars 2026**.
 
-> Note : les commandes, clés de configuration et chemins API restent en anglais.
+> Note : les commandes, clés de configuration et chemins API restent en anglais. Le comportement normatif suit la documentation anglaise.
 
-## Accès rapide
+## Commencer ici
 
-- README français (racine) : [docs/i18n/fr/README.md](README.md)
-- Hub docs français (compatibilité) : [docs/i18n/fr/README.md](README.md)
-- Sommaire français (compatibilité) : [../../SUMMARY.fr.md](../../SUMMARY.fr.md)
-- Hub docs anglais : [../../README.md](../../README.md)
+1. Installation et premier lancement : [../../../README.md](../../../README.md)
+2. Bootstrap et parcours d'onboarding : [../../getting-started/README.md](../../getting-started/README.md)
+3. Commandes, configuration, providers et canaux : [../../reference/README.md](../../reference/README.md)
+4. Exploitation et dépannage : [../../operations/README.md](../../operations/README.md)
 
-## Documents runtime Wave 1
+## Tâches fréquentes
 
-- Référence des commandes : [commands-reference.md](commands-reference.md)
-- Référence des providers : [providers-reference.md](providers-reference.md)
-- Référence des canaux : [channels-reference.md](channels-reference.md)
-- Référence de configuration : [config-reference.md](config-reference.md)
-- Runbook d'exploitation : [operations-runbook.md](operations-runbook.md)
-- Dépannage : [troubleshooting.md](troubleshooting.md)
+- Trouver une commande : [commands-reference.md](commands-reference.md)
+- Vérifier les clés et valeurs par défaut : [config-reference.md](config-reference.md)
+- Configurer un provider : [providers-reference.md](providers-reference.md)
+- Configurer un canal : [channels-reference.md](channels-reference.md)
+- Résoudre un problème d'installation ou d'exécution : [troubleshooting.md](troubleshooting.md)
+- Ouvrir le runbook d'exploitation : [operations-runbook.md](operations-runbook.md)
 
-État actuel : **parité top-level terminée** (40/40).
-
-## Index complet et gouvernance
-
-- Inventaire documentaire local : [docs-inventory.md](docs-inventory.md)
-- Guide d'exécution i18n : [i18n-guide.md](i18n-guide.md)
-- Couverture i18n : [i18n-coverage.md](i18n-coverage.md)
-- Suivi des écarts i18n : [i18n-gap-backlog.md](i18n-gap-backlog.md)
-
-## Catégories
+## Parcourir par zone
 
 - Démarrage : [../../getting-started/README.md](../../getting-started/README.md)
 - Référence : [../../reference/README.md](../../reference/README.md)
-- Opérations et déploiement : [../../operations/README.md](../../operations/README.md)
+- Opérations : [../../operations/README.md](../../operations/README.md)
 - Sécurité : [../../security/README.md](../../security/README.md)
 - Matériel : [../../hardware/README.md](../../hardware/README.md)
-- Contribution / CI : [../../contributing/README.md](../../contributing/README.md)
-- Table des matières locale : [SUMMARY.md](SUMMARY.md)
+- Contribution : [../../contributing/README.md](../../contributing/README.md)
+- Projet et gouvernance docs : [../../project/README.md](../../project/README.md)
+- Sommaire français : [SUMMARY.md](SUMMARY.md)
+
+## Gouvernance documentaire
+
+- Inventaire documentaire : [docs-inventory.md](docs-inventory.md)
+- Index i18n : [../README.md](../README.md)
+- Couverture i18n : [../../i18n-coverage.md](../../i18n-coverage.md)
+- Guide i18n : [i18n-guide.md](i18n-guide.md)
 
 ## Autres langues
 
-- English: [../../README.md](../../README.md)
+- English: [../../../README.md](../../../README.md)
 - 简体中文: [../zh-CN/README.md](../zh-CN/README.md)
 - 日本語: [../ja/README.md](../ja/README.md)
 - Русский: [../ru/README.md](../ru/README.md)
