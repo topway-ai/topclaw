@@ -51,6 +51,7 @@ jobs:
             release_tag: ${{ steps.vars.outputs.release_tag }}
             publish_release: ${{ steps.vars.outputs.publish_release }}
             draft_release: ${{ steps.vars.outputs.draft_release }}
+            require_ghcr_release_tag: ${{ steps.vars.outputs.require_ghcr_release_tag }}
         steps:
             - name: Resolve release inputs
               id: vars
@@ -61,6 +62,7 @@ jobs:
                   event_name="${GITHUB_EVENT_NAME}"
                   publish_release="false"
                   draft_release="false"
+                  require_ghcr_release_tag="false"
 
                   if [[ "$event_name" == "push" ]]; then
                     release_ref="${GITHUB_REF_NAME}"
@@ -87,11 +89,16 @@ jobs:
                     release_tag="verify-${GITHUB_SHA::12}"
                   fi
 
+                  if [[ "${GITHUB_REPOSITORY}" == "topclaw-labs/topclaw" ]]; then
+                    require_ghcr_release_tag="true"
+                  fi
+
                   {
                     echo "release_ref=${release_ref}"
                     echo "release_tag=${release_tag}"
                     echo "publish_release=${publish_release}"
                     echo "draft_release=${draft_release}"
+                    echo "require_ghcr_release_tag=${require_ghcr_release_tag}"
                   } >> "$GITHUB_OUTPUT"
 
                   {
@@ -101,6 +108,7 @@ jobs:
                     echo "- release_tag: ${release_tag}"
                     echo "- publish_release: ${publish_release}"
                     echo "- draft_release: ${draft_release}"
+                    echo "- require_ghcr_release_tag: ${require_ghcr_release_tag}"
                   } >> "$GITHUB_STEP_SUMMARY"
 
             - name: Checkout
@@ -706,6 +714,7 @@ jobs:
                   cat artifacts/release-notes-supply-chain.md >> "$GITHUB_STEP_SUMMARY"
 
             - name: Verify GHCR release tag availability
+              if: needs.prepare.outputs.require_ghcr_release_tag == 'true'
               shell: bash
               env:
                   RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
@@ -744,6 +753,14 @@ jobs:
                   echo "::error::GHCR tag ${repo}:${RELEASE_TAG} was not available before release publish timeout."
                   cat /tmp/ghcr-release-manifest.json || true
                   exit 1
+
+            - name: Skip GHCR release tag requirement for binary-only release
+              if: needs.prepare.outputs.require_ghcr_release_tag != 'true'
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  echo "Skipping GHCR release-tag availability gate for ${GITHUB_REPOSITORY}."
+                  echo "Binary release artifacts will publish without waiting for a GHCR image tag." >> "$GITHUB_STEP_SUMMARY"
 
             - name: Create GitHub Release
               uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
