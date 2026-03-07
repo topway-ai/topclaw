@@ -1,11 +1,130 @@
+# TopClaw development config template
+#
+# This file is copied into `target/.topclaw/config.toml` by `./dev/cli.sh up`
+# when no config exists yet. Edit it before exposing TopClaw to real channels,
+# shared hosts, or sensitive data.
+
 workspace_dir = "/topclaw-data/workspace"
 config_path = "/topclaw-data/.topclaw/config.toml"
-# This is the Ollama Base URL, not a secret key
-api_key = "http://host.docker.internal:11434"
-default_provider = "ollama"
-default_model = "llama3.2"
-default_temperature = 0.7
 
+# =========================
+# Core model/provider
+# =========================
+#
+# Recommended remote default:
+# - Set `api_key` to your provider key, or export it via the environment.
+# - `provider_api` is only used for `custom:<url>` providers.
+default_provider = "openrouter"
+default_model = "anthropic/claude-sonnet-4-6"
+default_temperature = 0.2
+
+# Example OpenAI Codex profile:
+# api_key = "sk-..."
+# default_provider = "openai-codex"
+# default_model = "gpt-5-codex"
+
+# Example custom-provider profile:
+# default_provider = "custom:https://your-endpoint.example.com/v1"
+# provider_api = "openai-responses"
+
+# Example local Ollama profile for Docker dev:
+# api_key = "http://host.docker.internal:11434"
+# default_provider = "ollama"
+# default_model = "llama3.2"
+
+# =========================
+# Autonomy
+# =========================
+#
+# `full` skips medium-risk shell approval, but it still does not bypass
+# explicit guardrails such as forbidden paths, OTP gates, or high-risk blocks.
+[autonomy]
+level = "full"
+
+# Allow access outside the workspace, but only under the listed roots.
+workspace_only = false
+allowed_commands = ["*"]
+
+# Keep this list narrow. Add only directories TopClaw should actually touch.
+allowed_roots = [
+  "/topclaw-data/workspace",
+  "/tmp",
+]
+
+# Keep sensitive paths protected even in high-autonomy mode.
+forbidden_paths = [
+  "/etc",
+  "/root",
+  "/proc",
+  "/sys",
+  "/dev",
+  "/var",
+  "~/.ssh",
+  "~/.gnupg",
+  "~/.aws",
+  "~/.config/secrets",
+]
+
+# Reduce approval churn while still blocking obviously dangerous commands.
+require_approval_for_medium_risk = false
+block_high_risk_commands = true
+
+# Use confirm flow instead of instant natural-language approval in chat channels.
+non_cli_natural_language_approval_mode = "request_confirm"
+
+# Keep risky tools hidden from non-CLI channels unless an operator opts in later.
+non_cli_excluded_tools = [
+  "shell",
+  "file_write",
+  "file_edit",
+  "git_operations",
+  "browser",
+  "browser_open",
+  "http_request",
+  "schedule",
+  "cron_add",
+  "cron_remove",
+  "cron_update",
+  "cron_run",
+  "memory_store",
+  "memory_forget",
+  "proxy_config",
+  "model_routing_config",
+  "pushover",
+  "composio",
+  "delegate",
+  "screenshot",
+  "image_info",
+]
+
+# TopClaw does not currently support `command_context_rules`,
+# per-tool `[file_read]/[file_write]/[file_edit]` denylist sections,
+# or configurable `protected_files` keys in config.toml.
+# Use `allowed_roots`, `forbidden_paths`, and the built-in protected
+# workspace files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `IDENTITY.md`,
+# `USER.md`, `HEARTBEAT.md`, `BOOTSTRAP.md`) instead.
+#
+# For Telegram / Discord deployments that should feel like the CLI:
+# - keep `default_temperature = 0.2`
+# - prefer a coding-oriented provider/model such as OpenAI Codex
+# - keep `non_cli_natural_language_approval_mode = "request_confirm"`
+# - leave risky tools excluded from non-CLI channels unless an operator opts in
+
+# =========================
+# Browser / OS-level automation
+# =========================
+#
+# Leave GUI/browser automation off by default. Turn it on only on an isolated
+# machine where you explicitly want that capability.
+[browser]
+enabled = false
+browser_open = "disable"
+allowed_domains = []
+backend = "agent_browser"
+
+# =========================
+# Gateway
+# =========================
 [gateway]
 port = 42617
 host = "127.0.0.1"

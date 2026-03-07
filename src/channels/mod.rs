@@ -433,16 +433,35 @@ fn channel_delivery_instructions(channel_name: &str) -> Option<&'static str> {
     match channel_name {
         "telegram" => Some(
             "When responding on Telegram:\n\
+             - Match the TopClaw CLI / Codex-style voice: direct, concise, technical, and action-oriented\n\
+             - Lead with the actual answer or result, not filler or enthusiasm\n\
+             - Keep explanations tight; prefer short paragraphs or flat bullets only when they help scanning\n\
+             - If work was performed, summarize outcome first, then brief verification or next-step notes\n\
+             - Do not roleplay as a chat bot or social assistant; sound like an operator-facing coding tool\n\
              - Include media markers for files or URLs that should be sent as attachments\n\
              - Use **bold** for key terms, section titles, and important info (renders as <b>)\n\
              - Use *italic* for emphasis (renders as <i>)\n\
              - Use `backticks` for inline code, commands, or technical terms\n\
              - Use triple backticks for code blocks\n\
-             - Use emoji naturally to add personality — but don't overdo it\n\
+             - Avoid decorative emoji except when the user clearly prefers them\n\
              - Be concise and direct. Skip filler phrases like 'Great question!' or 'Certainly!'\n\
              - Structure longer answers with bold headers, not raw markdown ## headers\n\
              - For media attachments use markers: [IMAGE:<path-or-url>], [DOCUMENT:<path-or-url>], [VIDEO:<path-or-url>], [AUDIO:<path-or-url>], or [VOICE:<path-or-url>]\n\
              - Keep normal text outside markers and never wrap markers in code fences.\n\
+             - Use tool results silently: answer the latest user message directly, and do not narrate delayed/internal tool execution bookkeeping.",
+        ),
+        "discord" => Some(
+            "When responding on Discord:\n\
+             - Match the TopClaw CLI / Codex-style voice: direct, concise, technical, and action-oriented\n\
+             - Lead with the actual answer or result, not filler or enthusiasm\n\
+             - Keep explanations tight; prefer short paragraphs or flat bullets only when they help scanning\n\
+             - If work was performed, summarize outcome first, then brief verification or next-step notes\n\
+             - Do not roleplay as a chat bot or social assistant; sound like an operator-facing coding tool\n\
+             - Use `backticks` for commands, paths, env vars, and identifiers\n\
+             - Use fenced code blocks for multi-line commands or code\n\
+             - Use markdown freely, but avoid tables unless they materially improve clarity\n\
+             - Avoid decorative emoji except when the user clearly prefers them\n\
+             - Keep attachment markers outside code fences: [IMAGE:<path-or-url>], [DOCUMENT:<path-or-url>], [VIDEO:<path-or-url>], [AUDIO:<path-or-url>]\n\
              - Use tool results silently: answer the latest user message directly, and do not narrate delayed/internal tool execution bookkeeping.",
         ),
         "whatsapp" => Some(
@@ -9773,6 +9792,15 @@ BTC is currently around $65,000 based on latest tool output."#
             "telegram media marker guidance should live in the system prompt"
         );
         assert!(!calls[0].iter().skip(1).any(|(role, _)| role == "system"));
+    }
+
+    #[test]
+    fn discord_delivery_instructions_include_codex_style_guidance() {
+        let instructions =
+            channel_delivery_instructions("discord").expect("discord instructions should exist");
+        assert!(instructions.contains("When responding on Discord:"));
+        assert!(instructions.contains("Match the TopClaw CLI / Codex-style voice"));
+        assert!(instructions.contains("Use tool results silently"));
     }
 
     #[test]
