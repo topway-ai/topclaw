@@ -1,24 +1,24 @@
-# Reference Catalogs
+# Reference
 
-Structured reference index for commands, providers, channels, config, and integration guides.
+Use this section when you need exact command names, config keys, provider IDs, or channel setup details.
 
 ## Core References
 
-- Commands by workflow: [../commands-reference.md](../commands-reference.md)
-- Provider IDs / aliases / env vars: [../providers-reference.md](../providers-reference.md)
-- Channel setup + allowlists: [../channels-reference.md](../channels-reference.md)
-- Config defaults and keys: [../config-reference.md](../config-reference.md)
+| Need | Read this |
+|---|---|
+| CLI commands | [../commands-reference.md](../commands-reference.md) |
+| Provider IDs, aliases, and env vars | [../providers-reference.md](../providers-reference.md) |
+| Channel setup and allowlists | [../channels-reference.md](../channels-reference.md) |
+| Config keys and defaults | [../config-reference.md](../config-reference.md) |
 
-## Provider & Integration Extensions
+## Provider and Integration Guides
 
-- Custom provider endpoints: [../custom-providers.md](../custom-providers.md)
-- Z.AI / GLM provider onboarding: [../zai-glm-setup.md](../zai-glm-setup.md)
-- Nextcloud Talk bot integration: [../nextcloud-talk-setup.md](../nextcloud-talk-setup.md)
-- LangGraph-based integration patterns: [../langgraph-integration.md](../langgraph-integration.md)
-- Proxy scope operation playbook: [../proxy-agent-playbook.md](../proxy-agent-playbook.md)
+- Custom OpenAI-compatible endpoints: [../custom-providers.md](../custom-providers.md)
+- Z.AI and GLM setup: [../zai-glm-setup.md](../zai-glm-setup.md)
+- Nextcloud Talk setup: [../nextcloud-talk-setup.md](../nextcloud-talk-setup.md)
+- LangGraph integration notes: [../langgraph-integration.md](../langgraph-integration.md)
+- Proxy scope playbook: [../proxy-agent-playbook.md](../proxy-agent-playbook.md)
 
-## Usage
+## When To Use This Section
 
-Use this collection when you need precise CLI/config details or provider integration patterns rather than step-by-step tutorials.
-
-When adding a new reference/integration doc, make sure it is linked in both [../SUMMARY.md](../SUMMARY.md) and [../docs-inventory.md](../docs-inventory.md).
+Use these pages when you already know what you want to do and need exact syntax or configuration details, not a guided walkthrough.

@@ -1,36 +1,38 @@
-# Getting Started Docs
+# Getting Started
 
-For first-time setup and quick orientation.
+Use this section for first install, onboarding, and first-run validation.
 
-## Start Path
+## Recommended Path
 
-1. Main overview and quick start: [../../README.md](../../README.md)
-2. One-click setup and dual bootstrap mode: [../one-click-bootstrap.md](../one-click-bootstrap.md)
-3. Update or uninstall on macOS: [macos-update-uninstall.md](macos-update-uninstall.md)
-4. Set up on Android (Termux/ADB): [../android-setup.md](../android-setup.md)
-5. Find commands by tasks: [../commands-reference.md](../commands-reference.md)
+1. Run the main quick start: [../../README.md](../../README.md)
+2. Let `./bootstrap.sh` install prerequisites and launch onboarding
+3. Validate with `topclaw status`
+4. Send a test prompt with `topclaw agent -m "Hello!"`
 
-## Choose Your Path
+## Setup Paths
 
-| Scenario | Command |
-|----------|---------|
-| I have an API key, want fastest setup | `topclaw onboard --api-key sk-... --provider openrouter` |
-| I want guided prompts | `topclaw onboard --interactive` |
-| Config exists, just fix channels | `topclaw onboard --channels-only` |
-| Config exists, I intentionally want full overwrite | `topclaw onboard --force` |
-| Using subscription auth | See [Subscription Auth](../../README.md#subscription-auth-openai-codex--claude-code) |
+| Situation | Recommended path |
+|---|---|
+| New user on Linux or macOS | [../../README.md](../../README.md) |
+| Want bootstrap details and flags | [../one-click-bootstrap.md](../one-click-bootstrap.md) |
+| Already have an API key | `topclaw onboard --api-key "sk-..." --provider openrouter` |
+| Want interactive provider and channel setup | `topclaw onboard --interactive` |
+| Need Android/Termux instructions | [../android-setup.md](../android-setup.md) |
+| Need macOS update or uninstall steps | [macos-update-uninstall.md](macos-update-uninstall.md) |
 
-## Onboarding and Validation
+## Validation
 
-- Quick onboarding: `topclaw onboard --api-key "sk-..." --provider openrouter`
-- Interactive onboarding: `topclaw onboard --interactive`
-- Existing config protection: reruns require explicit confirmation (or `--force` in non-interactive flows)
-- Ollama cloud models (`:cloud`) require a remote `api_url` and API key (for example `api_url = "https://ollama.com"`).
-- Validate environment: `topclaw status` + `topclaw doctor`
+After setup, the fastest checks are:
+
+```bash
+topclaw status
+topclaw doctor
+topclaw agent -m "Hello!"
+```
 
 ## Next
 
-- Runtime operations: [../operations/README.md](../operations/README.md)
-- Reference catalogs: [../reference/README.md](../reference/README.md)
-- macOS lifecycle tasks: [macos-update-uninstall.md](macos-update-uninstall.md)
-- Android setup path: [../android-setup.md](../android-setup.md)
+- Commands: [../commands-reference.md](../commands-reference.md)
+- Config: [../config-reference.md](../config-reference.md)
+- Providers and channels: [../reference/README.md](../reference/README.md)
+- Operations and troubleshooting: [../operations/README.md](../operations/README.md)

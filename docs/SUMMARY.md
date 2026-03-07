@@ -2,29 +2,20 @@
 
 This file is the canonical table of contents for the documentation system.
 
-Last refreshed: **February 18, 2026**.
-
 ## Language Entry
 
-- Docs Structure Map (language/part/function): [structure/README.md](structure/README.md)
 - English README: [../README.md](../README.md)
-- Chinese README: [docs/i18n/zh-CN/README.md](i18n/zh-CN/README.md)
-- Japanese README: [docs/i18n/ja/README.md](i18n/ja/README.md)
-- Russian README: [docs/i18n/ru/README.md](i18n/ru/README.md)
-- French README: [docs/i18n/fr/README.md](i18n/fr/README.md)
-- Vietnamese README: [docs/i18n/vi/README.md](i18n/vi/README.md)
-- Greek README: [docs/i18n/el/README.md](i18n/el/README.md)
-- English Docs Hub: [README.md](README.md)
-- Chinese Docs Hub: [i18n/zh-CN/README.md](i18n/zh-CN/README.md)
-- Japanese Docs Hub: [i18n/ja/README.md](i18n/ja/README.md)
-- Russian Docs Hub: [i18n/ru/README.md](i18n/ru/README.md)
-- French Docs Hub: [i18n/fr/README.md](i18n/fr/README.md)
-- Vietnamese Docs Hub: [i18n/vi/README.md](i18n/vi/README.md)
-- Greek Docs Hub: [i18n/el/README.md](i18n/el/README.md)
-- i18n Docs Index: [i18n/README.md](i18n/README.md)
-- i18n Coverage Map: [i18n-coverage.md](i18n-coverage.md)
-- i18n Completion Guide: [i18n-guide.md](i18n-guide.md)
-- i18n Gap Backlog: [i18n-gap-backlog.md](i18n-gap-backlog.md)
+- English docs hub: [README.md](README.md)
+- Chinese docs hub: [i18n/zh-CN/README.md](i18n/zh-CN/README.md)
+- Japanese docs hub: [i18n/ja/README.md](i18n/ja/README.md)
+- Russian docs hub: [i18n/ru/README.md](i18n/ru/README.md)
+- French docs hub: [i18n/fr/README.md](i18n/fr/README.md)
+- Vietnamese docs hub: [i18n/vi/README.md](i18n/vi/README.md)
+- Greek docs hub: [i18n/el/README.md](i18n/el/README.md)
+- Docs structure map: [structure/README.md](structure/README.md)
+- i18n index: [i18n/README.md](i18n/README.md)
+- i18n coverage: [i18n-coverage.md](i18n-coverage.md)
+- i18n guide: [i18n-guide.md](i18n-guide.md)
 
 ## Collections
 
@@ -36,7 +27,7 @@ Last refreshed: **February 18, 2026**.
 - [docker-setup.md](docker-setup.md)
 - [android-setup.md](android-setup.md)
 
-### 2) Command/Config References & Integrations
+### 2) Reference
 
 - [reference/README.md](reference/README.md)
 - [commands-reference.md](commands-reference.md)
@@ -49,7 +40,7 @@ Last refreshed: **February 18, 2026**.
 - [langgraph-integration.md](langgraph-integration.md)
 - [proxy-agent-playbook.md](proxy-agent-playbook.md)
 
-### 3) Operations & Deployment
+### 3) Operations
 
 - [operations/README.md](operations/README.md)
 - [operations-runbook.md](operations-runbook.md)
@@ -59,7 +50,7 @@ Last refreshed: **February 18, 2026**.
 - [network-deployment.md](network-deployment.md)
 - [mattermost-setup.md](mattermost-setup.md)
 
-### 4) Security Design & Proposals
+### 4) Security
 
 - [security/README.md](security/README.md)
 - [agnostic-security.md](agnostic-security.md)
@@ -70,7 +61,7 @@ Last refreshed: **February 18, 2026**.
 - [audit-event-schema.md](audit-event-schema.md)
 - [security-roadmap.md](security-roadmap.md)
 
-### 5) Hardware & Peripherals
+### 5) Hardware
 
 - [hardware/README.md](hardware/README.md)
 - [hardware-peripherals-design.md](hardware-peripherals-design.md)
@@ -82,7 +73,7 @@ Last refreshed: **February 18, 2026**.
 - [datasheets/arduino-uno.md](datasheets/arduino-uno.md)
 - [datasheets/esp32.md](datasheets/esp32.md)
 
-### 6) Contribution & CI
+### 6) Contributing
 
 - [contributing/README.md](contributing/README.md)
 - [../CONTRIBUTING.md](../CONTRIBUTING.md)
@@ -92,7 +83,7 @@ Last refreshed: **February 18, 2026**.
 - [actions-source-policy.md](actions-source-policy.md)
 - [cargo-slicer-speedup.md](cargo-slicer-speedup.md)
 
-### 7) SOP Runtime & Procedures
+### 7) SOP
 
 - [sop/README.md](sop/README.md)
 - [sop/connectivity.md](sop/connectivity.md)
@@ -100,7 +91,7 @@ Last refreshed: **February 18, 2026**.
 - [sop/observability.md](sop/observability.md)
 - [sop/cookbook.md](sop/cookbook.md)
 
-### 8) Project Status & Snapshot
+### 8) Project
 
 - [project/README.md](project/README.md)
 - [project-triage-snapshot-2026-02-18.md](project-triage-snapshot-2026-02-18.md)
