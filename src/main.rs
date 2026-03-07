@@ -165,7 +165,7 @@ enum Commands {
         #[arg(long)]
         force: bool,
 
-        /// Reconfigure channels only (fast repair flow)
+        /// Reconfigure or add channels only using the guided wizard
         #[arg(long)]
         channels_only: bool,
 
@@ -454,9 +454,10 @@ to messaging platforms. Supported channel types: telegram, discord, \
 slack, whatsapp, matrix, imessage, email.
 
 Examples:
+  topclaw onboard --channels-only   # guided channel setup without touching provider settings
   topclaw channel list
   topclaw channel doctor
-  topclaw channel add telegram '{\"bot_token\":\"...\",\"name\":\"my-bot\"}'
+  topclaw channel add telegram '{\"bot_token\":\"123456:ABC...\",\"name\":\"my-bot\",\"allowed_users\":[\"topclaw_user\"]}'
   topclaw channel remove my-bot
   topclaw channel bind-telegram topclaw_user")]
     Channel {

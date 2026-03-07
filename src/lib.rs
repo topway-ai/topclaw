@@ -111,11 +111,14 @@ Add a new channel configuration.
 Provide the channel type and a JSON object with the required \
 configuration keys for that channel type.
 
+If you want a guided setup flow instead of hand-writing JSON, use:
+  topclaw onboard --channels-only
+
 Supported types: telegram, discord, slack, whatsapp, matrix, imessage, email.
 
 Examples:
-  topclaw channel add telegram '{\"bot_token\":\"...\",\"name\":\"my-bot\"}'
-  topclaw channel add discord '{\"bot_token\":\"...\",\"name\":\"my-discord\"}'")]
+  topclaw channel add telegram '{\"bot_token\":\"123456:ABC...\",\"name\":\"my-bot\",\"allowed_users\":[\"topclaw_user\"]}'
+  topclaw channel add discord '{\"bot_token\":\"MTIz...\",\"name\":\"my-discord\",\"allowed_users\":[\"topclaw_user\"]}'")]
     Add {
         /// Channel type (telegram, discord, slack, whatsapp, matrix, imessage, email)
         channel_type: String,

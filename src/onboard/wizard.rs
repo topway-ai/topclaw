@@ -32,7 +32,7 @@ use tokio::fs;
 // ── SIMPLIFIED WIZARD: 3 Steps for Newbies ───────────────────────
 //
 // Step 1: Workspace - Where to store files
-// Step 2: AI Provider - Choose model and paste API key
+// Step 2: AI Provider - Choose model and configure provider authentication
 // Step 3: How to reach you - Telegram / Discord / Skip
 //
 // Everything else (Tunnel, Web tools, Hardware, Memory) can be configured later.
@@ -80,6 +80,7 @@ fn has_launchable_channels(channels: &ChannelsConfig) -> bool {
 enum InteractiveOnboardingMode {
     FullOnboarding,
     UpdateProviderOnly,
+    UpdateChannelsOnly,
 }
 
 pub async fn run_wizard(force: bool) -> Result<Config> {
@@ -110,6 +111,9 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         InteractiveOnboardingMode::FullOnboarding => {}
         InteractiveOnboardingMode::UpdateProviderOnly => {
             return run_provider_update_wizard(&workspace_dir, &config_path).await;
+        }
+        InteractiveOnboardingMode::UpdateChannelsOnly => {
+            return run_channels_repair_wizard().await;
         }
     }
 
@@ -1176,7 +1180,6 @@ fn supports_live_model_fetch(provider_name: &str) -> bool {
     matches!(
         canonical_provider_name(provider_name),
         "openrouter"
-            | "openai-codex"
             | "openai"
             | "anthropic"
             | "groq"
@@ -2032,9 +2035,11 @@ fn resolve_interactive_onboarding_mode(
         );
     }
 
+    let has_channels = existing_config_has_launchable_channels(config_path);
     let options = [
         "Full onboarding (overwrite config.toml)",
         "Update AI provider/model/API key only (preserve existing configuration)",
+        "Update channels only (guided channel setup, preserve everything else)",
         "Cancel",
     ];
 
@@ -2044,13 +2049,29 @@ fn resolve_interactive_onboarding_mode(
             config_path.display()
         ))
         .items(options)
-        .default(0) // Default to FULL onboarding (not update-only) - safer for new users
+        .default(default_existing_config_mode_index(has_channels))
         .interact()?;
 
     match mode {
         0 => Ok(InteractiveOnboardingMode::FullOnboarding),
         1 => Ok(InteractiveOnboardingMode::UpdateProviderOnly),
+        2 => Ok(InteractiveOnboardingMode::UpdateChannelsOnly),
         _ => bail!("Onboarding canceled: existing configuration was left unchanged."),
+    }
+}
+
+fn existing_config_has_launchable_channels(config_path: &Path) -> bool {
+    std::fs::read_to_string(config_path)
+        .ok()
+        .and_then(|raw| toml::from_str::<Config>(&raw).ok())
+        .is_some_and(|config| has_launchable_channels(&config.channels_config))
+}
+
+fn default_existing_config_mode_index(has_channels: bool) -> usize {
+    if has_channels {
+        1
+    } else {
+        2
     }
 }
 
@@ -2318,7 +2339,7 @@ async fn setup_workspace() -> Result<(PathBuf, PathBuf)> {
     Ok((workspace_dir, config_path))
 }
 
-// ── Step 2: Provider & API Key ───────────────────────────────────
+// ── Step 2: Provider & Authentication ────────────────────────────
 
 async fn setup_provider_simple(
     workspace_dir: &Path,
@@ -2369,7 +2390,13 @@ async fn setup_provider_simple(
 
     let provider_name = choice;
     let mut provider_api_url: Option<String> = None;
-    let api_key = if provider_supports_keyless_local_usage(provider_name) {
+    let api_key = if provider_uses_oauth_without_api_key(provider_name) {
+        print_bullet("OpenAI Codex uses ChatGPT OAuth, not an API key.");
+        print_bullet(
+            "Run `topclaw auth login --provider openai-codex --device-code` after onboarding.",
+        );
+        String::new()
+    } else if provider_supports_keyless_local_usage(provider_name) {
         if provider_name == "ollama" {
             print_bullet("Using local Ollama at http://localhost:11434.");
         }
@@ -2727,6 +2754,13 @@ async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String,
         }
 
         key
+    } else if canonical_provider_name(provider_name) == "openai-codex" {
+        print_bullet("OpenAI Codex uses ChatGPT OAuth, not an API key.");
+        print_bullet(
+            "Run `topclaw auth login --provider openai-codex --device-code` after onboarding.",
+        );
+        print_bullet("TopClaw will save the provider and model now, then use OAuth after login.");
+        String::new()
     } else if canonical_provider_name(provider_name) == "gemini" {
         // Special handling for Gemini: check for CLI auth first
         if crate::providers::gemini::GeminiProvider::has_cli_credentials() {
@@ -3078,6 +3112,11 @@ async fn prompt_for_default_model(
                     }
                 }
             }
+        } else if provider_uses_oauth_without_api_key(provider_name) {
+            print_bullet("OpenAI Codex onboarding uses OAuth, so using the curated model list.");
+            print_bullet(
+                "Run `topclaw auth login --provider openai-codex --device-code` after onboarding.",
+            );
         } else {
             print_bullet("No API key detected, so using curated model list.");
             print_bullet("Tip: add an API key and rerun onboarding to fetch live models.");
@@ -3199,6 +3238,10 @@ fn provider_env_var(name: &str) -> &'static str {
         "astrai" => "ASTRAI_API_KEY",
         _ => "API_KEY",
     }
+}
+
+fn provider_uses_oauth_without_api_key(provider_name: &str) -> bool {
+    matches!(canonical_provider_name(provider_name), "openai-codex")
 }
 
 fn provider_supports_keyless_local_usage(provider_name: &str) -> bool {
@@ -6216,6 +6259,17 @@ fn print_summary(config: &Config) {
         println!("       {}", style("topclaw channel start").yellow());
         println!();
         step += 1;
+    } else {
+        println!(
+            "    {} Add channels later with the guided wizard:",
+            style(format!("{step}.")).cyan().bold()
+        );
+        println!(
+            "       {}",
+            style("topclaw onboard --channels-only").yellow()
+        );
+        println!();
+        step += 1;
     }
 
     println!(
@@ -7187,6 +7241,7 @@ mod tests {
         assert!(supports_live_model_fetch("venice"));
         assert!(supports_live_model_fetch("glm-cn"));
         assert!(supports_live_model_fetch("qwen-intl"));
+        assert!(!supports_live_model_fetch("openai-codex"));
         assert!(!supports_live_model_fetch("minimax-cn"));
         assert!(!supports_live_model_fetch("unknown-provider"));
     }
@@ -7612,6 +7667,20 @@ mod tests {
         assert!(provider_supports_device_flow("openai-codex"));
         assert!(!provider_supports_device_flow("openai"));
         assert!(!provider_supports_device_flow("openrouter"));
+    }
+
+    #[test]
+    fn default_existing_config_mode_prefers_channel_repair_when_no_channels_exist() {
+        assert_eq!(default_existing_config_mode_index(false), 2);
+        assert_eq!(default_existing_config_mode_index(true), 1);
+    }
+
+    #[test]
+    fn provider_uses_oauth_without_api_key_only_for_codex() {
+        assert!(provider_uses_oauth_without_api_key("openai-codex"));
+        assert!(provider_uses_oauth_without_api_key("codex"));
+        assert!(!provider_uses_oauth_without_api_key("openai"));
+        assert!(!provider_uses_oauth_without_api_key("gemini"));
     }
 
     #[test]
