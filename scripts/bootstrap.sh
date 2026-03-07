@@ -262,7 +262,7 @@ detect_config_channel_features() {
 }
 
 install_prebuilt_binary() {
-  local target archive_url temp_dir archive_path extracted_bin install_dir
+  local target archive_url temp_dir archive_path extracted_bin install_dir curl_stderr
 
   if ! have_cmd curl; then
     warn "curl is required for pre-built binary installation."
@@ -282,10 +282,18 @@ install_prebuilt_binary() {
   archive_url="https://github.com/jackfly8/TopClaw/releases/latest/download/topclaw-${target}.tar.gz"
   temp_dir="$(mktemp -d -t topclaw-prebuilt-XXXXXX)"
   archive_path="$temp_dir/topclaw-${target}.tar.gz"
+  curl_stderr="$temp_dir/curl.stderr"
 
   info "Attempting pre-built binary install for target: $target"
-  if ! curl -fsSL "$archive_url" -o "$archive_path"; then
-    warn "Could not download release asset: $archive_url"
+  if ! curl -fsSL "$archive_url" -o "$archive_path" 2>"$curl_stderr"; then
+    if grep -qiE '404|not found' "$curl_stderr"; then
+      warn "No matching pre-built release asset found for target '$target'."
+    else
+      warn "Could not download pre-built release asset for target '$target'."
+      if [[ -s "$curl_stderr" ]]; then
+        warn "Download error: $(tr '\n' ' ' <"$curl_stderr" | sed 's/[[:space:]]\+/ /g' | sed 's/[[:space:]]$//')"
+      fi
+    fi
     rm -rf "$temp_dir"
     return 1
   fi
