@@ -36,7 +36,9 @@
 use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use dialoguer::{Input, Password};
+use directories::UserDirs;
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::io::Write;
 use tracing::{info, warn};
 use tracing_subscriber::{fmt, EnvFilter};
@@ -137,6 +139,10 @@ Background service:
   topclaw service uninstall
 
 Full uninstall:
+  topclaw uninstall
+  topclaw uninstall --purge
+
+Legacy repo script:
   ./topclaw_uninstall.sh
   ./topclaw_uninstall.sh --purge")]
 struct Cli {
@@ -343,6 +349,22 @@ Examples:
         /// Force update even if already at latest version
         #[arg(long)]
         force: bool,
+    },
+
+    /// Uninstall TopClaw from this machine
+    #[command(long_about = "\
+Uninstall TopClaw from this machine.
+
+Removes background service artifacts and the installed TopClaw binary.
+Use --purge to also remove ~/.topclaw config, logs, auth profiles, and workspace data.
+
+Examples:
+  topclaw uninstall
+  topclaw uninstall --purge")]
+    Uninstall {
+        /// Remove ~/.topclaw config, logs, auth profiles, and workspace data
+        #[arg(long)]
+        purge: bool,
     },
 
     /// Engage, inspect, and resume emergency-stop states.
@@ -915,6 +937,10 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    if let Commands::Uninstall { purge } = cli.command {
+        return handle_uninstall_command(purge);
+    }
+
     // All other commands need config loaded first
     let mut config = Config::load_or_init().await?;
     config.apply_env_overrides();
@@ -1113,6 +1139,8 @@ async fn main() -> Result<()> {
             Ok(())
         }
 
+        Commands::Uninstall { .. } => unreachable!(),
+
         Commands::Estop {
             estop_command,
             level,
@@ -1253,6 +1281,85 @@ async fn main() -> Result<()> {
         Commands::Workspace { workspace_command } => {
             handle_workspace_command(workspace_command, &config)
         }
+    }
+}
+
+fn handle_uninstall_command(purge: bool) -> Result<()> {
+    let home_dir = UserDirs::new()
+        .map(|dirs| dirs.home_dir().to_path_buf())
+        .context("Could not find home directory")?;
+    let config_dir = home_dir.join(".topclaw");
+    let config_path = config_dir.join("config.toml");
+    let workspace_dir = config_dir.join("workspace");
+
+    let mut config = Config::default();
+    config.config_path = config_path;
+    config.workspace_dir = workspace_dir;
+
+    let init_system = service::InitSystem::Auto;
+    let _ = service::handle_command(&ServiceCommands::Stop, &config, init_system);
+    let _ = service::handle_command(&ServiceCommands::Uninstall, &config, init_system);
+
+    let current_exe = std::env::current_exe().ok();
+    if let Some(path) = current_exe.as_ref() {
+        remove_topclaw_binary(path)?;
+    }
+
+    let cargo_bin = home_dir
+        .join(".cargo")
+        .join("bin")
+        .join(topclaw_binary_name());
+    if current_exe.as_ref() != Some(&cargo_bin) && cargo_bin.exists() {
+        remove_topclaw_binary(&cargo_bin)?;
+    }
+
+    if purge && config_dir.exists() {
+        fs::remove_dir_all(&config_dir).with_context(|| {
+            format!(
+                "Failed to remove TopClaw data directory {}",
+                config_dir.display()
+            )
+        })?;
+        println!("✅ Removed {}", config_dir.display());
+    }
+
+    println!("✅ TopClaw uninstall complete");
+    if !purge {
+        println!("Run `topclaw uninstall --purge` to remove ~/.topclaw data too.");
+    }
+    Ok(())
+}
+
+fn remove_topclaw_binary(path: &std::path::Path) -> Result<()> {
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if file_name != "topclaw" && file_name != "topclaw.exe" {
+        bail!(
+            "Refusing to remove unexpected executable path: {}",
+            path.display()
+        );
+    }
+
+    if path.exists() {
+        fs::remove_file(path)
+            .with_context(|| format!("Failed to remove TopClaw binary {}", path.display()))?;
+        println!("✅ Removed {}", path.display());
+    }
+
+    Ok(())
+}
+
+fn topclaw_binary_name() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
+        "topclaw.exe"
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        "topclaw"
     }
 }
 
@@ -2299,6 +2406,17 @@ mod tests {
         match cli.command {
             Commands::Onboard { force, .. } => assert!(force),
             other => panic!("expected onboard command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn uninstall_cli_accepts_purge_flag() {
+        let cli = Cli::try_parse_from(["topclaw", "uninstall", "--purge"])
+            .expect("uninstall --purge should parse");
+
+        match cli.command {
+            Commands::Uninstall { purge } => assert!(purge),
+            other => panic!("expected uninstall command, got {other:?}"),
         }
     }
 
