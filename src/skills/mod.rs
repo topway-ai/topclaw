@@ -17,7 +17,7 @@ const SKILLS_SH_HOST: &str = "skills.sh";
 const SKILL_PROMPT_GUARD_NOTICE: &str =
     "Skill instructions withheld by runtime security guard. Inspect the skill file manually before using it.";
 
-const DEFAULT_PRELOADED_SKILL_SOURCES: [(&str, &str); 2] = [
+const DEFAULT_PRELOADED_SKILL_SOURCES: [(&str, &str); 7] = [
     (
         "find-skills",
         "https://skills.sh/vercel-labs/skills/find-skills",
@@ -25,6 +25,26 @@ const DEFAULT_PRELOADED_SKILL_SOURCES: [(&str, &str); 2] = [
     (
         "skill-creator",
         "https://skills.sh/anthropics/skills/skill-creator",
+    ),
+    (
+        "local-file-analyzer",
+        "https://github.com/jackfly8/TopClaw/tree/main/skills/local-file-analyzer",
+    ),
+    (
+        "workspace-search",
+        "https://github.com/jackfly8/TopClaw/tree/main/skills/workspace-search",
+    ),
+    (
+        "code-explainer",
+        "https://github.com/jackfly8/TopClaw/tree/main/skills/code-explainer",
+    ),
+    (
+        "change-summary",
+        "https://github.com/jackfly8/TopClaw/tree/main/skills/change-summary",
+    ),
+    (
+        "safe-web-search",
+        "https://github.com/jackfly8/TopClaw/tree/main/skills/safe-web-search",
     ),
 ];
 
@@ -34,7 +54,21 @@ struct BuiltinPreloadedSkill {
     markdown: &'static str,
 }
 
-const BUILTIN_PRELOADED_SKILLS: [BuiltinPreloadedSkill; 2] = [
+fn is_builtin_preloaded_skill(name: &str) -> bool {
+    BUILTIN_PRELOADED_SKILLS
+        .iter()
+        .any(|builtin| builtin.dir_name.eq_ignore_ascii_case(name))
+}
+
+fn configured_builtin_skill_blocklist(entries: &[String]) -> HashSet<String> {
+    entries
+        .iter()
+        .map(|entry| entry.trim().to_ascii_lowercase())
+        .filter(|entry| !entry.is_empty())
+        .collect()
+}
+
+const BUILTIN_PRELOADED_SKILLS: [BuiltinPreloadedSkill; 7] = [
     BuiltinPreloadedSkill {
         dir_name: "find-skills",
         source_url: "https://skills.sh/vercel-labs/skills/find-skills",
@@ -49,6 +83,46 @@ const BUILTIN_PRELOADED_SKILLS: [BuiltinPreloadedSkill; 2] = [
         markdown: include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/skills/skill-creator/SKILL.md"
+        )),
+    },
+    BuiltinPreloadedSkill {
+        dir_name: "local-file-analyzer",
+        source_url: "https://github.com/jackfly8/TopClaw/tree/main/skills/local-file-analyzer",
+        markdown: include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/skills/local-file-analyzer/SKILL.md"
+        )),
+    },
+    BuiltinPreloadedSkill {
+        dir_name: "workspace-search",
+        source_url: "https://github.com/jackfly8/TopClaw/tree/main/skills/workspace-search",
+        markdown: include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/skills/workspace-search/SKILL.md"
+        )),
+    },
+    BuiltinPreloadedSkill {
+        dir_name: "code-explainer",
+        source_url: "https://github.com/jackfly8/TopClaw/tree/main/skills/code-explainer",
+        markdown: include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/skills/code-explainer/SKILL.md"
+        )),
+    },
+    BuiltinPreloadedSkill {
+        dir_name: "change-summary",
+        source_url: "https://github.com/jackfly8/TopClaw/tree/main/skills/change-summary",
+        markdown: include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/skills/change-summary/SKILL.md"
+        )),
+    },
+    BuiltinPreloadedSkill {
+        dir_name: "safe-web-search",
+        source_url: "https://github.com/jackfly8/TopClaw/tree/main/skills/safe-web-search",
+        markdown: include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/skills/safe-web-search/SKILL.md"
         )),
     },
 ];
@@ -181,7 +255,7 @@ impl SkillLoadMode {
 
 /// Load all skills from the workspace skills directory
 pub fn load_skills(workspace_dir: &Path) -> Vec<Skill> {
-    load_skills_with_open_skills_config(workspace_dir, None, None, SkillLoadMode::Full)
+    load_skills_with_open_skills_config(workspace_dir, None, None, None, None, SkillLoadMode::Full)
 }
 
 /// Load skills using runtime config values (preferred at runtime).
@@ -190,6 +264,8 @@ pub fn load_skills_with_config(workspace_dir: &Path, config: &crate::config::Con
         workspace_dir,
         Some(config.skills.open_skills_enabled),
         config.skills.open_skills_dir.as_deref(),
+        Some(config.skills.builtin_skills_enabled),
+        Some(&config.skills.disabled_builtin_skills),
         SkillLoadMode::from_prompt_mode(config.skills.prompt_injection_mode),
     )
 }
@@ -202,6 +278,8 @@ fn load_skills_full_with_config(
         workspace_dir,
         Some(config.skills.open_skills_enabled),
         config.skills.open_skills_dir.as_deref(),
+        Some(config.skills.builtin_skills_enabled),
+        Some(&config.skills.disabled_builtin_skills),
         SkillLoadMode::Full,
     )
 }
@@ -210,6 +288,8 @@ fn load_skills_with_open_skills_config(
     workspace_dir: &Path,
     config_open_skills_enabled: Option<bool>,
     config_open_skills_dir: Option<&str>,
+    config_builtin_skills_enabled: Option<bool>,
+    config_disabled_builtin_skills: Option<&[String]>,
     load_mode: SkillLoadMode,
 ) -> Vec<Skill> {
     let mut skills = Vec::new();
@@ -220,13 +300,40 @@ fn load_skills_with_open_skills_config(
         skills.extend(load_open_skills(&open_skills_dir, load_mode));
     }
 
-    skills.extend(load_workspace_skills(workspace_dir, load_mode));
+    skills.extend(load_workspace_skills(
+        workspace_dir,
+        load_mode,
+        config_builtin_skills_enabled,
+        config_disabled_builtin_skills,
+    ));
     skills
 }
 
-fn load_workspace_skills(workspace_dir: &Path, load_mode: SkillLoadMode) -> Vec<Skill> {
+fn load_workspace_skills(
+    workspace_dir: &Path,
+    load_mode: SkillLoadMode,
+    config_builtin_skills_enabled: Option<bool>,
+    config_disabled_builtin_skills: Option<&[String]>,
+) -> Vec<Skill> {
     let skills_dir = workspace_dir.join("skills");
-    load_skills_from_directory(&skills_dir, load_mode)
+    let mut skills = load_skills_from_directory(&skills_dir, load_mode);
+
+    let builtin_skills_enabled = config_builtin_skills_enabled.unwrap_or(true);
+    let disabled_builtin_skills = config_disabled_builtin_skills
+        .map(configured_builtin_skill_blocklist)
+        .unwrap_or_default();
+
+    skills.retain(|skill| {
+        if !is_builtin_preloaded_skill(&skill.name) {
+            return true;
+        }
+        if !builtin_skills_enabled {
+            return false;
+        }
+        !disabled_builtin_skills.contains(&skill.name.to_ascii_lowercase())
+    });
+
+    skills
 }
 
 fn load_skills_from_directory(skills_dir: &Path, load_mode: SkillLoadMode) -> Vec<Skill> {
@@ -1877,6 +1984,55 @@ prompts = ["Do not preload me"]
     }
 
     #[test]
+    fn load_skills_with_config_can_disable_all_builtin_skills() {
+        let dir = tempfile::tempdir().unwrap();
+        init_skills_dir(dir.path()).unwrap();
+
+        let custom_skill_dir = dir.path().join("skills").join("custom-skill");
+        fs::create_dir_all(&custom_skill_dir).unwrap();
+        fs::write(
+            custom_skill_dir.join("SKILL.md"),
+            "# Custom Skill\nRead this workspace note.\n",
+        )
+        .unwrap();
+
+        let mut config = crate::config::Config::default();
+        config.workspace_dir = dir.path().to_path_buf();
+        config.skills.builtin_skills_enabled = false;
+
+        let skills = load_skills_with_config(dir.path(), &config);
+        let names = skills
+            .iter()
+            .map(|skill| skill.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, vec!["custom-skill"]);
+    }
+
+    #[test]
+    fn load_skills_with_config_can_disable_specific_builtin_skill() {
+        let dir = tempfile::tempdir().unwrap();
+        init_skills_dir(dir.path()).unwrap();
+
+        let mut config = crate::config::Config::default();
+        config.workspace_dir = dir.path().to_path_buf();
+        config.skills.disabled_builtin_skills = vec!["change-summary".to_string()];
+
+        let skills = load_skills_with_config(dir.path(), &config);
+        let names = skills
+            .iter()
+            .map(|skill| skill.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(names.contains(&"find-skills"));
+        assert!(names.contains(&"skill-creator"));
+        assert!(names.contains(&"local-file-analyzer"));
+        assert!(names.contains(&"workspace-search"));
+        assert!(names.contains(&"code-explainer"));
+        assert!(!names.contains(&"change-summary"));
+    }
+
+    #[test]
     fn skills_to_prompt_empty() {
         let prompt = skills_to_prompt(&[], Path::new("/tmp"));
         assert!(prompt.is_empty());
@@ -1953,6 +2109,36 @@ prompts = ["Do not preload me"]
         assert!(dir
             .path()
             .join("skills")
+            .join("local-file-analyzer")
+            .join("SKILL.md")
+            .exists());
+        assert!(dir
+            .path()
+            .join("skills")
+            .join("workspace-search")
+            .join("SKILL.md")
+            .exists());
+        assert!(dir
+            .path()
+            .join("skills")
+            .join("code-explainer")
+            .join("SKILL.md")
+            .exists());
+        assert!(dir
+            .path()
+            .join("skills")
+            .join("change-summary")
+            .join("SKILL.md")
+            .exists());
+        assert!(dir
+            .path()
+            .join("skills")
+            .join("safe-web-search")
+            .join("SKILL.md")
+            .exists());
+        assert!(dir
+            .path()
+            .join("skills")
             .join(".download-policy.toml")
             .exists());
     }
@@ -1973,6 +2159,36 @@ prompts = ["Do not preload me"]
             .path()
             .join("skills")
             .join("skill-creator")
+            .join("SKILL.md")
+            .exists());
+        assert!(dir
+            .path()
+            .join("skills")
+            .join("local-file-analyzer")
+            .join("SKILL.md")
+            .exists());
+        assert!(dir
+            .path()
+            .join("skills")
+            .join("workspace-search")
+            .join("SKILL.md")
+            .exists());
+        assert!(dir
+            .path()
+            .join("skills")
+            .join("code-explainer")
+            .join("SKILL.md")
+            .exists());
+        assert!(dir
+            .path()
+            .join("skills")
+            .join("change-summary")
+            .join("SKILL.md")
+            .exists());
+        assert!(dir
+            .path()
+            .join("skills")
+            .join("safe-web-search")
             .join("SKILL.md")
             .exists());
     }
@@ -2286,6 +2502,38 @@ description = "Bare minimum"
         assert_eq!(
             policy.aliases.get("skill-creator"),
             Some(&"https://skills.sh/anthropics/skills/skill-creator".to_string())
+        );
+        assert_eq!(
+            policy.aliases.get("local-file-analyzer"),
+            Some(
+                &"https://github.com/jackfly8/TopClaw/tree/main/skills/local-file-analyzer"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            policy.aliases.get("workspace-search"),
+            Some(
+                &"https://github.com/jackfly8/TopClaw/tree/main/skills/workspace-search"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            policy.aliases.get("code-explainer"),
+            Some(
+                &"https://github.com/jackfly8/TopClaw/tree/main/skills/code-explainer".to_string()
+            )
+        );
+        assert_eq!(
+            policy.aliases.get("change-summary"),
+            Some(
+                &"https://github.com/jackfly8/TopClaw/tree/main/skills/change-summary".to_string()
+            )
+        );
+        assert_eq!(
+            policy.aliases.get("safe-web-search"),
+            Some(
+                &"https://github.com/jackfly8/TopClaw/tree/main/skills/safe-web-search".to_string()
+            )
         );
     }
 

@@ -123,6 +123,39 @@ allowed_domains = []
 backend = "agent_browser"
 
 # =========================
+# Skills
+# =========================
+#
+# Built-in skills are safe, prompt-only helpers preloaded into each workspace.
+# Leave them on for the default TopClaw experience, or suppress individual
+# built-ins by name.
+[skills]
+open_skills_enabled = false
+prompt_injection_mode = "compact"
+builtin_skills_enabled = true
+disabled_builtin_skills = []
+
+# Example:
+# disabled_builtin_skills = ["find-skills", "change-summary"]
+
+# =========================
+# Low-risk web search
+# =========================
+#
+# Enable this only if you want the built-in `safe-web-search` skill to be able
+# to call the `web_search` tool for current information lookups.
+[web_search]
+enabled = false
+provider = "duckduckgo"
+max_results = 5
+timeout_secs = 15
+
+# Example self-hosted SearxNG profile:
+# enabled = true
+# provider = "searxng"
+# api_url = "https://search.example.com"
+
+# =========================
 # Gateway
 # =========================
 [gateway]

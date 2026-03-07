@@ -736,7 +736,7 @@ fn parse_skills_prompt_injection_mode(raw: &str) -> Option<SkillsPromptInjection
 }
 
 /// Skills loading configuration (`[skills]` section).
-#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SkillsConfig {
     /// Enable loading and syncing the community open-skills repository.
     /// Default: `false` (opt-in).
@@ -751,6 +751,30 @@ pub struct SkillsConfig {
     /// `full` preserves legacy behavior as an opt-in.
     #[serde(default)]
     pub prompt_injection_mode: SkillsPromptInjectionMode,
+    /// Enable TopClaw's built-in preloaded skills.
+    /// Default: `true`.
+    #[serde(default = "default_builtin_skills_enabled")]
+    pub builtin_skills_enabled: bool,
+    /// Optional built-in skill names to suppress at runtime.
+    /// Example: `["find-skills", "change-summary"]`
+    #[serde(default)]
+    pub disabled_builtin_skills: Vec<String>,
+}
+
+fn default_builtin_skills_enabled() -> bool {
+    true
+}
+
+impl Default for SkillsConfig {
+    fn default() -> Self {
+        Self {
+            open_skills_enabled: false,
+            open_skills_dir: None,
+            prompt_injection_mode: SkillsPromptInjectionMode::Compact,
+            builtin_skills_enabled: default_builtin_skills_enabled(),
+            disabled_builtin_skills: Vec::new(),
+        }
+    }
 }
 
 /// Multimodal (image) handling configuration (`[multimodal]` section).
@@ -1427,7 +1451,7 @@ pub struct WebSearchConfig {
     /// Enable `web_search_tool` for web searches
     #[serde(default)]
     pub enabled: bool,
-    /// Search provider: "duckduckgo" (free, no API key), "brave", "firecrawl", or "tavily"
+    /// Search provider: "duckduckgo" (free, no API key), "searxng" (self-hosted), "brave", "firecrawl", or "tavily"
     #[serde(default = "default_web_search_provider")]
     pub provider: String,
     /// Generic provider API key (used by firecrawl, tavily, and as fallback for brave).
@@ -6454,6 +6478,32 @@ impl Config {
             }
         }
 
+        // Built-in skills enable flag: TOPCLAW_BUILTIN_SKILLS_ENABLED
+        if let Ok(flag) = std::env::var("TOPCLAW_BUILTIN_SKILLS_ENABLED") {
+            if !flag.trim().is_empty() {
+                match flag.trim().to_ascii_lowercase().as_str() {
+                    "1" | "true" | "yes" | "on" => self.skills.builtin_skills_enabled = true,
+                    "0" | "false" | "no" | "off" => self.skills.builtin_skills_enabled = false,
+                    _ => tracing::warn!(
+                        "Ignoring invalid TOPCLAW_BUILTIN_SKILLS_ENABLED (valid: 1|0|true|false|yes|no|on|off)"
+                    ),
+                }
+            }
+        }
+
+        // Built-in skills denylist: TOPCLAW_DISABLED_BUILTIN_SKILLS=name1,name2
+        if let Ok(raw) = std::env::var("TOPCLAW_DISABLED_BUILTIN_SKILLS") {
+            let disabled = raw
+                .split(',')
+                .map(str::trim)
+                .filter(|entry| !entry.is_empty())
+                .map(ToString::to_string)
+                .collect::<Vec<_>>();
+            if !disabled.is_empty() {
+                self.skills.disabled_builtin_skills = disabled;
+            }
+        }
+
         // Gateway port: TOPCLAW_GATEWAY_PORT or PORT
         if let Ok(port_str) =
             std::env::var("TOPCLAW_GATEWAY_PORT").or_else(|_| std::env::var("PORT"))
@@ -6898,6 +6948,8 @@ mod tests {
             c.skills.prompt_injection_mode,
             SkillsPromptInjectionMode::Compact
         );
+        assert!(c.skills.builtin_skills_enabled);
+        assert!(c.skills.disabled_builtin_skills.is_empty());
         assert!(c.workspace_dir.to_string_lossy().contains("workspace"));
         assert!(c.config_path.to_string_lossy().contains("config.toml"));
     }
@@ -9086,6 +9138,11 @@ requires_openai_auth = true
         std::env::set_var("TOPCLAW_OPEN_SKILLS_ENABLED", "true");
         std::env::set_var("TOPCLAW_OPEN_SKILLS_DIR", "/tmp/open-skills");
         std::env::set_var("TOPCLAW_SKILLS_PROMPT_MODE", "compact");
+        std::env::set_var("TOPCLAW_BUILTIN_SKILLS_ENABLED", "false");
+        std::env::set_var(
+            "TOPCLAW_DISABLED_BUILTIN_SKILLS",
+            "find-skills,change-summary",
+        );
         config.apply_env_overrides();
 
         assert!(config.skills.open_skills_enabled);
@@ -9097,10 +9154,17 @@ requires_openai_auth = true
             config.skills.prompt_injection_mode,
             SkillsPromptInjectionMode::Compact
         );
+        assert!(!config.skills.builtin_skills_enabled);
+        assert_eq!(
+            config.skills.disabled_builtin_skills,
+            vec!["find-skills".to_string(), "change-summary".to_string()]
+        );
 
         std::env::remove_var("TOPCLAW_OPEN_SKILLS_ENABLED");
         std::env::remove_var("TOPCLAW_OPEN_SKILLS_DIR");
         std::env::remove_var("TOPCLAW_SKILLS_PROMPT_MODE");
+        std::env::remove_var("TOPCLAW_BUILTIN_SKILLS_ENABLED");
+        std::env::remove_var("TOPCLAW_DISABLED_BUILTIN_SKILLS");
     }
 
     #[test]
@@ -9109,9 +9173,11 @@ requires_openai_auth = true
         let mut config = Config::default();
         config.skills.open_skills_enabled = true;
         config.skills.prompt_injection_mode = SkillsPromptInjectionMode::Compact;
+        config.skills.builtin_skills_enabled = true;
 
         std::env::set_var("TOPCLAW_OPEN_SKILLS_ENABLED", "maybe");
         std::env::set_var("TOPCLAW_SKILLS_PROMPT_MODE", "invalid");
+        std::env::set_var("TOPCLAW_BUILTIN_SKILLS_ENABLED", "sometimes");
         config.apply_env_overrides();
 
         assert!(config.skills.open_skills_enabled);
@@ -9119,8 +9185,10 @@ requires_openai_auth = true
             config.skills.prompt_injection_mode,
             SkillsPromptInjectionMode::Compact
         );
+        assert!(config.skills.builtin_skills_enabled);
         std::env::remove_var("TOPCLAW_OPEN_SKILLS_ENABLED");
         std::env::remove_var("TOPCLAW_SKILLS_PROMPT_MODE");
+        std::env::remove_var("TOPCLAW_BUILTIN_SKILLS_ENABLED");
     }
 
     #[test]

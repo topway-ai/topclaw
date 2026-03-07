@@ -3259,6 +3259,7 @@ fn setup_web_tools() -> Result<(WebSearchConfig, WebFetchConfig, HttpRequestConf
 
         let provider_options = vec![
             "DuckDuckGo (free, no API key)",
+            "SearxNG (self-hosted, text-only GET search)",
             "Brave Search (requires API key)",
             #[cfg(feature = "firecrawl")]
             "Firecrawl (requires API key + firecrawl feature)",
@@ -3271,6 +3272,15 @@ fn setup_web_tools() -> Result<(WebSearchConfig, WebFetchConfig, HttpRequestConf
 
         match provider_choice {
             1 => {
+                web_search_config.provider = "searxng".to_string();
+                let url: String = Input::new()
+                    .with_prompt("  SearxNG base URL (for example https://search.example.com)")
+                    .interact_text()?;
+                if !url.trim().is_empty() {
+                    web_search_config.api_url = Some(url.trim().to_string());
+                }
+            }
+            2 => {
                 web_search_config.provider = "brave".to_string();
                 let key: String = Input::new()
                     .with_prompt("  Brave Search API key")
@@ -3280,7 +3290,7 @@ fn setup_web_tools() -> Result<(WebSearchConfig, WebFetchConfig, HttpRequestConf
                 }
             }
             #[cfg(feature = "firecrawl")]
-            2 => {
+            3 => {
                 web_search_config.provider = "firecrawl".to_string();
                 let key: String = Input::new()
                     .with_prompt("  Firecrawl API key")

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// Web search tool for searching the internet.
-/// Supports providers: DuckDuckGo (free), Brave, Firecrawl, Tavily.
+/// Supports providers: DuckDuckGo (free), SearxNG (self-hosted), Brave, Firecrawl, Tavily.
 pub struct WebSearchTool {
     security: Arc<SecurityPolicy>,
     provider: String,
@@ -25,7 +25,7 @@ impl WebSearchTool {
     ///
     /// # Arguments
     /// * `security` - Security policy
-    /// * `provider` - Search provider (duckduckgo, brave, firecrawl, tavily)
+    /// * `provider` - Search provider (duckduckgo, searxng, brave, firecrawl, tavily)
     /// * `api_key` - API key (supports comma-separated multiple keys for round-robin)
     /// * `api_url` - Optional API URL override
     /// * `max_results` - Maximum number of results to return (1-10)
@@ -152,6 +152,84 @@ impl WebSearchTool {
                 if !snippet.is_empty() {
                     lines.push(format!("   {}", snippet));
                 }
+            }
+        }
+
+        Ok(lines.join("\n"))
+    }
+
+    async fn search_searxng(&self, query: &str) -> anyhow::Result<String> {
+        let base_url = self
+            .api_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "web_search provider 'searxng' requires [web_search].api_url in config.toml"
+                )
+            })?;
+        let endpoint = format!("{}/search", base_url.trim_end_matches('/'));
+
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(self.timeout_secs))
+            .user_agent(self.user_agent.as_str())
+            .build()?;
+
+        let response = client
+            .get(&endpoint)
+            .query(&[
+                ("q", query),
+                ("format", "json"),
+                ("language", "all"),
+                ("safesearch", "1"),
+            ])
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            anyhow::bail!("SearxNG search failed with status: {}", response.status());
+        }
+
+        let json: serde_json::Value = response.json().await?;
+        self.parse_searxng_results(&json, query)
+    }
+
+    fn parse_searxng_results(
+        &self,
+        json: &serde_json::Value,
+        query: &str,
+    ) -> anyhow::Result<String> {
+        let results = json
+            .get("results")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| anyhow::anyhow!("Invalid SearxNG API response"))?;
+
+        if results.is_empty() {
+            return Ok(format!("No results found for: {}", query));
+        }
+
+        let mut lines = vec![format!("Search results for: {} (via SearxNG)", query)];
+
+        for (i, result) in results.iter().take(self.max_results).enumerate() {
+            let title = result
+                .get("title")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("No title");
+            let url = result
+                .get("url")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            let content = result
+                .get("content")
+                .or_else(|| result.get("snippet"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+
+            lines.push(format!("{}. {}", i + 1, title));
+            lines.push(format!("   {}", url));
+            if !content.trim().is_empty() {
+                lines.push(format!("   {}", content.trim()));
             }
         }
 
@@ -504,11 +582,12 @@ impl Tool for WebSearchTool {
 
         let result = match self.provider.as_str() {
             "duckduckgo" | "ddg" => self.search_duckduckgo(query).await?,
+            "searxng" => self.search_searxng(query).await?,
             "brave" => self.search_brave(query).await?,
             "firecrawl" => self.search_firecrawl(query).await?,
             "tavily" => self.search_tavily(query).await?,
             _ => anyhow::bail!(
-                "Unknown search provider: '{}'. Set [web_search].provider to 'duckduckgo', 'brave', 'firecrawl', or 'tavily' in config.toml",
+                "Unknown search provider: '{}'. Set [web_search].provider to 'duckduckgo', 'searxng', 'brave', 'firecrawl', or 'tavily' in config.toml",
                 self.provider
             ),
         };
@@ -641,6 +720,32 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_searxng_results_with_data() {
+        let tool = WebSearchTool::new(
+            test_security(),
+            "searxng".to_string(),
+            None,
+            Some("https://search.example.com".to_string()),
+            5,
+            15,
+            "test".to_string(),
+        );
+        let json = json!({
+            "results": [
+                {
+                    "title": "Example Result",
+                    "url": "https://example.com",
+                    "content": "Example summary"
+                }
+            ]
+        });
+        let result = tool.parse_searxng_results(&json, "test").unwrap();
+        assert!(result.contains("Example Result"));
+        assert!(result.contains("https://example.com"));
+        assert!(result.contains("Example summary"));
+    }
+
+    #[test]
     fn test_constructor_clamps_web_search_limits() {
         let tool = WebSearchTool::new(
             test_security(),
@@ -703,6 +808,22 @@ mod tests {
         let result = tool.execute(json!({"query": "test"})).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("API key"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_searxng_without_api_url() {
+        let tool = WebSearchTool::new(
+            test_security(),
+            "searxng".to_string(),
+            None,
+            None,
+            5,
+            15,
+            "test".to_string(),
+        );
+        let result = tool.execute(json!({"query": "test"})).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("api_url"));
     }
 
     #[tokio::test]
