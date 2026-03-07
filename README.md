@@ -16,11 +16,11 @@ source "$HOME/.cargo/env"
 git clone https://github.com/jackfly8/TopClaw.git
 cd TopClaw
 ./bootstrap.sh
-
-topclaw onboard --interactive
 topclaw status
 topclaw agent -m "Hello!"
 ```
+
+`./bootstrap.sh` installs missing prerequisites, builds TopClaw, and starts onboarding automatically.
 
 ### macOS (Apple Silicon)
 
@@ -43,11 +43,11 @@ Clone and bootstrap TopClaw:
 git clone https://github.com/jackfly8/TopClaw.git
 cd TopClaw
 ./bootstrap.sh
-
-topclaw onboard --interactive
 topclaw status
 topclaw agent -m "Hello!"
 ```
+
+`./bootstrap.sh` installs missing prerequisites, builds TopClaw, and starts onboarding automatically.
 
 Fast path if you already have an API key:
 

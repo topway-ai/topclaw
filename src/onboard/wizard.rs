@@ -119,7 +119,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
     println!();
     println!("  {}", style("[2/3] Connect to an AI").cyan().bold());
     println!("  {}", style("─".repeat(40)).dim());
-    let (provider, api_key, model, provider_api_url) = setup_provider(&workspace_dir).await?;
+    let (provider, api_key, model, provider_api_url) = setup_provider_simple(&workspace_dir).await?;
 
     // ── STEP 3: How to reach you (Channels) ──────────────────────────
     println!();
@@ -216,24 +216,14 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
     let has_channels = has_launchable_channels(&config.channels_config);
 
     if has_channels && config.api_key.is_some() {
-        let launch: bool = Confirm::new()
-            .with_prompt(format!(
-                "  {} Launch channels now? (connected channels → AI → reply)",
-                style("🚀").cyan()
-            ))
-            .default(true)
-            .interact()?;
-
-        if launch {
-            println!();
-            println!(
-                "  {} {}",
-                style("⚡").cyan(),
-                style("Starting channel server...").white().bold()
-            );
-            println!();
-            std::env::set_var("TOPCLAW_AUTOSTART_CHANNELS", "1");
-        }
+        println!();
+        println!(
+            "  {} {}",
+            style("⚡").cyan(),
+            style("Starting channel server...").white().bold()
+        );
+        println!();
+        std::env::set_var("TOPCLAW_AUTOSTART_CHANNELS", "1");
     }
 
     Ok(config)
@@ -315,7 +305,7 @@ async fn run_provider_update_wizard(workspace_dir: &Path, config_path: &Path) ->
     config.config_path = config_path.to_path_buf();
 
     print_step(1, 1, "AI Provider & API Key");
-    let (provider, api_key, model, provider_api_url) = setup_provider(workspace_dir).await?;
+    let (provider, api_key, model, provider_api_url) = setup_provider_simple(workspace_dir).await?;
     apply_provider_update(&mut config, provider, api_key, model, provider_api_url);
 
     config.save().await?;
@@ -2311,20 +2301,7 @@ async fn setup_workspace() -> Result<(PathBuf, PathBuf)> {
         style(default_workspace_dir.display()).green()
     ));
 
-    let use_default = Confirm::new()
-        .with_prompt("  Use default workspace location?")
-        .default(true)
-        .interact()?;
-
-    let (config_dir, workspace_dir) = if use_default {
-        (default_config_dir, default_workspace_dir)
-    } else {
-        let custom: String = Input::new()
-            .with_prompt("  Enter workspace path")
-            .interact_text()?;
-        let expanded = shellexpand::tilde(&custom).to_string();
-        crate::config::schema::resolve_config_dir_for_workspace(&PathBuf::from(expanded))
-    };
+    let (config_dir, workspace_dir) = (default_config_dir, default_workspace_dir);
 
     let config_path = config_dir.join("config.toml");
 
@@ -2342,6 +2319,91 @@ async fn setup_workspace() -> Result<(PathBuf, PathBuf)> {
 }
 
 // ── Step 2: Provider & API Key ───────────────────────────────────
+
+async fn setup_provider_simple(workspace_dir: &Path) -> Result<(String, String, String, Option<String>)> {
+    let options = vec![
+        ("openrouter", "OpenRouter"),
+        ("openai", "OpenAI"),
+        ("anthropic", "Anthropic"),
+        ("gemini", "Google Gemini"),
+        ("deepseek", "DeepSeek"),
+        ("groq", "Groq"),
+        ("ollama", "Ollama (local)"),
+        ("custom", "Custom OpenAI-compatible API"),
+        ("advanced", "More providers and advanced setup"),
+    ];
+
+    let labels: Vec<&str> = options.iter().map(|(_, label)| *label).collect();
+    let provider_idx = Select::new()
+        .with_prompt("  Select your AI provider")
+        .items(&labels)
+        .default(0)
+        .interact()?;
+
+    let choice = options[provider_idx].0;
+    if choice == "advanced" {
+        return setup_provider(workspace_dir).await;
+    }
+
+    if choice == "custom" {
+        println!();
+        print_bullet("Enter the base URL for any OpenAI-compatible endpoint.");
+        let base_url: String = Input::new()
+            .with_prompt("  API base URL")
+            .interact_text()?;
+
+        let base_url = base_url.trim().trim_end_matches('/').to_string();
+        if base_url.is_empty() {
+            anyhow::bail!("Custom provider requires a base URL.");
+        }
+
+        let api_key: String = Input::new()
+            .with_prompt("  API key (or Enter to skip if not needed)")
+            .allow_empty(true)
+            .interact_text()?;
+
+        let model = default_model_for_provider("openai");
+        print_bullet(&format!(
+            "Using default model {}. You can change it later in config.toml or rerun onboarding.",
+            style(&model).green()
+        ));
+
+        return Ok((format!("custom:{base_url}"), api_key, model, None));
+    }
+
+    let provider_name = choice;
+    let mut provider_api_url: Option<String> = None;
+    let api_key = if provider_supports_keyless_local_usage(provider_name) {
+        if provider_name == "ollama" {
+            print_bullet("Using local Ollama at http://localhost:11434.");
+        }
+        String::new()
+    } else {
+        let env_var = provider_env_var(provider_name);
+        Input::new()
+            .with_prompt(format!("  API key ({env_var})"))
+            .interact_text()?
+    };
+
+    if provider_name == "ollama" {
+        provider_api_url = Some("http://localhost:11434".into());
+    }
+
+    let model = default_model_for_provider(provider_name);
+    print_bullet(&format!(
+        "Using default model {}. You can change it later in config.toml or rerun onboarding.",
+        style(&model).green()
+    ));
+
+    println!(
+        "  {} Provider: {} | Model: {}",
+        style("✓").green().bold(),
+        style(provider_name).green(),
+        style(&model).green()
+    );
+
+    Ok((provider_name.to_string(), api_key, model, provider_api_url))
+}
 
 #[allow(clippy::too_many_lines)]
 async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Option<String>)> {
