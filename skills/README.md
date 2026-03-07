@@ -13,3 +13,9 @@ Current preloaded skills:
 - `safe-web-search` (source: https://github.com/jackfly8/TopClaw/tree/main/skills/safe-web-search)
 
 These files are committed for reviewability so users can audit exactly what ships by default.
+
+Optional audited extension skills in this repository are not preloaded. Install them only after vetting the local source.
+
+- `agent-browser-extension`
+  - Review: `topclaw skills vet ./skills/agent-browser-extension --json`
+  - Install: `topclaw skills install ./skills/agent-browser-extension`

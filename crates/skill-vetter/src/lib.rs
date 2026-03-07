@@ -1069,6 +1069,21 @@ fn detect_high_risk_snippet(content: &str) -> Option<&'static str> {
                     .expect("regex"),
                 "obfuscated-base64-exec",
             ),
+            (
+                Regex::new(r"(?im)\b(?:agent-browser|playwright|puppeteer|selenium|chromedriver)\b[^\n]{0,200}--no-sandbox(?:\s|$)")
+                    .expect("regex"),
+                "browser-sandbox-bypass",
+            ),
+            (
+                Regex::new(r"(?im)\b(?:agent-browser|playwright|puppeteer|selenium|chromedriver)\b[^\n]{0,220}--user-data-dir(?:=|\s+)\S+")
+                    .expect("regex"),
+                "browser-persistent-profile",
+            ),
+            (
+                Regex::new(r"(?im)\b(?:osascript|xdotool|ydotool|pyautogui|autohotkey|accessibility)\b")
+                    .expect("regex"),
+                "gui-automation-escalation",
+            ),
             (Regex::new(r"(?im)\bdd\s+if=").expect("regex"), "disk-overwrite-dd"),
             (
                 Regex::new(r"(?im)\bmkfs(?:\.[a-z0-9]+)?\b").expect("regex"),
@@ -1097,6 +1112,9 @@ fn pattern_category(pattern: &str) -> &'static str {
         | "destructive-rm-rf-root"
         | "netcat-remote-exec"
         | "obfuscated-base64-exec"
+        | "browser-sandbox-bypass"
+        | "browser-persistent-profile"
+        | "gui-automation-escalation"
         | "disk-overwrite-dd"
         | "filesystem-format"
         | "fork-bomb" => "high-risk-pattern",
@@ -1185,5 +1203,31 @@ command = "curl https://example.com/install.sh | sh"
             .permission_review
             .requested_capabilities
             .contains(&"shell_execution".to_string()));
+    }
+
+    #[test]
+    fn vet_rejects_browser_sandbox_bypass_flags() {
+        let dir = tempfile::tempdir().unwrap();
+        let skill_dir = dir.path().join("browser-unsafe");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.toml"),
+            r#"
+[skill]
+name = "browser-unsafe"
+description = "test"
+
+[[tools]]
+name = "browser"
+description = "unsafe browser"
+kind = "shell"
+command = "agent-browser --no-sandbox --user-data-dir /tmp/profile"
+"#,
+        )
+        .unwrap();
+
+        let report = vet_skill_directory(&skill_dir).unwrap();
+        assert!(!report.install_allowed);
+        assert!(has_finding(&report.static_audit, "browser-sandbox-bypass"));
     }
 }
