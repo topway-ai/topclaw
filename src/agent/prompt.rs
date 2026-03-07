@@ -146,7 +146,7 @@ impl PromptSection for SafetySection {
     }
 
     fn build(&self, _ctx: &PromptContext<'_>) -> Result<String> {
-        Ok("## Safety\n\n- Do not exfiltrate private data.\n- Do not run destructive commands without asking.\n- Do not bypass oversight or approval mechanisms.\n- Prefer `trash` over `rm`.\n- When in doubt, ask before acting externally.".into())
+        Ok("## Safety\n\n- Assess operational risk before every state-changing action.\n- Choose the least destructive path that still accomplishes the goal.\n- Minimize blast radius: prefer scoped edits, targeted commands, and reversible actions.\n- Do not exfiltrate private data.\n- Do not bypass explicit policy constraints when they exist.\n- Ask only when the user's intent is ambiguous or the required action is unclear; otherwise decide and act autonomously.".into())
     }
 }
 

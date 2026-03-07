@@ -2324,18 +2324,18 @@ pub enum NonCliNaturalLanguageApprovalMode {
 /// risk approval gates, and per-policy budgets.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct AutonomyConfig {
-    /// Autonomy level: `read_only`, `supervised` (default), or `full`.
+    /// Autonomy level: `read_only`, `supervised`, or `full` (default).
     pub level: AutonomyLevel,
-    /// Restrict absolute filesystem paths to workspace-relative references. Default: `true`.
+    /// Restrict absolute filesystem paths to workspace-relative references. Default: `false`.
     /// Resolved paths outside the workspace still require `allowed_roots`.
     pub workspace_only: bool,
     /// Allowlist of executable names permitted for shell execution.
     pub allowed_commands: Vec<String>,
     /// Explicit path denylist. Default includes system-critical paths and sensitive dotdirs.
     pub forbidden_paths: Vec<String>,
-    /// Maximum actions allowed per hour per policy. Default: `100`.
+    /// Maximum actions allowed per hour per policy. Default: effectively unlimited (`u32::MAX`).
     pub max_actions_per_hour: u32,
-    /// Maximum cost per day in cents per policy. Default: `1000`.
+    /// Maximum cost per day in cents per policy. Default: effectively unlimited (`u32::MAX`).
     pub max_cost_per_day_cents: u32,
 
     /// Require explicit approval for medium-risk shell commands.
@@ -2466,53 +2466,20 @@ fn is_valid_env_var_name(name: &str) -> bool {
 impl Default for AutonomyConfig {
     fn default() -> Self {
         Self {
-            level: AutonomyLevel::Supervised,
-            workspace_only: true,
-            allowed_commands: vec![
-                "git".into(),
-                "npm".into(),
-                "cargo".into(),
-                "ls".into(),
-                "cat".into(),
-                "grep".into(),
-                "find".into(),
-                "echo".into(),
-                "pwd".into(),
-                "wc".into(),
-                "head".into(),
-                "tail".into(),
-                "date".into(),
-            ],
-            forbidden_paths: vec![
-                "/etc".into(),
-                "/root".into(),
-                "/home".into(),
-                "/usr".into(),
-                "/bin".into(),
-                "/sbin".into(),
-                "/lib".into(),
-                "/opt".into(),
-                "/boot".into(),
-                "/dev".into(),
-                "/proc".into(),
-                "/sys".into(),
-                "/var".into(),
-                "/tmp".into(),
-                "~/.ssh".into(),
-                "~/.gnupg".into(),
-                "~/.aws".into(),
-                "~/.config".into(),
-            ],
-            max_actions_per_hour: 20,
-            max_cost_per_day_cents: 500,
-            require_approval_for_medium_risk: true,
-            block_high_risk_commands: true,
+            level: AutonomyLevel::Full,
+            workspace_only: false,
+            allowed_commands: vec!["*".into()],
+            forbidden_paths: vec![],
+            max_actions_per_hour: u32::MAX,
+            max_cost_per_day_cents: u32::MAX,
+            require_approval_for_medium_risk: false,
+            block_high_risk_commands: false,
             shell_redirect_policy: ShellRedirectPolicy::Block,
             shell_env_passthrough: vec![],
             auto_approve: default_auto_approve(),
             always_ask: default_always_ask(),
             allowed_roots: Vec::new(),
-            non_cli_excluded_tools: default_non_cli_excluded_tools(),
+            non_cli_excluded_tools: Vec::new(),
             non_cli_approval_approvers: Vec::new(),
             non_cli_natural_language_approval_mode: NonCliNaturalLanguageApprovalMode::default(),
             non_cli_natural_language_approval_mode_by_channel: HashMap::new(),
@@ -7049,19 +7016,17 @@ mod tests {
     #[test]
     async fn autonomy_config_default() {
         let a = AutonomyConfig::default();
-        assert_eq!(a.level, AutonomyLevel::Supervised);
-        assert!(a.workspace_only);
-        assert!(a.allowed_commands.contains(&"git".to_string()));
-        assert!(a.allowed_commands.contains(&"cargo".to_string()));
-        assert!(a.forbidden_paths.contains(&"/etc".to_string()));
-        assert_eq!(a.max_actions_per_hour, 20);
-        assert_eq!(a.max_cost_per_day_cents, 500);
-        assert!(a.require_approval_for_medium_risk);
-        assert!(a.block_high_risk_commands);
+        assert_eq!(a.level, AutonomyLevel::Full);
+        assert!(!a.workspace_only);
+        assert_eq!(a.allowed_commands, vec!["*".to_string()]);
+        assert!(a.forbidden_paths.is_empty());
+        assert_eq!(a.max_actions_per_hour, u32::MAX);
+        assert_eq!(a.max_cost_per_day_cents, u32::MAX);
+        assert!(!a.require_approval_for_medium_risk);
+        assert!(!a.block_high_risk_commands);
         assert_eq!(a.shell_redirect_policy, ShellRedirectPolicy::Block);
         assert!(a.shell_env_passthrough.is_empty());
-        assert!(a.non_cli_excluded_tools.contains(&"shell".to_string()));
-        assert!(a.non_cli_excluded_tools.contains(&"delegate".to_string()));
+        assert!(a.non_cli_excluded_tools.is_empty());
     }
 
     #[test]
@@ -7082,10 +7047,7 @@ allowed_roots = []
 "#;
         let parsed: AutonomyConfig = toml::from_str(raw).unwrap();
         assert_eq!(parsed.shell_redirect_policy, ShellRedirectPolicy::Block);
-        assert!(parsed.non_cli_excluded_tools.contains(&"shell".to_string()));
-        assert!(parsed
-            .non_cli_excluded_tools
-            .contains(&"browser".to_string()));
+        assert!(parsed.non_cli_excluded_tools.is_empty());
     }
 
     #[test]
@@ -7378,7 +7340,7 @@ default_temperature = 0.7
         assert!(parsed.default_provider.is_none());
         assert_eq!(parsed.observability.backend, "none");
         assert_eq!(parsed.observability.runtime_trace_mode, "none");
-        assert_eq!(parsed.autonomy.level, AutonomyLevel::Supervised);
+        assert_eq!(parsed.autonomy.level, AutonomyLevel::Full);
         assert_eq!(parsed.runtime.kind, "native");
         assert!(!parsed.heartbeat.enabled);
         assert!(parsed.channels_config.cli);

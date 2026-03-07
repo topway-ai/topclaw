@@ -15,9 +15,9 @@ pub enum AutonomyLevel {
     /// Read-only: can observe but not act
     ReadOnly,
     /// Supervised: acts but requires approval for risky operations
-    #[default]
     Supervised,
     /// Full: autonomous execution within policy bounds
+    #[default]
     Full,
 }
 
@@ -139,51 +139,16 @@ pub struct SecurityPolicy {
 impl Default for SecurityPolicy {
     fn default() -> Self {
         Self {
-            autonomy: AutonomyLevel::Supervised,
+            autonomy: AutonomyLevel::Full,
             workspace_dir: PathBuf::from("."),
-            workspace_only: true,
-            allowed_commands: vec![
-                "git".into(),
-                "npm".into(),
-                "cargo".into(),
-                "ls".into(),
-                "cat".into(),
-                "grep".into(),
-                "find".into(),
-                "echo".into(),
-                "pwd".into(),
-                "wc".into(),
-                "head".into(),
-                "tail".into(),
-                "date".into(),
-            ],
-            forbidden_paths: vec![
-                // System directories (blocked even when workspace_only=false)
-                "/etc".into(),
-                "/root".into(),
-                "/home".into(),
-                "/usr".into(),
-                "/bin".into(),
-                "/sbin".into(),
-                "/lib".into(),
-                "/opt".into(),
-                "/boot".into(),
-                "/dev".into(),
-                "/proc".into(),
-                "/sys".into(),
-                "/var".into(),
-                "/tmp".into(),
-                // Sensitive dotfiles
-                "~/.ssh".into(),
-                "~/.gnupg".into(),
-                "~/.aws".into(),
-                "~/.config".into(),
-            ],
+            workspace_only: false,
+            allowed_commands: vec!["*".into()],
+            forbidden_paths: vec![],
             allowed_roots: Vec::new(),
-            max_actions_per_hour: 20,
-            max_cost_per_day_cents: 500,
-            require_approval_for_medium_risk: true,
-            block_high_risk_commands: true,
+            max_actions_per_hour: u32::MAX,
+            max_cost_per_day_cents: u32::MAX,
+            require_approval_for_medium_risk: false,
+            block_high_risk_commands: false,
             shell_redirect_policy: ShellRedirectPolicy::Block,
             shell_env_passthrough: vec![],
             otp_gated_actions: HashSet::new(),
@@ -1491,8 +1456,8 @@ mod tests {
     // ── AutonomyLevel ────────────────────────────────────────
 
     #[test]
-    fn autonomy_default_is_supervised() {
-        assert_eq!(AutonomyLevel::default(), AutonomyLevel::Supervised);
+    fn autonomy_default_is_full() {
+        assert_eq!(AutonomyLevel::default(), AutonomyLevel::Full);
     }
 
     #[test]
@@ -1875,14 +1840,14 @@ mod tests {
     #[test]
     fn default_policy_has_sane_values() {
         let p = SecurityPolicy::default();
-        assert_eq!(p.autonomy, AutonomyLevel::Supervised);
-        assert!(p.workspace_only);
-        assert!(!p.allowed_commands.is_empty());
-        assert!(!p.forbidden_paths.is_empty());
+        assert_eq!(p.autonomy, AutonomyLevel::Full);
+        assert!(!p.workspace_only);
+        assert_eq!(p.allowed_commands, vec!["*"]);
+        assert!(p.forbidden_paths.is_empty());
         assert!(p.max_actions_per_hour > 0);
         assert!(p.max_cost_per_day_cents > 0);
-        assert!(p.require_approval_for_medium_risk);
-        assert!(p.block_high_risk_commands);
+        assert!(!p.require_approval_for_medium_risk);
+        assert!(!p.block_high_risk_commands);
         assert_eq!(p.shell_redirect_policy, ShellRedirectPolicy::Block);
         assert!(p.shell_env_passthrough.is_empty());
     }

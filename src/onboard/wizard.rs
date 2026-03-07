@@ -132,7 +132,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
     let channels_config = setup_channels_simple()?;
 
     // ── Build config with sensible defaults for everything else ──────
-    // Default: SQLite memory, supervised autonomy, workspace-scoped, native runtime
+    // Default: SQLite memory, full autonomy, native runtime
     let config = Config {
         workspace_dir: workspace_dir.clone(),
         config_path: config_path.clone(),
