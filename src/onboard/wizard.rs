@@ -5888,11 +5888,18 @@ async fn scaffold_workspace(workspace_dir: &Path, ctx: &ProjectContext) -> Resul
         "# HEARTBEAT.md\n\n\
          # Keep this file empty (or with only comments) to skip heartbeat work.\n\
          # Add tasks below when you want {agent} to check something periodically.\n\
+         # The heartbeat now keeps state in `state/heartbeat_state.json` so tasks\n\
+         # can cool down, back off after failures, and stop after `max_runs`.\n\
+         #\n\
+         # Optional metadata prefixes:\n\
+         # - [every=4h] run at most every 4 hours\n\
+         # - [priority=2] higher numbers run first when multiple tasks are due\n\
+         # - [max_runs=1] run once and then stop\n\
          #\n\
          # Examples:\n\
-         # - Check my email for important messages\n\
-         # - Review my calendar for upcoming events\n\
-         # - Run `git status` on my active projects\n"
+         # - [every=4h] Check my email for important messages\n\
+         # - [every=1d] [priority=2] Review my calendar for upcoming events\n\
+         # - [every=2h] Run `git status` on my active projects\n"
     );
 
     let soul = format!(

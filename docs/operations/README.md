@@ -7,6 +7,7 @@ Use this section once TopClaw is installed and you need to run, debug, or mainta
 | Need | Read this |
 |---|---|
 | Day-2 runtime operations | [../operations-runbook.md](../operations-runbook.md) |
+| Heartbeat scheduling | [heartbeat-runbook.md](heartbeat-runbook.md) |
 | Troubleshooting | [../troubleshooting.md](../troubleshooting.md) |
 | Computer-use sidecars | [computer-use-sidecar-runbook.md](computer-use-sidecar-runbook.md) |
 | Connectivity probes | [connectivity-probes-runbook.md](connectivity-probes-runbook.md) |

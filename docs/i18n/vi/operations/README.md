@@ -5,6 +5,7 @@ Dành cho operator vận hành TopClaw liên tục hoặc trên production.
 ## Vận hành cốt lõi
 
 - Sổ tay Day-2: [../operations-runbook.md](../operations-runbook.md)
+- Runbook heartbeat: [heartbeat-runbook.md](heartbeat-runbook.md)
 - Runbook sidecar computer-use: [computer-use-sidecar-runbook.md](computer-use-sidecar-runbook.md)
 - Runbook probe kết nối provider trong CI: [connectivity-probes-runbook.md](connectivity-probes-runbook.md)
 - Sổ tay Release: [../release-process.md](../release-process.md)
