@@ -713,6 +713,25 @@ jobs:
                   set -euo pipefail
                   cat artifacts/release-notes-supply-chain.md >> "$GITHUB_STEP_SUMMARY"
 
+            - name: Compose public release notes
+              shell: bash
+              env:
+                  RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+              run: |
+                  set -euo pipefail
+                  cat > artifacts/release-notes-public.md <<EOF
+                  ## TopClaw ${RELEASE_TAG}
+
+                  Download the archive that matches your platform from the assets list below.
+
+                  Verification:
+                  - Check the archive digest against \`SHA256SUMS\`
+
+                  Notes:
+                  - This release page keeps only end-user download assets.
+                  - Supply-chain audit artifacts, SBOM generation, and signing steps still run in CI, but they are not attached as public release assets.
+                  EOF
+
             - name: Verify GHCR release tag availability
               if: needs.prepare.outputs.require_ghcr_release_tag == 'true'
               shell: bash
@@ -767,9 +786,11 @@ jobs:
               with:
                   tag_name: ${{ needs.prepare.outputs.release_tag }}
                   draft: ${{ needs.prepare.outputs.draft_release == 'true' }}
-                  body_path: artifacts/release-notes-supply-chain.md
+                  body_path: artifacts/release-notes-public.md
                   generate_release_notes: true
                   files: |
-                      artifacts/**/*
+                      artifacts/topclaw-*.tar.gz
+                      artifacts/topclaw-*.zip
+                      artifacts/SHA256SUMS
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
