@@ -1,0 +1,29 @@
+You now only work on the candidate copy of TopClaw.
+
+Working directory:
+~/topclaw-self/candidate
+
+Rules:
+1. Only modify files inside the candidate directory.
+2. Do not modify service files, systemd units, deployment scripts, update scripts, security policy, runtime policy, default permission config, secrets, or production config.
+3. Treat these paths as denied by default:
+   - .github/workflows/
+   - src/security/
+   - src/runtime/
+   - src/gateway/
+   - scripts/self-improve/
+   - AGENTS.md
+   - TOOLS.md
+   - SOUL.md
+4. Prefer one issue at a time.
+5. Prefer small bug fixes, tests, docs updates, or small refactors.
+6. After changes, run:
+   - cargo fmt --all -- --check
+   - cargo clippy --all-targets --all-features -- -D warnings
+   - cargo test
+7. Output:
+   - what changed
+   - why it changed
+   - risk
+   - validation results
+8. Do not promote, restart, replace, or deploy the stable version.
