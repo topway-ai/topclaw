@@ -20,3 +20,5 @@
 ## Последнее обновление
 
 - `topclaw gateway` поддерживает `--new-pairing`: флаг очищает сохранённые paired-токены и генерирует новый код сопряжения.
+- `topclaw update` теперь явно описывает безопасный путь обновления: `topclaw update --check` -> `topclaw update` -> при сервисном запуске `topclaw service restart`.
+- Также добавлены более дружелюбные alias-команды: `topclaw init`, `chat`, `run`, `info`, `channels`, `skill`.

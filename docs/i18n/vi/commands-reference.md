@@ -2,7 +2,7 @@
 
 Dựa trên CLI hiện tại (`topclaw --help`).
 
-Xác minh lần cuối: **2026-02-20**.
+Xác minh lần cuối: **2026-03-07**.
 
 ## Lệnh cấp cao nhất
 
@@ -15,6 +15,7 @@ Xác minh lần cuối: **2026-02-20**.
 | `service` | Quản lý vòng đời dịch vụ cấp hệ điều hành |
 | `doctor` | Chạy chẩn đoán và kiểm tra trạng thái |
 | `status` | Hiển thị cấu hình và tóm tắt hệ thống |
+| `update` | Kiểm tra hoặc cài bản phát hành TopClaw mới nhất |
 | `cron` | Quản lý tác vụ định kỳ |
 | `models` | Làm mới danh mục model của provider |
 | `providers` | Liệt kê ID provider, bí danh và provider đang dùng |
@@ -26,6 +27,15 @@ Xác minh lần cuối: **2026-02-20**.
 | `completions` | Tạo script tự hoàn thành cho shell ra stdout |
 | `hardware` | Phát hiện và kiểm tra phần cứng USB |
 | `peripheral` | Cấu hình và nạp firmware thiết bị ngoại vi |
+
+Bí danh thông dụng:
+
+- `topclaw init` -> `topclaw onboard`
+- `topclaw chat` -> `topclaw agent`
+- `topclaw run` -> `topclaw daemon`
+- `topclaw info` -> `topclaw status`
+- `topclaw channels` -> `topclaw channel`
+- `topclaw skill` -> `topclaw skills`
 
 ## Nhóm lệnh
 
@@ -60,6 +70,24 @@ Xác minh lần cuối: **2026-02-20**.
 - `topclaw service status`
 - `topclaw service uninstall`
 
+### `update`
+
+- `topclaw update`
+- `topclaw update --check`
+- `topclaw update --force`
+
+Ghi chú:
+
+- `topclaw update` tải bản phát hành GitHub chính thức mới nhất phù hợp với nền tảng hiện tại và thay thế binary đang dùng.
+- `--check` chỉ kiểm tra xem có bản mới hay không.
+- `--force` cài lại bản mới nhất kể cả khi phiên bản hiện tại đã trùng.
+- Sau khi cập nhật trên máy đang chạy TopClaw như dịch vụ nền, hãy chạy `topclaw service restart`.
+- Nếu vị trí binary không cho phép ghi, TopClaw sẽ in ra hướng dẫn khôi phục thay vì chỉ báo lỗi chung chung. Trên Linux, phương án khuyến nghị là dùng trình cài đặt phát hành chính thức:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jackfly8/TopClaw/main/scripts/install-release.sh | bash
+```
+
 ### `cron`
 
 - `topclaw cron list`
@@ -78,6 +106,18 @@ Xác minh lần cuối: **2026-02-20**.
 - `topclaw models refresh --force`
 
 `models refresh` hiện hỗ trợ làm mới danh mục trực tiếp cho các provider: `openrouter`, `openai`, `anthropic`, `groq`, `mistral`, `deepseek`, `xai`, `together-ai`, `gemini`, `ollama`, `astrai`, `venice`, `fireworks`, `cohere`, `moonshot`, `glm`, `zai`, `qwen` và `nvidia`.
+
+### `doctor`
+
+- `topclaw doctor`
+
+`topclaw doctor` hiện kết thúc bằng các lệnh bước tiếp theo cụ thể khi phát hiện các vấn đề thiết lập có thể xử lý ngay, như thiếu provider, thiếu xác thực, chưa cấu hình channel, hoặc thiếu thư mục workspace.
+
+### `status`
+
+- `topclaw status`
+
+`topclaw status` hiển thị tóm tắt cấu hình/runtime hiện tại và giờ cũng gợi ý các lệnh bước tiếp theo cho những thiếu sót quan trọng trong cấu hình, dùng cùng logic gợi ý với `topclaw doctor`.
 
 ### `channel`
 

@@ -2,7 +2,7 @@
 
 This reference is derived from the current CLI surface (`topclaw --help`).
 
-Last verified: **February 25, 2026**.
+Last verified: **March 7, 2026**.
 
 ## Top-Level Commands
 
@@ -15,6 +15,7 @@ Last verified: **February 25, 2026**.
 | `service` | Manage user-level OS service lifecycle |
 | `doctor` | Run diagnostics and freshness checks |
 | `status` | Print current configuration and system summary |
+| `update` | Check for or install the latest TopClaw release |
 | `estop` | Engage/resume emergency stop levels and inspect estop state |
 | `cron` | Manage scheduled tasks |
 | `models` | Refresh provider model catalogs |
@@ -27,6 +28,15 @@ Last verified: **February 25, 2026**.
 | `completions` | Generate shell completion scripts to stdout |
 | `hardware` | Discover and introspect USB hardware |
 | `peripheral` | Configure and flash peripherals |
+
+Common aliases:
+
+- `topclaw init` -> `topclaw onboard`
+- `topclaw chat` -> `topclaw agent`
+- `topclaw run` -> `topclaw daemon`
+- `topclaw info` -> `topclaw status`
+- `topclaw channels` -> `topclaw channel`
+- `topclaw skill` -> `topclaw skills`
 
 ## Command Groups
 
@@ -94,6 +104,23 @@ Notes:
 - `topclaw service status`
 - `topclaw service uninstall`
 
+### `update`
+
+- `topclaw update`
+- `topclaw update --check`
+- `topclaw update --force`
+
+Notes:
+
+- `topclaw update` downloads the latest official GitHub release for the current platform and replaces the current binary.
+- `--check` only checks whether a newer version is available.
+- `--force` reinstalls the latest version even if the current version already matches.
+- If the binary location is not writable, TopClaw now prints a recovery path instead of failing silently. On Linux, the recommended fallback is the official release installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jackfly8/TopClaw/main/scripts/install-release.sh | bash
+```
+
 ### `cron`
 
 - `topclaw cron list`
@@ -134,6 +161,14 @@ Runs a Rust integration test (`tests/gemini_model_availability.rs`) that verifie
 - `topclaw doctor models [--provider <ID>] [--use-cache]`
 - `topclaw doctor traces [--limit <N>] [--event <TYPE>] [--contains <TEXT>]`
 - `topclaw doctor traces --id <TRACE_ID>`
+
+`topclaw doctor` now ends with concrete next-step commands when it detects actionable setup issues, such as missing provider configuration, missing auth, missing channels, or a missing workspace directory.
+
+### `status`
+
+- `topclaw status`
+
+`topclaw status` prints the current config/runtime summary and now also shows next-step commands for important gaps that still need attention, using the same suggestion logic as `topclaw doctor`.
 
 Provider connectivity matrix CI/local helper:
 

@@ -129,20 +129,38 @@ enum EstopLevelArg {
 #[command(name = "topclaw")]
 #[command(author = "theonlyhennygod")]
 #[command(version)]
-#[command(about = "The fastest, smallest AI assistant.", long_about = None)]
+#[command(about = "TopClaw command-line interface", long_about = None)]
 #[command(after_help = "\
-Background service:
+Start here:
+  topclaw onboard                  # first-time setup
+  topclaw agent                    # interactive chat
+  topclaw daemon                   # always-on runtime
+
+Most common tasks:
+  topclaw status                   # see current config and runtime summary
+  topclaw doctor                   # run diagnostics
+  topclaw update --check           # check for a new release
+  topclaw update                   # install latest release
+  topclaw service restart          # restart background service after update
+
+Background operation:
   topclaw service install
   topclaw service start
   topclaw service stop
   topclaw service restart
   topclaw service uninstall
 
+Extensions and setup:
+  topclaw channel list
+  topclaw models refresh
+  topclaw skills list
+  topclaw integrations info <name>
+
 Full uninstall:
   topclaw uninstall
   topclaw uninstall --purge
 
-Legacy repo script:
+Legacy script:
   ./topclaw_uninstall.sh
   ./topclaw_uninstall.sh --purge")]
 struct Cli {
@@ -155,7 +173,8 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Initialize your workspace and configuration
+    /// Set up TopClaw for first use
+    #[command(visible_alias = "init")]
     Onboard {
         /// Run the full interactive wizard (default is quick setup)
         #[arg(long)]
@@ -184,7 +203,8 @@ enum Commands {
         memory: Option<String>,
     },
 
-    /// Start the AI agent loop
+    /// Chat with TopClaw
+    #[command(visible_alias = "chat")]
     #[command(long_about = "\
 Start the AI agent loop.
 
@@ -244,7 +264,7 @@ Examples:
         memory_backend: Option<String>,
     },
 
-    /// Start the gateway server (webhooks, websockets)
+    /// Run the HTTP/WebSocket gateway
     #[command(long_about = "\
 Start the gateway server (webhooks, websockets).
 
@@ -272,7 +292,8 @@ Examples:
         new_pairing: bool,
     },
 
-    /// Start long-running autonomous runtime (gateway + channels + heartbeat + scheduler)
+    /// Run TopClaw continuously in the background
+    #[command(visible_alias = "run")]
     #[command(long_about = "\
 Start the long-running autonomous daemon.
 
@@ -298,7 +319,7 @@ Examples:
         host: Option<String>,
     },
 
-    /// Manage OS service lifecycle (install, start, stop, restart, uninstall)
+    /// Manage the background service
     #[command(long_about = "\
 Manage OS service lifecycle for the TopClaw daemon.
 
@@ -320,22 +341,32 @@ Examples:
         service_command: ServiceCommands,
     },
 
-    /// Run diagnostics for daemon/scheduler/channel freshness
+    /// Run diagnostics and health checks
     Doctor {
         #[command(subcommand)]
         doctor_command: Option<DoctorCommands>,
     },
 
-    /// Show system status (full details)
+    /// Show current status and configuration summary
+    #[command(visible_alias = "info")]
     Status,
 
-    /// Self-update TopClaw to the latest version
+    /// Update TopClaw to the latest release
     #[command(long_about = "\
 Self-update TopClaw to the latest release from GitHub.
 
 Downloads the appropriate pre-built binary for your platform and
 replaces the current executable. Requires write permissions to
 the binary location.
+
+Safe update flow:
+  1. Run `topclaw update --check` to see whether a newer version exists.
+  2. Run `topclaw update` to install it.
+  3. If TopClaw is running as a background service, run `topclaw service restart`.
+  4. Verify with `topclaw --version`.
+
+If the binary location is not writable, TopClaw prints a recovery path
+instead of replacing the binary unsafely.
 
 Examples:
   topclaw update              # Update to latest version
@@ -351,7 +382,7 @@ Examples:
         force: bool,
     },
 
-    /// Uninstall TopClaw from this machine
+    /// Remove TopClaw from this machine
     #[command(long_about = "\
 Uninstall TopClaw from this machine.
 
@@ -367,7 +398,7 @@ Examples:
         purge: bool,
     },
 
-    /// Engage, inspect, and resume emergency-stop states.
+    /// Engage or inspect emergency-stop protection.
     ///
     /// Examples:
     /// - `topclaw estop`
@@ -411,7 +442,7 @@ Examples:
         security_command: SecurityCommands,
     },
 
-    /// Configure and manage scheduled tasks
+    /// Manage scheduled tasks
     #[command(long_about = "\
 Configure and manage scheduled tasks.
 
@@ -436,16 +467,17 @@ Examples:
         cron_command: CronCommands,
     },
 
-    /// Manage provider model catalogs
+    /// Manage model lists and defaults
     Models {
         #[command(subcommand)]
         model_command: ModelCommands,
     },
 
-    /// List supported AI providers
+    /// List available AI providers
     Providers,
 
-    /// Manage channels (telegram, discord, slack)
+    /// Manage messaging and chat channels
+    #[command(visible_alias = "channels")]
     #[command(long_about = "\
 Manage communication channels.
 
@@ -465,31 +497,32 @@ Examples:
         channel_command: ChannelCommands,
     },
 
-    /// Browse 50+ integrations
+    /// Inspect available integrations
     Integrations {
         #[command(subcommand)]
         integration_command: IntegrationCommands,
     },
 
-    /// Manage skills (user-defined capabilities)
+    /// Manage skills and skill installation
+    #[command(visible_alias = "skill")]
     Skills {
         #[command(subcommand)]
         skill_command: SkillCommands,
     },
 
-    /// Migrate data from other agent runtimes
+    /// Import data from other runtimes
     Migrate {
         #[command(subcommand)]
         migrate_command: MigrateCommands,
     },
 
-    /// Manage provider subscription authentication profiles
+    /// Manage provider authentication profiles
     Auth {
         #[command(subcommand)]
         auth_command: AuthCommands,
     },
 
-    /// Discover and introspect USB hardware
+    /// Discover connected hardware
     #[command(long_about = "\
 Discover and introspect USB hardware.
 
@@ -506,7 +539,7 @@ Examples:
         hardware_command: topclaw::HardwareCommands,
     },
 
-    /// Manage hardware peripherals (STM32, RPi GPIO, etc.)
+    /// Manage hardware peripherals and boards
     #[command(long_about = "\
 Manage hardware peripherals.
 
@@ -525,7 +558,7 @@ Examples:
         peripheral_command: topclaw::PeripheralCommands,
     },
 
-    /// Manage agent memory (list, get, stats, clear)
+    /// Inspect and manage stored memory
     #[command(long_about = "\
 Manage agent memory entries.
 
@@ -544,7 +577,7 @@ Examples:
         memory_command: MemoryCommands,
     },
 
-    /// Manage configuration
+    /// Inspect configuration schema
     #[command(long_about = "\
 Manage TopClaw configuration.
 
@@ -560,7 +593,7 @@ Examples:
         config_command: ConfigCommands,
     },
 
-    /// Manage in-process workspace registry entries
+    /// Manage registered workspaces
     #[command(long_about = "\
 Manage workspace registry entries for multi-workspace deployments.
 
@@ -578,7 +611,7 @@ Examples:
         workspace_command: WorkspaceCommands,
     },
 
-    /// Generate shell completion script to stdout
+    /// Generate shell completions
     #[command(long_about = "\
 Generate shell completion scripts for `topclaw`.
 
@@ -1042,6 +1075,7 @@ async fn main() -> Result<()> {
         }
 
         Commands::Status => {
+            let diag_results = doctor::diagnose(&config);
             println!("🦀 TopClaw Status");
             println!();
             println!("Version:     {}", env!("CARGO_PKG_VERSION"));
@@ -1131,6 +1165,8 @@ async fn main() -> Result<()> {
                 }
             );
             println!("  Boards:    {}", config.peripherals.boards.len());
+
+            doctor::print_next_step_suggestions(&config, &diag_results);
 
             Ok(())
         }
@@ -2407,6 +2443,46 @@ mod tests {
         match cli.command {
             Commands::Onboard { force, .. } => assert!(force),
             other => panic!("expected onboard command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn onboard_cli_accepts_init_alias() {
+        let cli = Cli::try_parse_from(["topclaw", "init"]).expect("init alias should parse");
+
+        match cli.command {
+            Commands::Onboard { .. } => {}
+            other => panic!("expected onboard command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn agent_cli_accepts_chat_alias() {
+        let cli = Cli::try_parse_from(["topclaw", "chat"]).expect("chat alias should parse");
+
+        match cli.command {
+            Commands::Agent { .. } => {}
+            other => panic!("expected agent command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn daemon_cli_accepts_run_alias() {
+        let cli = Cli::try_parse_from(["topclaw", "run"]).expect("run alias should parse");
+
+        match cli.command {
+            Commands::Daemon { .. } => {}
+            other => panic!("expected daemon command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn status_cli_accepts_info_alias() {
+        let cli = Cli::try_parse_from(["topclaw", "info"]).expect("info alias should parse");
+
+        match cli.command {
+            Commands::Status => {}
+            other => panic!("expected status command, got {other:?}"),
         }
     }
 

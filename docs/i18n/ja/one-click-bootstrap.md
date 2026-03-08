@@ -15,6 +15,7 @@
 ## 原文セクションガイド
 
 - [H2 · Option 0: Homebrew (macOS/Linuxbrew)](../../one-click-bootstrap.md#option-0-homebrew-macos-linuxbrew)
+- [H2 · Safe update](../../one-click-bootstrap.md#safe-update)
 - [H2 · Option A (Recommended): Clone + local script](../../one-click-bootstrap.md#option-a-recommended-clone-local-script)
 - [H3 · Resource preflight and pre-built flow](../../one-click-bootstrap.md#resource-preflight-and-pre-built-flow)
 - [H2 · Dual-mode bootstrap](../../one-click-bootstrap.md#dual-mode-bootstrap)
@@ -28,6 +29,7 @@
 
 ## 実行ヒント
 
+- 既存インストールの更新は、まず `topclaw update --check`、次に `topclaw update`、サービス運用中なら `topclaw service restart` の順で行います。
 - まず原文の見出し構成を確認し、今回の変更範囲に直結する節から読みます。
 - コマンド名、設定キー、API パス、コード識別子は英語のまま保持します。
 - 仕様解釈に差分が出る場合は英語版原文を優先します。

@@ -2,7 +2,34 @@
 
 Cách cài đặt và khởi tạo TopClaw nhanh nhất.
 
-Xác minh lần cuối: **2026-02-20**.
+Xác minh lần cuối: **2026-03-07**.
+
+## Cập nhật an toàn
+
+Với bản cài đặt đang dùng, cách cập nhật nhanh và được hỗ trợ là:
+
+```bash
+topclaw update
+topclaw --version
+```
+
+Chỉ kiểm tra trước mà không cài:
+
+```bash
+topclaw update --check
+```
+
+Nếu TopClaw đang chạy như dịch vụ nền, hãy khởi động lại dịch vụ sau khi cập nhật:
+
+```bash
+topclaw service restart
+```
+
+Nếu `topclaw update` báo không thể ghi đè binary hiện tại, hãy quay về đúng phương thức cài đặt ban đầu:
+
+- cài từ repo checkout: `./bootstrap.sh --prefer-prebuilt`
+- cài từ source: `cargo install --path . --force --locked`
+- cài qua package manager: cập nhật bằng chính package manager đó
 
 ## Cách 0: Homebrew (macOS/Linuxbrew)
 

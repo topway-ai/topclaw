@@ -15,6 +15,7 @@
 ## Карта разделов оригинала
 
 - [H2 · Option 0: Homebrew (macOS/Linuxbrew)](../../one-click-bootstrap.md#option-0-homebrew-macos-linuxbrew)
+- [H2 · Safe update](../../one-click-bootstrap.md#safe-update)
 - [H2 · Option A (Recommended): Clone + local script](../../one-click-bootstrap.md#option-a-recommended-clone-local-script)
 - [H3 · Resource preflight and pre-built flow](../../one-click-bootstrap.md#resource-preflight-and-pre-built-flow)
 - [H2 · Dual-mode bootstrap](../../one-click-bootstrap.md#dual-mode-bootstrap)
@@ -28,6 +29,7 @@
 
 ## Практические рекомендации
 
+- Для уже установленного TopClaw используйте безопасную последовательность: `topclaw update --check`, затем `topclaw update`, затем `topclaw service restart`, если TopClaw работает как service.
 - Сначала просмотрите структуру разделов оригинала, затем переходите к релевантным блокам для текущего изменения.
 - Имена команд, ключей конфигурации, API-пути и code identifiers оставляйте на английском.
 - При расхождениях трактовки опирайтесь на английский оригинал.

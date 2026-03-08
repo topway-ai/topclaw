@@ -130,7 +130,156 @@ pub fn run(config: &Config) -> Result<()> {
         println!("  💡 Fix the errors above, then run `topclaw doctor` again.");
     }
 
+    print_next_step_suggestions(config, &results);
+
     Ok(())
+}
+
+pub fn print_next_step_suggestions(config: &Config, results: &[DiagResult]) {
+    let suggestions = next_step_suggestions(config, results);
+    if suggestions.is_empty() {
+        return;
+    }
+
+    println!();
+    println!("  Next step commands:");
+    for command in suggestions {
+        println!("    - {command}");
+    }
+}
+
+fn next_step_suggestions(config: &Config, results: &[DiagResult]) -> Vec<String> {
+    let mut suggestions = Vec::new();
+
+    let provider_name = config
+        .default_provider
+        .as_deref()
+        .map(str::trim)
+        .filter(|provider| !provider.is_empty());
+    let provider_valid =
+        provider_name.is_some_and(|provider| provider_validation_error(provider).is_none());
+
+    if results.iter().any(|item| {
+        item.category == "config"
+            && item.severity == Severity::Error
+            && (item.message == "no default_provider configured"
+                || item.message.contains("default provider"))
+    }) {
+        push_unique(
+            &mut suggestions,
+            "topclaw onboard --interactive".to_string(),
+        );
+    }
+
+    if provider_valid {
+        if config.api_key.is_none()
+            && provider_name.is_some_and(|provider| !provider_supports_keyless_usage(provider))
+        {
+            match provider_name.unwrap_or_default() {
+                "openai-codex" | "openai_codex" | "codex" => push_unique(
+                    &mut suggestions,
+                    "topclaw auth login --provider openai-codex --device-code".to_string(),
+                ),
+                "anthropic" => push_unique(
+                    &mut suggestions,
+                    "topclaw auth paste-token --provider anthropic --auth-kind authorization"
+                        .to_string(),
+                ),
+                provider => push_unique(
+                    &mut suggestions,
+                    format!("export {}=\"sk-...\"", provider_env_var(provider)),
+                ),
+            }
+        }
+
+        if results.iter().any(|item| {
+            item.category == "config"
+                && item.severity == Severity::Warn
+                && item.message == "no default_model configured"
+        }) {
+            let provider = provider_name.unwrap_or_default();
+            push_unique(
+                &mut suggestions,
+                format!("topclaw models refresh --provider {provider}"),
+            );
+            push_unique(
+                &mut suggestions,
+                format!("topclaw models list --provider {provider}"),
+            );
+        }
+    }
+
+    if results.iter().any(|item| {
+        item.category == "config"
+            && item.severity == Severity::Warn
+            && item.message.contains("no channels configured")
+    }) {
+        push_unique(
+            &mut suggestions,
+            "topclaw onboard --channels-only".to_string(),
+        );
+    }
+
+    if results.iter().any(|item| {
+        item.category == "workspace"
+            && item.severity == Severity::Error
+            && item.message.starts_with("directory missing: ")
+    }) {
+        push_unique(
+            &mut suggestions,
+            format!("mkdir -p {}", shell_escape_path(&config.workspace_dir)),
+        );
+    }
+
+    suggestions
+}
+
+fn push_unique(items: &mut Vec<String>, command: String) {
+    if !items.iter().any(|existing| existing == &command) {
+        items.push(command);
+    }
+}
+
+fn provider_supports_keyless_usage(provider: &str) -> bool {
+    let (provider_name, _) = crate::providers::parse_provider_profile(provider);
+
+    crate::providers::list_providers()
+        .into_iter()
+        .find(|info| info.name == provider_name || info.aliases.contains(&provider_name))
+        .is_some_and(|info| info.local)
+}
+
+fn provider_env_var(provider: &str) -> &'static str {
+    let (provider_name, _) = crate::providers::parse_provider_profile(provider);
+
+    match provider_name {
+        "openrouter" => "OPENROUTER_API_KEY",
+        "anthropic" => "ANTHROPIC_API_KEY",
+        "openai-codex" | "openai_codex" | "codex" | "openai" => "OPENAI_API_KEY",
+        "gemini" | "google" | "google-gemini" => "GEMINI_API_KEY",
+        "qwen" | "qwen-intl" | "qwen-cn" | "dashscope" | "dashscope-intl" | "dashscope-cn"
+        | "dashscope-us" => "DASHSCOPE_API_KEY",
+        "qwen-code" | "qwen-oauth" => "QWEN_OAUTH_TOKEN",
+        "glm" | "glm-cn" | "glm-global" | "zhipu" | "zhipu-cn" => "GLM_API_KEY",
+        "minimax" | "minimax-cn" | "minimax-intl" | "minimax-global" | "minimax-io"
+        | "minimax-oauth" | "minimax-oauth-cn" | "minimax-portal" | "minimax-portal-cn" => {
+            "MINIMAX_API_KEY"
+        }
+        "moonshot" | "kimi" | "moonshot-intl" | "moonshot-cn" | "kimi-intl" | "kimi-cn" => {
+            "MOONSHOT_API_KEY"
+        }
+        "kimi-code" | "kimi_coding" | "kimi_for_coding" => "KIMI_CODE_API_KEY",
+        "xai" | "grok" => "XAI_API_KEY",
+        "nvidia" | "nvidia-nim" | "build.nvidia.com" => "NVIDIA_API_KEY",
+        "hunyuan" | "tencent" => "HUNYUAN_API_KEY",
+        "astrai" => "ASTRAI_API_KEY",
+        _ => "API_KEY",
+    }
+}
+
+fn shell_escape_path(path: &Path) -> String {
+    let path = path.display().to_string();
+    format!("\"{}\"", path.replace('"', "\\\""))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1105,6 +1254,57 @@ mod tests {
             .find(|i| i.message.contains("default provider"));
         assert!(prov_item.is_some());
         assert_eq!(prov_item.unwrap().severity, Severity::Error);
+    }
+
+    #[test]
+    fn next_step_suggestions_recommend_provider_and_channels_setup() {
+        let mut config = Config::default();
+        config.default_provider = None;
+        let results = diagnose(&config);
+
+        let suggestions = next_step_suggestions(&config, &results);
+
+        assert!(suggestions.contains(&"topclaw onboard --interactive".to_string()));
+        assert!(suggestions.contains(&"topclaw onboard --channels-only".to_string()));
+    }
+
+    #[test]
+    fn next_step_suggestions_recommend_provider_auth_for_known_provider() {
+        let mut config = Config::default();
+        config.default_provider = Some("openai-codex".into());
+
+        let results = diagnose(&config);
+        let suggestions = next_step_suggestions(&config, &results);
+
+        assert!(suggestions
+            .contains(&"topclaw auth login --provider openai-codex --device-code".to_string()));
+    }
+
+    #[test]
+    fn next_step_suggestions_recommend_model_commands_when_model_missing() {
+        let mut config = Config::default();
+        config.default_provider = Some("openai".into());
+        config.api_key = Some("sk-test".into());
+        config.default_model = None;
+
+        let results = diagnose(&config);
+        let suggestions = next_step_suggestions(&config, &results);
+
+        assert!(suggestions.contains(&"topclaw models refresh --provider openai".to_string()));
+        assert!(suggestions.contains(&"topclaw models list --provider openai".to_string()));
+    }
+
+    #[test]
+    fn next_step_suggestions_recommend_workspace_creation_when_missing() {
+        let mut config = Config::default();
+        config.workspace_dir = std::path::PathBuf::from("/tmp/topclaw-doctor-missing-workspace");
+
+        let results = diagnose(&config);
+        let suggestions = next_step_suggestions(&config, &results);
+
+        assert!(suggestions.iter().any(
+            |command| command.starts_with("mkdir -p \"/tmp/topclaw-doctor-missing-workspace\"")
+        ));
     }
 
     #[test]
