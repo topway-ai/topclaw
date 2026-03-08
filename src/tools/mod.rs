@@ -45,6 +45,8 @@ pub mod hardware_memory_map;
 pub mod hardware_memory_read;
 pub mod http_request;
 pub mod image_info;
+pub mod lossless_describe;
+pub mod lossless_search;
 pub mod memory_forget;
 pub mod memory_recall;
 pub mod memory_store;
@@ -95,6 +97,8 @@ pub use hardware_memory_map::HardwareMemoryMapTool;
 pub use hardware_memory_read::HardwareMemoryReadTool;
 pub use http_request::HttpRequestTool;
 pub use image_info::ImageInfoTool;
+pub use lossless_describe::LosslessDescribeTool;
+pub use lossless_search::LosslessSearchTool;
 pub use memory_forget::MemoryForgetTool;
 pub use memory_recall::MemoryRecallTool;
 pub use memory_store::MemoryStoreTool;
@@ -278,6 +282,8 @@ pub fn all_tools_with_runtime(
             security.clone(),
             workspace_dir.to_path_buf(),
         )),
+        Arc::new(LosslessDescribeTool::new(workspace_dir.to_path_buf())),
+        Arc::new(LosslessSearchTool::new(workspace_dir.to_path_buf())),
     ];
 
     if let Some(discord) = root_config.channels_config.discord.as_ref() {

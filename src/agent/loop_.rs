@@ -26,6 +26,7 @@ use uuid::Uuid;
 mod context;
 mod execution;
 mod history;
+pub(crate) mod lossless;
 mod parsing;
 
 use context::{build_context, build_hardware_context};
@@ -33,9 +34,10 @@ use execution::{
     execute_tools_parallel, execute_tools_sequential, should_execute_tools_in_parallel,
     ToolExecutionOutcome,
 };
+use history::trim_history;
 #[cfg(test)]
 use history::{apply_compaction_summary, build_compaction_transcript};
-use history::{auto_compact_history, trim_history};
+use lossless::LosslessContext;
 #[allow(unused_imports)]
 use parsing::{
     default_param_for_tool, detect_tool_call_parse_issue, extract_json_values, map_tool_name_alias,
@@ -2138,6 +2140,7 @@ pub async fn run(
 
         // Persistent conversation history across turns
         let mut history = vec![ChatMessage::system(&system_prompt)];
+        let mut lossless_context = LosslessContext::new(&config.workspace_dir, &system_prompt)?;
         // Reusable readline editor for UTF-8 input support
         let mut rl = rustyline::DefaultEditor::new()?;
 
@@ -2183,6 +2186,7 @@ pub async fn run(
                     rl.clear_history()?;
                     history.clear();
                     history.push(ChatMessage::system(&system_prompt));
+                    lossless_context.reset(&system_prompt)?;
                     // Clear conversation and daily memory
                     let mut cleared = 0;
                     for category in [MemoryCategory::Conversation, MemoryCategory::Daily] {
@@ -2227,7 +2231,9 @@ pub async fn run(
                 format!("{context}[{now}] {user_input}")
             };
 
+            let pre_turn_len = history.len();
             history.push(ChatMessage::user(&enriched));
+            lossless_context.record_raw_message(&ChatMessage::user(&enriched))?;
 
             let response = match run_tool_call_loop(
                 provider.as_ref(),
@@ -2251,6 +2257,7 @@ pub async fn run(
             {
                 Ok(resp) => resp,
                 Err(e) => {
+                    lossless_context.record_raw_messages(&history[pre_turn_len + 1..])?;
                     if is_tool_iteration_limit_error(&e) {
                         let pause_notice = format!(
                             "⚠️ Reached tool-iteration limit ({}). Context and progress are preserved. \
@@ -2258,6 +2265,8 @@ pub async fn run(
                             config.agent.max_tool_iterations.max(DEFAULT_MAX_TOOL_ITERATIONS)
                         );
                         history.push(ChatMessage::assistant(&pause_notice));
+                        lossless_context
+                            .record_raw_message(&ChatMessage::assistant(&pause_notice))?;
                         eprintln!("\n{pause_notice}\n");
                         continue;
                     }
@@ -2276,19 +2285,16 @@ pub async fn run(
             }
             observer.record_event(&ObserverEvent::TurnComplete);
 
-            // Auto-compaction before hard trimming to preserve long-context signal.
-            if let Ok(compacted) = auto_compact_history(
-                &mut history,
-                provider.as_ref(),
-                model_name,
-                config.agent.max_history_messages,
-            )
-            .await
-            {
-                if compacted {
-                    println!("🧹 Auto-compaction complete");
-                }
-            }
+            lossless_context.record_raw_messages(&history[pre_turn_len + 1..])?;
+            history = lossless_context
+                .rebuild_active_history(
+                    provider.as_ref(),
+                    model_name,
+                    &system_prompt,
+                    config.agent.max_history_messages,
+                )
+                .await?;
+            println!("🧠 Lossless context refresh complete");
 
             // Hard cap as a safety net.
             trim_history(&mut history, config.agent.max_history_messages);
