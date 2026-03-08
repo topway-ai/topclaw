@@ -54,6 +54,7 @@ fn parse_temperature(s: &str) -> std::result::Result<f64, String> {
 mod agent;
 mod approval;
 mod auth;
+mod backup;
 mod channels;
 mod rag {
     pub use topclaw::rag::*;
@@ -94,8 +95,8 @@ use config::Config;
 
 // Re-export so binary modules can use crate::<CommandEnum> while keeping a single source of truth.
 pub use topclaw::{
-    ChannelCommands, CronCommands, HardwareCommands, IntegrationCommands, MigrateCommands,
-    PeripheralCommands, ServiceCommands, SkillCommands,
+    BackupCommands, ChannelCommands, CronCommands, HardwareCommands, IntegrationCommands,
+    MigrateCommands, PeripheralCommands, ServiceCommands, SkillCommands,
 };
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
@@ -380,6 +381,26 @@ Examples:
         /// Force update even if already at latest version
         #[arg(long)]
         force: bool,
+    },
+
+    /// Create or restore a portable TopClaw backup bundle
+    #[command(long_about = "\
+Create or restore a portable TopClaw backup bundle.
+
+Backups capture the resolved TopClaw config root, which includes your \
+config.toml, auth state, secrets, workspace data, memories, preferences, \
+and installed skills. Use this before risky upgrades or to move a working \
+TopClaw setup to another machine.
+
+Examples:
+  topclaw backup create ./topclaw-backup
+  topclaw backup create ~/Backups/topclaw-2026-03-08 --include-logs
+  topclaw backup inspect ./topclaw-backup
+  topclaw backup restore ./topclaw-backup
+  topclaw backup restore ./topclaw-backup --force")]
+    Backup {
+        #[command(subcommand)]
+        backup_command: BackupCommands,
     },
 
     /// Remove TopClaw from this machine
@@ -971,8 +992,12 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    if let Commands::Uninstall { purge } = cli.command {
-        return handle_uninstall_command(purge);
+    match &cli.command {
+        Commands::Uninstall { purge } => return handle_uninstall_command(*purge),
+        Commands::Backup { backup_command } => {
+            return backup::handle_command(backup_command.clone()).await;
+        }
+        _ => {}
     }
 
     // All other commands need config loaded first
@@ -1177,6 +1202,8 @@ async fn main() -> Result<()> {
         }
 
         Commands::Uninstall { .. } => unreachable!(),
+
+        Commands::Backup { .. } => unreachable!(),
 
         Commands::Estop {
             estop_command,
@@ -2494,6 +2521,69 @@ mod tests {
         match cli.command {
             Commands::Uninstall { purge } => assert!(purge),
             other => panic!("expected uninstall command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn backup_create_cli_accepts_destination_and_logs_flag() {
+        let cli = Cli::try_parse_from([
+            "topclaw",
+            "backup",
+            "create",
+            "./topclaw-backup",
+            "--include-logs",
+        ])
+        .expect("backup create should parse");
+
+        match cli.command {
+            Commands::Backup {
+                backup_command:
+                    topclaw::BackupCommands::Create {
+                        destination,
+                        include_logs,
+                    },
+            } => {
+                assert_eq!(destination, std::path::PathBuf::from("./topclaw-backup"));
+                assert!(include_logs);
+            }
+            other => panic!("expected backup create command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn backup_restore_cli_accepts_force_flag() {
+        let cli = Cli::try_parse_from([
+            "topclaw",
+            "backup",
+            "restore",
+            "./topclaw-backup",
+            "--force",
+        ])
+        .expect("backup restore should parse");
+
+        match cli.command {
+            Commands::Backup {
+                backup_command: topclaw::BackupCommands::Restore { source, force },
+            } => {
+                assert_eq!(source, std::path::PathBuf::from("./topclaw-backup"));
+                assert!(force);
+            }
+            other => panic!("expected backup restore command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn backup_inspect_cli_accepts_source() {
+        let cli = Cli::try_parse_from(["topclaw", "backup", "inspect", "./topclaw-backup"])
+            .expect("backup inspect should parse");
+
+        match cli.command {
+            Commands::Backup {
+                backup_command: topclaw::BackupCommands::Inspect { source },
+            } => {
+                assert_eq!(source, std::path::PathBuf::from("./topclaw-backup"));
+            }
+            other => panic!("expected backup inspect command, got {other:?}"),
         }
     }
 

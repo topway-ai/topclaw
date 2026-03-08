@@ -2,7 +2,7 @@
 
 Αυτός ο οδηγός περιλαμβάνει το πλήρες σύνολο των εντολών που είναι διαθέσιμες στη διεπαφή γραμμής εντολών (CLI) του TopClaw.
 
-Τελευταία ενημέρωση: 7 Μαρτίου 2026.
+Τελευταία ενημέρωση: 8 Μαρτίου 2026.
 
 ## Σύνοψη Εντολών
 
@@ -15,6 +15,7 @@
 | `doctor` | Εκτέλεση διαγνωστικών ελέγχων ακεραιότητας και συνδεσιμότητας. |
 | `status` | Προβολή της τρέχουσας κατάστασης και των ενεργών ρυθμίσεων. |
 | `update` | Έλεγχος ή εγκατάσταση της νεότερης έκδοσης του TopClaw. |
+| `backup` | Δημιουργία ή επαναφορά φορητού αντιγράφου πλήρους κατάστασης του TopClaw. |
 | `cron` | Διαχείριση προγραμματισμένων εργασιών και αυτοματισμών. |
 | `models` | Συγχρονισμός και διαχείριση διαθέσιμων μοντέλων AI. |
 | `providers` | Διαχείριση των παρόχων υπολογιστικής ισχύος (LLM Providers). |
@@ -89,6 +90,25 @@
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jackfly8/TopClaw/main/scripts/install-release.sh | bash
 ```
+
+### 5.1 `backup` (Αντίγραφο Ασφαλείας / Επαναφορά)
+
+- `topclaw backup create <destination_dir>`
+- `topclaw backup create <destination_dir> --include-logs`
+- `topclaw backup inspect <source_dir>`
+- `topclaw backup restore <source_dir>`
+- `topclaw backup restore <source_dir> --force`
+
+Σημειώσεις:
+
+- Το `backup create` εξάγει ολόκληρο το ενεργό config root του TopClaw, συμπεριλαμβανομένων των `config.toml`, authentication state, secrets, memories, preferences, δεδομένων workspace και εγκατεστημένων skills.
+- Το `backup create` καταγράφει πλέον checksum για κάθε αρχείο και γράφει ένα `RESTORE.md` μέσα στο bundle ώστε η μεταφορά σε άλλο μηχάνημα να είναι πιο σαφής.
+- Το `backup inspect` επαληθεύει την ακεραιότητα του bundle πριν από restore και εμφανίζει τα καταγεγραμμένα σύνολα αρχείων και bytes.
+- Τα runtime logs εξαιρούνται από προεπιλογή ώστε το bundle να παραμένει μικρότερο και πιο εύκολα μεταφέρσιμο. Χρησιμοποιήστε `--include-logs` αν θέλετε να τα συμπεριλάβετε.
+- Το `backup restore` καλύπτει τόσο disaster recovery όσο και μεταφορά σε άλλο μηχάνημα. Η επαναφορά γράφει στο τρέχον runtime config location και ανανεώνει το active-workspace marker.
+- Το `backup restore` αρνείται να αντικαταστήσει μη κενό target directory χωρίς `--force`.
+- Στο `backup restore --force`, το TopClaw μετακινεί πρώτα το προηγούμενο target config σε γειτονικό rollback directory αντί να το διαγράφει άμεσα.
+- Αν το TopClaw εκτελείται ως background service, σταματήστε ή επανεκκινήστε την υπηρεσία γύρω από την επαναφορά ώστε το runtime να φορτώσει καθαρά την ανακτημένη κατάσταση.
 
 ### 6. `skills` (Επεκτασιμότητα)
 

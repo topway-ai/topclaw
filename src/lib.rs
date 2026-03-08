@@ -38,6 +38,7 @@
 
 use clap::Subcommand;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 pub mod agent;
 pub(crate) mod approval;
@@ -77,6 +78,32 @@ pub(crate) mod util;
 pub mod workspace;
 
 pub use config::Config;
+
+/// Backup management subcommands
+#[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum BackupCommands {
+    /// Create a portable backup bundle of the current TopClaw state
+    Create {
+        /// Destination directory for the backup bundle
+        destination: PathBuf,
+        /// Include runtime logs in the backup bundle
+        #[arg(long)]
+        include_logs: bool,
+    },
+    /// Inspect a backup bundle and verify its integrity
+    Inspect {
+        /// Source backup bundle directory
+        source: PathBuf,
+    },
+    /// Restore a previously created TopClaw backup bundle
+    Restore {
+        /// Source backup bundle directory
+        source: PathBuf,
+        /// Replace an existing non-empty target config directory
+        #[arg(long)]
+        force: bool,
+    },
+}
 
 /// Service management subcommands
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

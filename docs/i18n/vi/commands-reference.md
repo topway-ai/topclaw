@@ -2,7 +2,7 @@
 
 Dựa trên CLI hiện tại (`topclaw --help`).
 
-Xác minh lần cuối: **2026-03-07**.
+Xác minh lần cuối: **2026-03-08**.
 
 ## Lệnh cấp cao nhất
 
@@ -16,6 +16,7 @@ Xác minh lần cuối: **2026-03-07**.
 | `doctor` | Chạy chẩn đoán và kiểm tra trạng thái |
 | `status` | Hiển thị cấu hình và tóm tắt hệ thống |
 | `update` | Kiểm tra hoặc cài bản phát hành TopClaw mới nhất |
+| `backup` | Tạo hoặc khôi phục gói sao lưu toàn bộ trạng thái TopClaw |
 | `cron` | Quản lý tác vụ định kỳ |
 | `models` | Làm mới danh mục model của provider |
 | `providers` | Liệt kê ID provider, bí danh và provider đang dùng |
@@ -87,6 +88,25 @@ Ghi chú:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jackfly8/TopClaw/main/scripts/install-release.sh | bash
 ```
+
+### `backup`
+
+- `topclaw backup create <thu_muc_dich>`
+- `topclaw backup create <thu_muc_dich> --include-logs`
+- `topclaw backup inspect <thu_muc_nguon>`
+- `topclaw backup restore <thu_muc_nguon>`
+- `topclaw backup restore <thu_muc_nguon> --force`
+
+Ghi chú:
+
+- `backup create` xuất toàn bộ config root TopClaw đang được runtime sử dụng, bao gồm `config.toml`, trạng thái xác thực, secrets, memories, preferences, dữ liệu workspace và các skill đã cài.
+- `backup create` giờ ghi checksum cho từng file và thêm `RESTORE.md` vào bundle để việc chuyển sang máy khác rõ ràng hơn.
+- `backup inspect` kiểm tra tính toàn vẹn của bundle đã sao chép trước khi restore và in ra tổng số file / dung lượng đã ghi nhận.
+- Log runtime mặc định bị loại khỏi gói sao lưu để bundle nhỏ và dễ di chuyển hơn; thêm `--include-logs` nếu muốn mang theo log.
+- `backup restore` phục vụ cả khôi phục sau sự cố lẫn chuyển máy. Lệnh sẽ khôi phục vào vị trí config hiện tại của runtime và cập nhật marker active workspace.
+- `backup restore` sẽ từ chối ghi đè thư mục đích không rỗng nếu không có `--force`.
+- Khi dùng `backup restore --force`, TopClaw sẽ chuyển config đích cũ sang thư mục rollback cùng cấp thay vì xóa ngay từ đầu.
+- Nếu TopClaw đang chạy như dịch vụ nền, hãy dừng hoặc khởi động lại dịch vụ quanh lúc restore để runtime nạp lại trạng thái đã khôi phục.
 
 ### `cron`
 

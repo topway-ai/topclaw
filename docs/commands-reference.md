@@ -2,7 +2,7 @@
 
 This reference is derived from the current CLI surface (`topclaw --help`).
 
-Last verified: **March 7, 2026**.
+Last verified: **March 8, 2026**.
 
 ## Top-Level Commands
 
@@ -16,6 +16,7 @@ Last verified: **March 7, 2026**.
 | `doctor` | Run diagnostics and freshness checks |
 | `status` | Print current configuration and system summary |
 | `update` | Check for or install the latest TopClaw release |
+| `backup` | Create or restore a portable full-state backup bundle |
 | `estop` | Engage/resume emergency stop levels and inspect estop state |
 | `cron` | Manage scheduled tasks |
 | `models` | Refresh provider model catalogs |
@@ -120,6 +121,25 @@ Notes:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jackfly8/TopClaw/main/scripts/install-release.sh | bash
 ```
+
+### `backup`
+
+- `topclaw backup create <destination_dir>`
+- `topclaw backup create <destination_dir> --include-logs`
+- `topclaw backup inspect <source_dir>`
+- `topclaw backup restore <source_dir>`
+- `topclaw backup restore <source_dir> --force`
+
+Notes:
+
+- `backup create` exports the resolved TopClaw config root, including `config.toml`, auth state, secrets, memories, preferences, workspace data, and installed skills.
+- `backup create` now records per-file checksums and writes a `RESTORE.md` guide into the bundle so moving it to another machine is less error-prone.
+- `backup inspect` verifies the copied bundle before restore and prints the recorded file/byte totals.
+- Runtime logs are excluded by default so the bundle stays smaller and more portable; add `--include-logs` if you want them.
+- `backup restore` is designed for disaster recovery and machine migration. It restores into the current runtime config location and refreshes TopClaw's active-workspace marker.
+- `backup restore` refuses to overwrite a non-empty target unless `--force` is passed.
+- During `backup restore --force`, TopClaw moves the previous target config into a sibling rollback directory instead of deleting it first.
+- If TopClaw is running as a background service, stop or restart the service around restore so the runtime picks up the recovered state cleanly.
 
 ### `cron`
 
