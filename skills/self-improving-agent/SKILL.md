@@ -56,6 +56,9 @@ If an item fits more than one category, prefer the file that best matches the ne
 - Reuse or update an existing entry instead of creating duplicates when the pattern is recurring.
 - Mark status changes when an issue is fixed or a request is completed.
 - If a learning should influence repository policy or shared docs, propose that follow-up explicitly instead of silently editing protected guidance files.
+- Never store secrets, credentials, raw tokens, cookies, private URLs, or unredacted personal data in `.learnings/`.
+- Redact sensitive values from command output before writing excerpts. Replace them with placeholders such as `[REDACTED_TOKEN]` or `[REDACTED_EMAIL]`.
+- If an error log or environment detail might contain sensitive material, summarize it instead of copying it verbatim.
 
 ## Entry Formats
 

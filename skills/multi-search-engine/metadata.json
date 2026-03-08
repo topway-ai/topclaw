@@ -1,0 +1,7 @@
+{
+  "name": "multi-search-engine",
+  "version": "2.0.1",
+  "description": "Multi search engine with 18 engines (8 CN + 10 Global). Supports advanced operators, time filters, privacy engines, and regional search via Yandex.",
+  "engines": 18,
+  "requires_api_key": false
+}

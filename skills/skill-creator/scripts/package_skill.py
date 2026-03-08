@@ -7,7 +7,7 @@ import sys
 import zipfile
 from pathlib import Path
 
-from quick_validate import validate_skill
+from quick_validate import BLOCKED_DIR_NAMES, validate_skill
 
 
 def package_skill(skill_path, output_dir=None):
@@ -38,6 +38,9 @@ def package_skill(skill_path, output_dir=None):
     try:
         with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as archive:
             for file_path in skill_path.rglob("*"):
+                rel = file_path.relative_to(skill_path)
+                if any(part in BLOCKED_DIR_NAMES for part in rel.parts):
+                    continue
                 if file_path.is_file():
                     archive.write(file_path, file_path.relative_to(skill_path.parent))
         print(f"Successfully packaged skill to: {archive_path}")

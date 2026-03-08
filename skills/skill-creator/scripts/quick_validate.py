@@ -11,10 +11,59 @@ import yaml
 
 
 ALLOWED_PROPERTIES = {"name", "description", "license", "allowed-tools", "metadata"}
+ARCHIVE_SUFFIXES = (
+    ".zip",
+    ".tar",
+    ".tgz",
+    ".gz",
+    ".xz",
+    ".bz2",
+    ".7z",
+    ".rar",
+    ".jar",
+)
+SECRET_FILENAMES = {
+    ".env",
+    ".env.local",
+    ".env.production",
+    "id_rsa",
+    "id_ed25519",
+    "credentials",
+    "credentials.json",
+    "token",
+    "token.txt",
+    "secret",
+    "secret.txt",
+    "private.key",
+}
+BLOCKED_DIR_NAMES = {"__pycache__", ".git"}
+BLOCKED_FILE_SUFFIXES = (".pyc", ".pyo", ".pem", ".key", ".p12", ".pfx")
+
+
+def find_disallowed_files(skill_path):
+    problems = []
+    for file_path in skill_path.rglob("*"):
+        rel = file_path.relative_to(skill_path)
+        if any(part in BLOCKED_DIR_NAMES for part in rel.parts):
+            problems.append(f"Blocked generated or VCS path present: {rel}")
+            continue
+        if file_path.is_symlink():
+            problems.append(f"Symlinks are not allowed in packaged skills: {rel}")
+            continue
+        if not file_path.is_file():
+            continue
+
+        name = file_path.name.lower()
+        rel_lower = str(rel).lower()
+        if name in SECRET_FILENAMES or name.endswith(BLOCKED_FILE_SUFFIXES):
+            problems.append(f"Secret-like file must not be packaged: {rel}")
+        if rel_lower.endswith(ARCHIVE_SUFFIXES):
+            problems.append(f"Nested archive must not be packaged: {rel}")
+    return problems
 
 
 def validate_skill(skill_path):
-    skill_path = Path(skill_path)
+    skill_path = Path(skill_path).resolve()
     skill_md = skill_path / "SKILL.md"
     if not skill_md.exists():
         return False, "SKILL.md not found"
@@ -63,6 +112,10 @@ def validate_skill(skill_path):
         return False, "Description cannot contain angle brackets"
     if len(normalized_description) > 1024:
         return False, "Description exceeds the 1024 character limit"
+
+    problems = find_disallowed_files(skill_path)
+    if problems:
+        return False, "; ".join(problems)
 
     return True, "Skill is valid"
 

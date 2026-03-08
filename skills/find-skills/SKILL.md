@@ -18,16 +18,18 @@ Use this skill when the user:
 - Wants to search for tools, templates, or workflows
 - Mentions they wish they had help with a specific domain (design, testing, deployment, etc.)
 
-## What is the Skills CLI?
+## Discovery and Install Path
 
-The Skills CLI (`npx skills`) is the package manager for the open agent skills ecosystem. Skills are modular packages that extend agent capabilities with specialized knowledge, workflows, and tools.
+Use public skill indexes such as https://skills.sh/ to discover candidate skills, but
+install them through TopClaw's reviewed workflow instead of a third-party package
+manager. TopClaw's `skills install` path applies domain trust prompts and the built-in
+skill vetter before the skill is added to the workspace.
 
-**Key commands:**
+**Preferred commands:**
 
-- `npx skills find [query]` - Search for skills interactively or by keyword
-- `npx skills add <package>` - Install a skill from GitHub or other sources
-- `npx skills check` - Check for skill updates
-- `npx skills update` - Update all installed skills
+- `topclaw skills install <source>` - Install from a reviewed local path, git URL, or `skills.sh` URL
+- `topclaw skills vet <installed-skill> --json` - Re-run the full skill vetter after install
+- `topclaw skills list` - Verify what is currently installed
 
 **Browse skills at:** https://skills.sh/
 
@@ -43,11 +45,8 @@ When a user asks for help with something, identify:
 
 ### Step 2: Search for Skills
 
-Run the find command with a relevant query:
-
-```bash
-npx skills find [query]
-```
+Search the skills index or use low-risk web search with a relevant query. Capture the
+skills.sh page URL for any promising result instead of jumping straight to installation.
 
 For example:
 
@@ -55,10 +54,10 @@ For example:
 - User asks "can you help me with PR reviews?" → `npx skills find pr review`
 - User asks "I need to create a changelog" → `npx skills find changelog`
 
-The command will return results like:
+The index will return results like:
 
 ```
-Install with npx skills add <owner/repo@skill>
+Install with topclaw skills install https://skills.sh/<owner>/<repo>/<skill>
 
 vercel-labs/agent-skills@vercel-react-best-practices
 └ https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices
@@ -69,7 +68,7 @@ vercel-labs/agent-skills@vercel-react-best-practices
 When you find relevant skills, present them to the user with:
 
 1. The skill name and what it does
-2. The install command they can run
+2. The safer TopClaw install command they can run
 3. A link to learn more at skills.sh
 
 Example response:
@@ -78,8 +77,8 @@ Example response:
 I found a skill that might help! The "vercel-react-best-practices" skill provides
 React and Next.js performance optimization guidelines from Vercel Engineering.
 
-To install it:
-npx skills add vercel-labs/agent-skills@vercel-react-best-practices
+To install it safely with TopClaw:
+topclaw skills install https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices
 
 Learn more: https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices
 ```
@@ -89,10 +88,11 @@ Learn more: https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practic
 If the user wants to proceed, you can install the skill for them:
 
 ```bash
-npx skills add <owner/repo@skill> -g -y
+topclaw skills install https://skills.sh/<owner>/<repo>/<skill>
+topclaw skills vet <installed-skill-name> --json
 ```
-
-The `-g` flag installs globally (user-level) and `-y` skips confirmation prompts.
+Do not recommend unattended global installs or third-party package managers when the
+same skill can be installed through TopClaw's audited path.
 
 ## Common Skill Categories
 
@@ -120,7 +120,7 @@ If no relevant skills exist:
 
 1. Acknowledge that no existing skill was found
 2. Offer to help with the task directly using your general capabilities
-3. Suggest the user could create their own skill with `npx skills init`
+3. Suggest the user could create their own skill with the local `skill-creator` bundle
 
 Example:
 
@@ -128,6 +128,6 @@ Example:
 I searched for skills related to "xyz" but didn't find any matches.
 I can still help you with this task directly! Would you like me to proceed?
 
-If this is something you do often, you could create your own skill:
-npx skills init my-xyz-skill
+If this is something you do often, you could create your own skill with:
+python skills/skill-creator/scripts/init_skill.py my-xyz-skill --path ./skills
 ```

@@ -605,6 +605,17 @@ fn audit_markdown_file(root: &Path, path: &Path, report: &mut SkillAuditReport) 
         );
     }
 
+    if let Some(command) = detect_external_installer_command(&content) {
+        push_finding(
+            report,
+            SkillRiskLevel::High,
+            "external-installer-guidance",
+            format!(
+                "{rel}: markdown instructs direct external installer usage ({command}), which bypasses TopClaw's reviewed skill install path."
+            ),
+        );
+    }
+
     for raw_target in extract_markdown_links(&content) {
         audit_markdown_link_target(root, path, &raw_target, report);
     }
@@ -1101,6 +1112,38 @@ fn detect_high_risk_snippet(content: &str) -> Option<&'static str> {
         .find_map(|(regex, label)| regex.is_match(content).then_some(*label))
 }
 
+fn detect_external_installer_command(content: &str) -> Option<&'static str> {
+    static INSTALLER_PATTERNS: OnceLock<Vec<(Regex, &'static str)>> = OnceLock::new();
+    let patterns = INSTALLER_PATTERNS.get_or_init(|| {
+        vec![
+            (
+                Regex::new(r"(?im)\bnpx\s+skills\s+(?:add|update|check|find)\b").expect("regex"),
+                "npx skills",
+            ),
+            (
+                Regex::new(r"(?im)\bnpm\s+(?:install|i)\b").expect("regex"),
+                "npm install",
+            ),
+            (
+                Regex::new(r"(?im)\bpip(?:3)?\s+install\b").expect("regex"),
+                "pip install",
+            ),
+            (
+                Regex::new(r"(?im)\bcargo\s+install\b").expect("regex"),
+                "cargo install",
+            ),
+            (
+                Regex::new(r"(?im)\b(?:apt|apt-get|brew|go)\s+install\b").expect("regex"),
+                "package-manager install",
+            ),
+        ]
+    });
+
+    patterns
+        .iter()
+        .find_map(|(regex, label)| regex.is_match(content).then_some(*label))
+}
+
 fn pattern_category(pattern: &str) -> &'static str {
     match pattern {
         "prompt-injection-override"
@@ -1229,5 +1272,21 @@ command = "agent-browser --no-sandbox --user-data-dir /tmp/profile"
         let report = vet_skill_directory(&skill_dir).unwrap();
         assert!(!report.install_allowed);
         assert!(has_finding(&report.static_audit, "browser-sandbox-bypass"));
+    }
+
+    #[test]
+    fn vet_rejects_markdown_external_installer_guidance() {
+        let dir = tempfile::tempdir().unwrap();
+        let skill_dir = dir.path().join("installer-guidance");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "# Skill\nRun `npx skills add owner/repo@skill -g -y` to install.\n",
+        )
+        .unwrap();
+
+        let report = vet_skill_directory(&skill_dir).unwrap();
+        assert!(!report.install_allowed);
+        assert!(has_finding(&report.static_audit, "external-installer-guidance"));
     }
 }
