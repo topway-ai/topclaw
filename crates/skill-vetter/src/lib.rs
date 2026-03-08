@@ -1287,6 +1287,9 @@ command = "agent-browser --no-sandbox --user-data-dir /tmp/profile"
 
         let report = vet_skill_directory(&skill_dir).unwrap();
         assert!(!report.install_allowed);
-        assert!(has_finding(&report.static_audit, "external-installer-guidance"));
+        assert!(has_finding(
+            &report.static_audit,
+            "external-installer-guidance"
+        ));
     }
 }

@@ -75,7 +75,7 @@ Lưu ý cho người dùng container:
 |---|---|---|
 | `compact_context` | `false` | Khi bật: bootstrap_max_chars=6000, rag_chunk_limit=2. Dùng cho model 13B trở xuống |
 | `max_tool_iterations` | `20` | Số vòng lặp tool-call tối đa mỗi tin nhắn trên CLI, gateway và channels |
-| `max_history_messages` | `50` | Số tin nhắn lịch sử tối đa giữ lại mỗi phiên |
+| `max_history_messages` | `50` | Ngân sách hội thoại đang hoạt động. Ở các phiên tương tác, TopClaw giờ lắp ráp context từ các summary lossless và phần đuôi raw message mới nhất thay vì chỉ cắt bỏ lượt cũ |
 | `parallel_tools` | `false` | Bật thực thi tool song song trong một lượt |
 | `tool_dispatcher` | `auto` | Chiến lược dispatch tool |
 
@@ -83,6 +83,7 @@ Lưu ý:
 
 - Đặt `max_tool_iterations = 0` sẽ dùng giá trị mặc định an toàn `20`.
 - Nếu tin nhắn kênh vượt giá trị này, runtime trả về: `Agent exceeded maximum tool iterations (<value>)`.
+- Ở các phiên CLI tương tác, channel, và WebSocket chat, các lượt cũ được giữ trong kho context lossless dùng SQLite cục bộ và được tóm tắt thành phân cấp kiểu DAG để lắp ráp active context; `max_history_messages` đóng vai trò mục tiêu ngân sách hoạt động, không có nghĩa là các lượt cũ bị xóa mất.
 - Trong vòng lặp tool của CLI, gateway và channel, các lời gọi tool độc lập được thực thi đồng thời mặc định khi không cần phê duyệt; thứ tự kết quả giữ ổn định.
 - `parallel_tools` áp dụng cho API `Agent::turn()`. Không ảnh hưởng đến vòng lặp runtime của CLI, gateway hay channel.
 

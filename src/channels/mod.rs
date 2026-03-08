@@ -70,7 +70,7 @@ pub use whatsapp::WhatsAppChannel;
 pub use whatsapp_web::WhatsAppWebChannel;
 
 use crate::agent::loop_::{
-    build_shell_policy_instructions, build_tool_instructions_from_specs,
+    build_shell_policy_instructions, build_tool_instructions_from_specs, lossless::LosslessContext,
     run_tool_call_loop_with_non_cli_approval_context, scrub_credentials, NonCliApprovalContext,
 };
 use crate::approval::{ApprovalManager, ApprovalResponse, PendingApprovalError};
@@ -1531,6 +1531,14 @@ fn clear_sender_history(ctx: &ChannelRuntimeContext, sender_key: &str) {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .remove(sender_key);
+    if let Ok(mut lossless) = LosslessContext::for_session(
+        ctx.workspace_dir.as_path(),
+        "channel",
+        sender_key,
+        ctx.system_prompt.as_str(),
+    ) {
+        let _ = lossless.reset(ctx.system_prompt.as_str());
+    }
 }
 
 fn compact_sender_history(ctx: &ChannelRuntimeContext, sender_key: &str) -> bool {
@@ -1577,6 +1585,21 @@ fn append_sender_turn(ctx: &ChannelRuntimeContext, sender_key: &str, turn: ChatM
     turns.push(turn);
     while turns.len() > MAX_CHANNEL_HISTORY {
         turns.remove(0);
+    }
+}
+
+fn set_sender_history(ctx: &ChannelRuntimeContext, sender_key: &str, history: Vec<ChatMessage>) {
+    let mut histories = ctx
+        .conversation_histories
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if history.is_empty() {
+        histories.remove(sender_key);
+    } else {
+        histories.insert(
+            sender_key.to_string(),
+            normalize_cached_channel_turns(history),
+        );
     }
 }
 
@@ -3114,46 +3137,38 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
     println!("  ⏳ Processing message...");
     let started_at = Instant::now();
 
-    let had_prior_history = ctx
-        .conversation_histories
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(&history_key)
-        .is_some_and(|turns| !turns.is_empty());
+    let mut lossless_context = match LosslessContext::for_session(
+        ctx.workspace_dir.as_path(),
+        "channel",
+        &history_key,
+        ctx.system_prompt.as_str(),
+    ) {
+        Ok(context) => context,
+        Err(err) => {
+            tracing::warn!(
+                channel = %msg.channel,
+                sender = %msg.sender,
+                "failed to initialize lossless context: {err}"
+            );
+            match LosslessContext::new(&std::env::temp_dir(), ctx.system_prompt.as_str()) {
+                Ok(context) => context,
+                Err(temp_err) => {
+                    tracing::warn!(
+                        channel = %msg.channel,
+                        sender = %msg.sender,
+                        "failed to initialize temporary lossless context fallback: {temp_err}"
+                    );
+                    return;
+                }
+            }
+        }
+    };
+    let had_prior_history = lossless_context.has_non_system_messages().unwrap_or(false);
 
     // Inject per-message timestamp so the LLM always knows the current time,
     // even in multi-turn conversations where the system prompt may be stale.
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S %Z");
     let timestamped_content = format!("[{now}] {}", msg.content);
-
-    // Preserve user turn before the LLM call so interrupted requests keep context.
-    append_sender_turn(
-        ctx.as_ref(),
-        &history_key,
-        ChatMessage::user(&timestamped_content),
-    );
-
-    // Build history from per-sender conversation cache.
-    let prior_turns_raw = ctx
-        .conversation_histories
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(&history_key)
-        .cloned()
-        .unwrap_or_default();
-    let mut prior_turns = normalize_cached_channel_turns(prior_turns_raw);
-
-    // Only enrich with memory context when there is no prior conversation
-    // history. Follow-up turns already include context from previous messages.
-    if !had_prior_history {
-        let memory_context =
-            build_memory_context(ctx.memory.as_ref(), &msg.content, ctx.min_relevance_score).await;
-        if let Some(last_turn) = prior_turns.last_mut() {
-            if last_turn.role == "user" && !memory_context.is_empty() {
-                last_turn.content = format!("{memory_context}{timestamped_content}");
-            }
-        }
-    }
 
     let expose_internal_tool_details =
         msg.channel == "cli" || should_expose_internal_tool_details(&msg.content);
@@ -3175,8 +3190,53 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
     ));
     let canary_guard = crate::security::CanaryGuard::new(canary_enabled_for_turn);
     let (system_prompt, turn_canary_token) = canary_guard.inject_turn_token(&system_prompt);
-    let mut history = vec![ChatMessage::system(system_prompt)];
-    history.extend(prior_turns);
+    if let Err(err) = lossless_context.record_raw_message(&ChatMessage::user(&timestamped_content))
+    {
+        tracing::warn!(
+            channel = %msg.channel,
+            sender = %msg.sender,
+            "failed to persist channel user turn into lossless context: {err}"
+        );
+    }
+    let mut history = match lossless_context
+        .rebuild_active_history(
+            active_provider.as_ref(),
+            route.model.as_str(),
+            &system_prompt,
+            MAX_CHANNEL_HISTORY,
+        )
+        .await
+    {
+        Ok(history) => history,
+        Err(err) => {
+            tracing::warn!(
+                channel = %msg.channel,
+                sender = %msg.sender,
+                "failed to rebuild lossless channel history: {err}"
+            );
+            let mut fallback = vec![ChatMessage::system(system_prompt.clone())];
+            fallback.extend(
+                ctx.conversation_histories
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .get(&history_key)
+                    .cloned()
+                    .unwrap_or_default(),
+            );
+            fallback.push(ChatMessage::user(&timestamped_content));
+            fallback
+        }
+    };
+
+    if !had_prior_history {
+        let memory_context =
+            build_memory_context(ctx.memory.as_ref(), &msg.content, ctx.min_relevance_score).await;
+        if let Some(last_turn) = history.last_mut() {
+            if last_turn.role == "user" && !memory_context.is_empty() {
+                last_turn.content = format!("{memory_context}{timestamped_content}");
+            }
+        }
+    }
     let use_streaming = target_channel
         .as_ref()
         .is_some_and(|ch| ch.supports_draft_updates());
@@ -3407,6 +3467,15 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
             }
         }
         LlmExecutionResult::Completed(Ok(Ok(response))) => {
+            if let Err(err) =
+                lossless_context.record_raw_messages(&history[history_len_before_tools..])
+            {
+                tracing::warn!(
+                    channel = %msg.channel,
+                    sender = %msg.sender,
+                    "failed to persist post-tool channel history: {err}"
+                );
+            }
             // ── Hook: on_message_sending (modifying) ─────────
             let mut outbound_response = response;
             if canary_guard
@@ -3544,11 +3613,7 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
                     format!("{tool_summary}\n{delivered_response}")
                 };
 
-                append_sender_turn(
-                    ctx.as_ref(),
-                    &history_key,
-                    ChatMessage::assistant(&history_response),
-                );
+                history.push(ChatMessage::assistant(&history_response));
                 println!(
                     "  🤖 Reply ({}ms): {}",
                     started_at.elapsed().as_millis(),
@@ -3579,8 +3644,46 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
                     }
                 }
             }
+            match lossless_context
+                .rebuild_active_history(
+                    active_provider.as_ref(),
+                    route.model.as_str(),
+                    &system_prompt,
+                    MAX_CHANNEL_HISTORY,
+                )
+                .await
+            {
+                Ok(active_history) => {
+                    set_sender_history(
+                        ctx.as_ref(),
+                        &history_key,
+                        active_history.into_iter().skip(1).collect(),
+                    );
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        channel = %msg.channel,
+                        sender = %msg.sender,
+                        "failed to refresh channel lossless history cache: {err}"
+                    );
+                    set_sender_history(
+                        ctx.as_ref(),
+                        &history_key,
+                        normalize_cached_channel_turns(history.into_iter().skip(1).collect()),
+                    );
+                }
+            }
         }
         LlmExecutionResult::Completed(Ok(Err(e))) => {
+            if let Err(err) =
+                lossless_context.record_raw_messages(&history[history_len_before_tools..])
+            {
+                tracing::warn!(
+                    channel = %msg.channel,
+                    sender = %msg.sender,
+                    "failed to persist partial channel history after error: {err}"
+                );
+            }
             if crate::agent::loop_::is_tool_loop_cancelled(&e) || cancellation_token.is_cancelled()
             {
                 tracing::info!(
@@ -3609,12 +3712,33 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
                     }
                 }
             } else if is_context_window_overflow_error(&e) {
-                let compacted = compact_sender_history(ctx.as_ref(), &history_key);
-                let error_text = if compacted {
-                    "⚠️ Context window exceeded for this conversation. I compacted recent history and kept the latest context. Please resend your last message."
-                } else {
-                    "⚠️ Context window exceeded for this conversation. Please resend your last message."
+                let compacted = match lossless_context
+                    .rebuild_active_history(
+                        active_provider.as_ref(),
+                        route.model.as_str(),
+                        &system_prompt,
+                        MAX_CHANNEL_HISTORY,
+                    )
+                    .await
+                {
+                    Ok(active_history) => {
+                        set_sender_history(
+                            ctx.as_ref(),
+                            &history_key,
+                            active_history.into_iter().skip(1).collect(),
+                        );
+                        true
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            channel = %msg.channel,
+                            sender = %msg.sender,
+                            "failed to rebuild channel history after overflow: {err}"
+                        );
+                        compact_sender_history(ctx.as_ref(), &history_key)
+                    }
                 };
+                let error_text = "⚠️ Context window exceeded for this conversation. Older turns were compacted into lossless summaries and the latest context was preserved. Please resend your last message.";
                 eprintln!(
                     "  ⚠️ Context window exceeded after {}ms; sender history compacted={}",
                     started_at.elapsed().as_millis(),
@@ -3674,6 +3798,9 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
                         "[Task paused at tool-iteration limit — context preserved. Ask to continue.]",
                     ),
                 );
+                let _ = lossless_context.record_raw_message(&ChatMessage::assistant(
+                    "[Task paused at tool-iteration limit — context preserved. Ask to continue.]",
+                ));
                 if let Some(channel) = target_channel.as_ref() {
                     if let Some(ref draft_id) = draft_message_id {
                         let _ = channel
@@ -3712,6 +3839,11 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
                     .is_some_and(|capability| capability.capability.eq_ignore_ascii_case("vision"));
                 let rolled_back = should_rollback_user_turn
                     && rollback_orphan_user_turn(ctx.as_ref(), &history_key, &timestamped_content);
+                let _ = if should_rollback_user_turn {
+                    lossless_context.rollback_latest_raw_message("user", &timestamped_content)
+                } else {
+                    Ok(false)
+                };
 
                 if !rolled_back {
                     // Close the orphan user turn so subsequent messages don't
@@ -3720,6 +3852,24 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
                         ctx.as_ref(),
                         &history_key,
                         ChatMessage::assistant("[Task failed — not continuing this request]"),
+                    );
+                    let _ = lossless_context.record_raw_message(&ChatMessage::assistant(
+                        "[Task failed — not continuing this request]",
+                    ));
+                }
+                if let Ok(active_history) = lossless_context
+                    .rebuild_active_history(
+                        active_provider.as_ref(),
+                        route.model.as_str(),
+                        &system_prompt,
+                        MAX_CHANNEL_HISTORY,
+                    )
+                    .await
+                {
+                    set_sender_history(
+                        ctx.as_ref(),
+                        &history_key,
+                        active_history.into_iter().skip(1).collect(),
                     );
                 }
                 if let Some(channel) = target_channel.as_ref() {
@@ -3768,6 +3918,24 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
                 &history_key,
                 ChatMessage::assistant("[Task timed out — not continuing this request]"),
             );
+            let _ = lossless_context.record_raw_message(&ChatMessage::assistant(
+                "[Task timed out — not continuing this request]",
+            ));
+            if let Ok(active_history) = lossless_context
+                .rebuild_active_history(
+                    active_provider.as_ref(),
+                    route.model.as_str(),
+                    &system_prompt,
+                    MAX_CHANNEL_HISTORY,
+                )
+                .await
+            {
+                set_sender_history(
+                    ctx.as_ref(),
+                    &history_key,
+                    active_history.into_iter().skip(1).collect(),
+                );
+            }
             if let Some(channel) = target_channel.as_ref() {
                 let error_text =
                     "⚠️ Request timed out while waiting for the model. Please try again.";

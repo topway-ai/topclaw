@@ -91,7 +91,7 @@ Operational note for container users:
 |---|---|---|
 | `compact_context` | `false` | When true: bootstrap_max_chars=6000, rag_chunk_limit=2. Use for 13B or smaller models |
 | `max_tool_iterations` | `20` | Maximum tool-call loop turns per user message across CLI, gateway, and channels |
-| `max_history_messages` | `50` | Maximum conversation history messages retained per session |
+| `max_history_messages` | `50` | Active conversation budget. In interactive sessions, TopClaw assembles context from lossless summaries plus a fresh raw-message tail instead of only truncating old turns |
 | `parallel_tools` | `false` | Enable parallel tool execution within a single iteration |
 | `tool_dispatcher` | `auto` | Tool dispatch strategy |
 
@@ -99,6 +99,7 @@ Notes:
 
 - Setting `max_tool_iterations = 0` falls back to safe default `20`.
 - If a channel message exceeds this value, the runtime returns: `Agent exceeded maximum tool iterations (<value>)`.
+- In interactive CLI, channel, and WebSocket chat sessions, older turns are preserved in a local SQLite-backed lossless context store and summarized into a DAG-style hierarchy for active-context assembly; `max_history_messages` acts as the active-budget target, not a promise that older turns are deleted.
 - In CLI, gateway, and channel tool loops, multiple independent tool calls are executed concurrently by default when the pending calls do not require approval gating; result order remains stable.
 - `parallel_tools` applies to the `Agent::turn()` API surface. It does not gate the runtime loop used by CLI, gateway, or channel handlers.
 
