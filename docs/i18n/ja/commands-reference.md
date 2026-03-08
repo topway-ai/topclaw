@@ -20,3 +20,5 @@
 ## 最新更新
 
 - `topclaw gateway` は `--new-pairing` をサポートし、既存のペアリングトークンを消去して新しいペアリングコードを生成できます。
+- `topclaw update` を使って最新リリースを確認・適用できます。安全な更新手順は `topclaw update --check` -> `topclaw update` -> 必要なら `topclaw service restart` です。
+- よく使うエイリアスとして `topclaw init` / `chat` / `run` / `info` / `channels` / `skill` が利用できます。

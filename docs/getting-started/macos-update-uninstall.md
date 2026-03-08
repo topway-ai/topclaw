@@ -2,7 +2,7 @@
 
 This page documents supported update and uninstall procedures for TopClaw on macOS (OS X).
 
-Last verified: **February 22, 2026**.
+Last verified: **March 7, 2026**.
 
 ## 1) Check current install method
 
@@ -19,6 +19,23 @@ Typical locations:
 If both exist, your shell `PATH` order decides which one runs.
 
 ## 2) Update on macOS
+
+### Fast path: built-in updater
+
+If your current `topclaw` binary is installed in a writable location, this is the easiest update path:
+
+```bash
+topclaw update
+topclaw --version
+```
+
+To check without installing:
+
+```bash
+topclaw update --check
+```
+
+If `topclaw update` reports that it cannot replace the current binary, use one of the install-method-specific paths below.
 
 ### A) Homebrew install
 

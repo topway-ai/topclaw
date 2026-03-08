@@ -20,3 +20,5 @@
 ## 最近更新
 
 - `topclaw gateway` 新增 `--new-pairing` 参数，可清空已配对 token 并在网关启动时生成新的配对码。
+- `topclaw update` 现在明确给出了安全更新路径：先执行 `topclaw update --check`，再执行 `topclaw update`，如果以后台服务运行则再执行 `topclaw service restart`。
+- 另外补充了更易懂的别名入口：`topclaw init`、`chat`、`run`、`info`、`channels`、`skill`。

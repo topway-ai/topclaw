@@ -15,6 +15,7 @@ Source anglaise:
 ## Plan des sections source
 
 - [H2 · Option 0: Homebrew (macOS/Linuxbrew)](../../one-click-bootstrap.md#option-0-homebrew-macos-linuxbrew)
+- [H2 · Safe update](../../one-click-bootstrap.md#safe-update)
 - [H2 · Option A (Recommended): Clone + local script](../../one-click-bootstrap.md#option-a-recommended-clone-local-script)
 - [H3 · Resource preflight and pre-built flow](../../one-click-bootstrap.md#resource-preflight-and-pre-built-flow)
 - [H2 · Dual-mode bootstrap](../../one-click-bootstrap.md#dual-mode-bootstrap)
@@ -28,6 +29,7 @@ Source anglaise:
 
 ## Conseils d'exécution
 
+- Pour une installation existante, utiliser d'abord `topclaw update --check`, puis `topclaw update`, puis `topclaw service restart` si TopClaw tourne comme service.
 - Commencer par la structure des sections source, puis cibler les parties directement liées au changement en cours.
 - Les noms de commandes, clés de configuration, chemins API et identifiants de code restent en anglais.
 - En cas d'ambiguïté d'interprétation, la source anglaise fait foi.

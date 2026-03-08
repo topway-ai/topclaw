@@ -2,7 +2,34 @@
 
 This page defines the fastest supported path to install and initialize TopClaw.
 
-Last verified: **March 5, 2026**.
+Last verified: **March 7, 2026**.
+
+## Safe update
+
+For existing installs, the simplest supported update path is:
+
+```bash
+topclaw update
+topclaw --version
+```
+
+To check first without installing:
+
+```bash
+topclaw update --check
+```
+
+If TopClaw runs as a background service, restart it after the update:
+
+```bash
+topclaw service restart
+```
+
+If `topclaw update` reports that the current binary location is not writable, fall back to the original install method:
+
+- repo checkout installs: `./bootstrap.sh --prefer-prebuilt`
+- source installs: `cargo install --path . --force --locked`
+- package-manager installs: update through that package manager
 
 ## Option 0: Homebrew (macOS/Linuxbrew)
 

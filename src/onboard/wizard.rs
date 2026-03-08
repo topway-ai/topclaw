@@ -16,7 +16,7 @@ use crate::memory::{
 use crate::providers::{
     canonical_china_provider_name, is_glm_alias, is_glm_cn_alias, is_minimax_alias,
     is_moonshot_alias, is_qianfan_alias, is_qwen_alias, is_qwen_oauth_alias, is_zai_alias,
-    is_zai_cn_alias,
+    is_zai_cn_alias, list_providers,
 };
 use anyhow::{bail, Context, Result};
 use console::style;
@@ -6233,43 +6233,52 @@ fn print_summary(config: &Config) {
 
     let mut step = 1u8;
 
-    let provider = config.default_provider.as_deref().unwrap_or("openrouter");
-    if config.api_key.is_none() && !provider_supports_keyless_local_usage(provider) {
-        if provider == "openai-codex" {
-            println!(
-                "    {} Authenticate OpenAI Codex:",
-                style(format!("{step}.")).cyan().bold()
-            );
-            println!(
-                "       {}",
-                style("topclaw auth login --provider openai-codex --device-code").yellow()
-            );
-        } else if provider == "anthropic" {
-            println!(
-                "    {} Configure Anthropic auth:",
-                style(format!("{step}.")).cyan().bold()
-            );
-            println!(
-                "       {}",
-                style("export ANTHROPIC_API_KEY=\"sk-ant-...\"").yellow()
-            );
-            println!(
-                "       {}",
-                style(
-                    "or: topclaw auth paste-token --provider anthropic --auth-kind authorization"
-                )
-                .yellow()
-            );
-        } else {
-            let env_var = provider_env_var(provider);
-            println!(
-                "    {} Set your API key:",
-                style(format!("{step}.")).cyan().bold()
-            );
-            println!(
-                "       {}",
-                style(format!("export {env_var}=\"sk-...\"")).yellow()
-            );
+    if let Some(provider_next_step) = provider_next_step(config) {
+        match provider_next_step {
+            ProviderNextStep::GuidedSetup => {
+                println!(
+                    "    {} Complete provider setup:",
+                    style(format!("{step}.")).cyan().bold()
+                );
+                println!("       {}", style("topclaw onboard --interactive").yellow());
+            }
+            ProviderNextStep::OpenAiCodexAuth => {
+                println!(
+                    "    {} Authenticate OpenAI Codex:",
+                    style(format!("{step}.")).cyan().bold()
+                );
+                println!(
+                    "       {}",
+                    style("topclaw auth login --provider openai-codex --device-code").yellow()
+                );
+            }
+            ProviderNextStep::AnthropicAuth => {
+                println!(
+                    "    {} Configure Anthropic auth:",
+                    style(format!("{step}.")).cyan().bold()
+                );
+                println!(
+                    "       {}",
+                    style("export ANTHROPIC_API_KEY=\"sk-ant-...\"").yellow()
+                );
+                println!(
+                    "       {}",
+                    style(
+                        "or: topclaw auth paste-token --provider anthropic --auth-kind authorization"
+                    )
+                    .yellow()
+                );
+            }
+            ProviderNextStep::ApiKeyEnvVar(env_var) => {
+                println!(
+                    "    {} Set your API key:",
+                    style(format!("{step}.")).cyan().bold()
+                );
+                println!(
+                    "       {}",
+                    style(format!("export {env_var}=\"sk-...\"")).yellow()
+                );
+            }
         }
         println!();
         step += 1;
@@ -6330,6 +6339,51 @@ fn print_summary(config: &Config) {
         style("Happy hacking! 🦀").white().bold()
     );
     println!();
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ProviderNextStep {
+    GuidedSetup,
+    OpenAiCodexAuth,
+    AnthropicAuth,
+    ApiKeyEnvVar(&'static str),
+}
+
+fn provider_next_step(config: &Config) -> Option<ProviderNextStep> {
+    let Some(provider) = config
+        .default_provider
+        .as_deref()
+        .map(str::trim)
+        .filter(|provider| !provider.is_empty())
+    else {
+        return Some(ProviderNextStep::GuidedSetup);
+    };
+
+    if !is_supported_provider_name(provider) {
+        return Some(ProviderNextStep::GuidedSetup);
+    }
+
+    if config.api_key.is_none() && !provider_supports_keyless_local_usage(provider) {
+        if provider == "openai-codex" {
+            return Some(ProviderNextStep::OpenAiCodexAuth);
+        }
+        if provider == "anthropic" {
+            return Some(ProviderNextStep::AnthropicAuth);
+        }
+        return Some(ProviderNextStep::ApiKeyEnvVar(provider_env_var(provider)));
+    }
+
+    None
+}
+
+fn is_supported_provider_name(provider: &str) -> bool {
+    if provider.starts_with("custom:") || provider.starts_with("anthropic-custom:") {
+        return true;
+    }
+
+    list_providers()
+        .into_iter()
+        .any(|info| info.name == provider || info.aliases.contains(&provider))
 }
 
 #[cfg(test)]
@@ -7702,6 +7756,52 @@ mod tests {
         assert!(provider_supports_keyless_local_usage("sglang"));
         assert!(provider_supports_keyless_local_usage("vllm"));
         assert!(!provider_supports_keyless_local_usage("openai"));
+    }
+
+    #[test]
+    fn provider_next_step_uses_guided_setup_when_provider_is_missing() {
+        let config = Config::default();
+
+        assert_eq!(
+            provider_next_step(&config),
+            Some(ProviderNextStep::GuidedSetup)
+        );
+    }
+
+    #[test]
+    fn provider_next_step_uses_guided_setup_for_unknown_provider_value() {
+        let config = Config {
+            default_provider: Some("imessage".to_string()),
+            ..Config::default()
+        };
+
+        assert_eq!(
+            provider_next_step(&config),
+            Some(ProviderNextStep::GuidedSetup)
+        );
+    }
+
+    #[test]
+    fn provider_next_step_prefers_auth_guidance_for_known_provider() {
+        let config = Config {
+            default_provider: Some("openai-codex".to_string()),
+            ..Config::default()
+        };
+
+        assert_eq!(
+            provider_next_step(&config),
+            Some(ProviderNextStep::OpenAiCodexAuth)
+        );
+    }
+
+    #[test]
+    fn provider_next_step_is_none_for_keyless_local_provider() {
+        let config = Config {
+            default_provider: Some("ollama".to_string()),
+            ..Config::default()
+        };
+
+        assert_eq!(provider_next_step(&config), None);
     }
 
     #[test]

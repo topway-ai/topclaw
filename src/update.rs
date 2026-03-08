@@ -5,6 +5,7 @@
 use anyhow::{bail, Context, Result};
 use std::env;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -235,6 +236,45 @@ fn replace_binary(new_binary: &Path, current_exe: &Path) -> Result<()> {
     Ok(())
 }
 
+fn is_permission_error(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .downcast_ref::<io::Error>()
+            .is_some_and(|io_err| io_err.kind() == io::ErrorKind::PermissionDenied)
+    })
+}
+
+fn print_update_recovery_hint(current_exe: &Path) {
+    println!();
+    println!("TopClaw downloaded the new release, but it could not replace the current binary.");
+    println!("This usually means the install location requires elevated permissions.");
+    println!();
+    println!("Current binary location:");
+    println!("  {}", current_exe.display());
+    println!();
+    println!("Recommended recovery paths:");
+    if cfg!(target_os = "linux") {
+        println!("  1. Re-run the official release installer:");
+        println!("     curl -fsSL https://raw.githubusercontent.com/{GITHUB_REPO}/main/scripts/install-release.sh | bash");
+        println!("  2. Or run `topclaw update` again from a user-writable install location.");
+    } else if cfg!(target_os = "macos") {
+        println!("  1. If installed from a repo checkout, run:");
+        println!("     ./bootstrap.sh --prefer-prebuilt");
+        println!("  2. If installed with source builds, run:");
+        println!("     cargo install --path . --force --locked");
+        println!(
+            "  3. If installed by another package manager, update through that package manager."
+        );
+    } else if cfg!(windows) {
+        println!("  1. Close any running TopClaw processes.");
+        println!(
+            "  2. Re-run the installer or replace the binary from an elevated shell if needed."
+        );
+    } else {
+        println!("  Reinstall TopClaw using the method you originally used to install it.");
+    }
+}
+
 /// Check if an update is available
 pub async fn check_for_update() -> Result<Option<String>> {
     let release = fetch_latest_release().await?;
@@ -305,7 +345,12 @@ pub async fn self_update(force: bool, check_only: bool) -> Result<()> {
     println!("Installing update...");
 
     // Replace the binary
-    replace_binary(&new_binary, &current_exe)?;
+    if let Err(err) = replace_binary(&new_binary, &current_exe) {
+        if is_permission_error(&err) {
+            print_update_recovery_hint(&current_exe);
+        }
+        return Err(err).context("Failed to install the downloaded update");
+    }
 
     println!();
     println!("✅ Successfully updated to {}!", release.tag_name);
