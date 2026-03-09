@@ -1233,6 +1233,14 @@ impl SecurityPolicy {
             return false;
         }
 
+        if self
+            .allowed_roots
+            .iter()
+            .any(|root| expanded_path.starts_with(root))
+        {
+            return true;
+        }
+
         // Block forbidden paths using path-component-aware matching
         for forbidden in &self.forbidden_paths {
             let forbidden_path = expand_user_path(forbidden);
@@ -1546,8 +1554,20 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
     use tempfile::TempDir;
 
+    fn test_default_allowed_commands() -> Vec<String> {
+        [
+            "ls", "git", "cargo", "cat", "grep", "date", "echo", "wc", "find",
+        ]
+        .into_iter()
+        .map(std::string::ToString::to_string)
+        .collect()
+    }
+
     fn default_policy() -> SecurityPolicy {
-        SecurityPolicy::default()
+        SecurityPolicy {
+            allowed_commands: test_default_allowed_commands(),
+            ..SecurityPolicy::default()
+        }
     }
 
     fn readonly_policy() -> SecurityPolicy {
@@ -1560,6 +1580,7 @@ mod tests {
     fn full_policy() -> SecurityPolicy {
         SecurityPolicy {
             autonomy: AutonomyLevel::Full,
+            allowed_commands: test_default_allowed_commands(),
             ..SecurityPolicy::default()
         }
     }
@@ -1898,7 +1919,6 @@ mod tests {
         let allowed_root = std::env::temp_dir().join("topclaw-policy-allowed-root");
         let p = SecurityPolicy {
             allowed_roots: vec![allowed_root.clone()],
-            forbidden_paths: vec![],
             ..SecurityPolicy::default()
         };
 

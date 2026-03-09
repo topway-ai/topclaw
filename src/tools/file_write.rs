@@ -1,3 +1,4 @@
+use super::path_resolution::{resolve_allowed_parent_and_target, resolve_tool_path_candidate};
 use super::traits::{Tool, ToolResult};
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
@@ -74,24 +75,7 @@ impl Tool for FileWriteTool {
             .ok_or_else(|| anyhow::anyhow!("Missing 'content' parameter"))?;
         let otp_code = args.get("otp_code").and_then(|v| v.as_str());
 
-        // Security check: validate path is within workspace
-        if !self.security.is_path_allowed(path) {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!("Path not allowed by security policy: {path}")),
-            });
-        }
-
-        let full_path = self.security.workspace_dir.join(path);
-
-        let Some(parent) = full_path.parent() else {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Invalid path: missing parent directory".into()),
-            });
-        };
+        let full_path = resolve_tool_path_candidate(&self.security, path);
 
         if let Err(error) = self.security.enforce_sensitive_tool_operation(
             "file_write",
@@ -105,41 +89,20 @@ impl Tool for FileWriteTool {
             });
         }
 
-        // Ensure parent directory exists
-        tokio::fs::create_dir_all(parent).await?;
+        if let Some(parent) = full_path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
 
-        // Resolve parent AFTER creation to block symlink escapes.
-        let resolved_parent = match tokio::fs::canonicalize(parent).await {
-            Ok(p) => p,
-            Err(e) => {
+        let resolved_target = match resolve_allowed_parent_and_target(&self.security, path).await {
+            Ok(path) => path,
+            Err(error) => {
                 return Ok(ToolResult {
                     success: false,
                     output: String::new(),
-                    error: Some(format!("Failed to resolve file path: {e}")),
+                    error: Some(error),
                 });
             }
         };
-
-        if !self.security.is_resolved_path_allowed(&resolved_parent) {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(
-                    self.security
-                        .resolved_path_violation_message(&resolved_parent),
-                ),
-            });
-        }
-
-        let Some(file_name) = full_path.file_name() else {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Invalid path: missing file name".into()),
-            });
-        };
-
-        let resolved_target = resolved_parent.join(file_name);
 
         // If the target already exists and is a symlink, refuse to follow it
         if let Ok(meta) = tokio::fs::symlink_metadata(&resolved_target).await {

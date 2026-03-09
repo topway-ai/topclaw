@@ -1,3 +1,4 @@
+use super::policy_gate::enforce_action;
 use super::traits::{Tool, ToolResult};
 use crate::config::Config;
 use crate::cron::{self, DeliveryConfig, JobType, Schedule, SessionTarget};
@@ -17,33 +18,7 @@ impl CronAddTool {
     }
 
     fn enforce_mutation_allowed(&self, action: &str) -> Option<ToolResult> {
-        if !self.security.can_act() {
-            return Some(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!(
-                    "Security policy: read-only mode, cannot perform '{action}'"
-                )),
-            });
-        }
-
-        if self.security.is_rate_limited() {
-            return Some(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Rate limit exceeded: too many actions in the last hour".to_string()),
-            });
-        }
-
-        if !self.security.record_action() {
-            return Some(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Rate limit exceeded: action budget exhausted".to_string()),
-            });
-        }
-
-        None
+        enforce_action(&self.security, action)
     }
 }
 
@@ -184,7 +159,7 @@ impl Tool for CronAddTool {
                     return Ok(blocked);
                 }
 
-                cron::add_shell_job(&self.config, name, schedule, command)
+                cron::add_shell_job_with_approval(&self.config, name, schedule, command, approved)
             }
             JobType::Agent => {
                 let prompt = match args.get("prompt").and_then(serde_json::Value::as_str) {
@@ -277,10 +252,21 @@ mod tests {
     use crate::security::AutonomyLevel;
     use tempfile::TempDir;
 
+    fn test_allowed_commands() -> Vec<String> {
+        ["echo"]
+            .into_iter()
+            .map(std::string::ToString::to_string)
+            .collect()
+    }
+
     async fn test_config(tmp: &TempDir) -> Arc<Config> {
         let config = Config {
             workspace_dir: tmp.path().join("workspace"),
             config_path: tmp.path().join("config.toml"),
+            autonomy: crate::config::AutonomyConfig {
+                allowed_commands: test_allowed_commands(),
+                ..crate::config::AutonomyConfig::default()
+            },
             ..Config::default()
         };
         tokio::fs::create_dir_all(&config.workspace_dir)
@@ -380,6 +366,7 @@ mod tests {
         };
         config.autonomy.level = AutonomyLevel::Full;
         config.autonomy.max_actions_per_hour = 0;
+        config.autonomy.allowed_commands = vec!["echo".into()];
         std::fs::create_dir_all(&config.workspace_dir).unwrap();
         let cfg = Arc::new(config);
         let tool = CronAddTool::new(cfg.clone(), test_security(&cfg));

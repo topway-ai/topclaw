@@ -1,3 +1,4 @@
+use super::path_resolution::resolve_allowed_existing_path;
 use super::traits::{Tool, ToolResult};
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
@@ -54,58 +55,27 @@ impl Tool for FileReadTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
 
-        if self.security.is_rate_limited() {
+        if let Err(error) = self
+            .security
+            .enforce_tool_operation(crate::security::policy::ToolOperation::Read, self.name())
+        {
             return Ok(ToolResult {
                 success: false,
                 output: String::new(),
-                error: Some("Rate limit exceeded: too many actions in the last hour".into()),
+                error: Some(error),
             });
         }
 
-        // Security check: validate path is within workspace
-        if !self.security.is_path_allowed(path) {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!("Path not allowed by security policy: {path}")),
-            });
-        }
-
-        // Record action BEFORE canonicalization so that every non-trivially-rejected
-        // request consumes rate limit budget. This prevents attackers from probing
-        // path existence (via canonicalize errors) without rate limit cost.
-        if !self.security.record_action() {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Rate limit exceeded: action budget exhausted".into()),
-            });
-        }
-
-        let full_path = self.security.workspace_dir.join(path);
-
-        // Resolve path before reading to block symlink escapes.
-        let resolved_path = match tokio::fs::canonicalize(&full_path).await {
-            Ok(p) => p,
-            Err(e) => {
+        let resolved_path = match resolve_allowed_existing_path(&self.security, path).await {
+            Ok(path) => path,
+            Err(error) => {
                 return Ok(ToolResult {
                     success: false,
                     output: String::new(),
-                    error: Some(format!("Failed to resolve file path: {e}")),
+                    error: Some(error),
                 });
             }
         };
-
-        if !self.security.is_resolved_path_allowed(&resolved_path) {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(
-                    self.security
-                        .resolved_path_violation_message(&resolved_path),
-                ),
-            });
-        }
 
         // Check file size AFTER canonicalization to prevent TOCTOU symlink bypass
         match tokio::fs::metadata(&resolved_path).await {
@@ -303,6 +273,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn file_read_allows_absolute_path_inside_allowed_root() {
+        let workspace = std::env::temp_dir().join("topclaw_test_file_read_workspace");
+        let allowed = std::env::temp_dir().join("topclaw_test_file_read_allowed");
+        let _ = tokio::fs::remove_dir_all(&workspace).await;
+        let _ = tokio::fs::remove_dir_all(&allowed).await;
+        tokio::fs::create_dir_all(&workspace).await.unwrap();
+        tokio::fs::create_dir_all(&allowed).await.unwrap();
+
+        let target = allowed.join("shared.txt");
+        tokio::fs::write(&target, "shared read").await.unwrap();
+
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Supervised,
+            workspace_dir: workspace,
+            allowed_roots: vec![allowed.clone()],
+            ..SecurityPolicy::default()
+        });
+        let tool = FileReadTool::new(security);
+        let result = tool
+            .execute(json!({"path": target.display().to_string()}))
+            .await
+            .unwrap();
+
+        assert!(result.success, "{result:?}");
+        assert!(result.output.contains("1: shared read"));
+
+        let _ = tokio::fs::remove_dir_all(&allowed).await;
+    }
+
+    #[tokio::test]
     async fn file_read_nonexistent_file() {
         let dir = std::env::temp_dir().join("topclaw_test_file_read_missing");
         let _ = tokio::fs::remove_dir_all(&dir).await;
@@ -311,7 +311,7 @@ mod tests {
         let tool = FileReadTool::new(test_security(dir.clone()));
         let result = tool.execute(json!({"path": "nope.txt"})).await.unwrap();
         assert!(!result.success);
-        assert!(result.error.as_ref().unwrap().contains("Failed to resolve"));
+        assert!(result.error.as_ref().unwrap().contains("File not found"));
 
         let _ = tokio::fs::remove_dir_all(&dir).await;
     }
@@ -342,7 +342,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn file_read_blocks_when_rate_limited() {
+    async fn file_read_ignores_rate_limit_for_read_operations() {
         let dir = std::env::temp_dir().join("topclaw_test_file_read_rate_limited");
         let _ = tokio::fs::remove_dir_all(&dir).await;
         tokio::fs::create_dir_all(&dir).await.unwrap();
@@ -357,12 +357,8 @@ mod tests {
         ));
         let result = tool.execute(json!({"path": "test.txt"})).await.unwrap();
 
-        assert!(!result.success);
-        assert!(result
-            .error
-            .as_deref()
-            .unwrap_or("")
-            .contains("Rate limit exceeded"));
+        assert!(result.success, "{result:?}");
+        assert!(result.output.contains("1: hello world"));
 
         let _ = tokio::fs::remove_dir_all(&dir).await;
     }
@@ -495,35 +491,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn file_read_nonexistent_consumes_rate_limit_budget() {
+    async fn file_read_nonexistent_does_not_consume_rate_limit_budget() {
         let dir = std::env::temp_dir().join("topclaw_test_file_read_probe");
         let _ = tokio::fs::remove_dir_all(&dir).await;
         tokio::fs::create_dir_all(&dir).await.unwrap();
 
-        // Allow only 2 actions total
+        // Read operations should not consume action budget.
         let tool = FileReadTool::new(test_security_with(
             dir.clone(),
             AutonomyLevel::Supervised,
-            2,
+            0,
         ));
 
-        // Both reads fail (file doesn't exist) but should consume budget
         let r1 = tool.execute(json!({"path": "nope1.txt"})).await.unwrap();
         assert!(!r1.success);
-        assert!(r1.error.as_ref().unwrap().contains("Failed to resolve"));
+        assert!(r1.error.as_ref().unwrap().contains("File not found"));
 
         let r2 = tool.execute(json!({"path": "nope2.txt"})).await.unwrap();
         assert!(!r2.success);
-        assert!(r2.error.as_ref().unwrap().contains("Failed to resolve"));
+        assert!(r2.error.as_ref().unwrap().contains("File not found"));
 
-        // Third attempt should be rate limited even though file doesn't exist
         let r3 = tool.execute(json!({"path": "nope3.txt"})).await.unwrap();
         assert!(!r3.success);
-        assert!(
-            r3.error.as_ref().unwrap().contains("Rate limit"),
-            "Expected rate limit error, got: {:?}",
-            r3.error
-        );
+        assert!(r3.error.as_ref().unwrap().contains("File not found"));
 
         let _ = tokio::fs::remove_dir_all(&dir).await;
     }

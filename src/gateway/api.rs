@@ -430,9 +430,7 @@ fn apply_integration_credentials_update(
         updated.default_model = spec.model_options.first().map(|value| (*value).to_string());
     }
 
-    if !spec.supports_api_url && !was_active_provider {
-        updated.api_url = None;
-    } else if spec.supports_api_url && !fields.contains_key("api_url") && !was_active_provider {
+    if !was_active_provider && (!spec.supports_api_url || !fields.contains_key("api_url")) {
         updated.api_url = None;
     }
 

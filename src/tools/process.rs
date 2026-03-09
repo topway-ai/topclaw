@@ -732,12 +732,20 @@ mod tests {
     use std::path::PathBuf;
     use tempfile::TempDir;
 
+    fn test_allowed_commands() -> Vec<String> {
+        ["sleep", "echo", "cat", "grep"]
+            .into_iter()
+            .map(std::string::ToString::to_string)
+            .collect()
+    }
+
     fn test_security() -> Arc<SecurityPolicy> {
-        let mut policy = SecurityPolicy::default();
-        policy.autonomy = AutonomyLevel::Full;
-        policy.workspace_dir = std::env::temp_dir();
-        policy.allowed_commands.push("sleep".into());
-        Arc::new(policy)
+        Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Full,
+            workspace_dir: std::env::temp_dir(),
+            allowed_commands: test_allowed_commands(),
+            ..SecurityPolicy::default()
+        })
     }
 
     fn test_runtime() -> Arc<dyn RuntimeAdapter> {

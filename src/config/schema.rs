@@ -303,7 +303,7 @@ pub struct ProviderConfig {
 }
 
 /// Multi-workspace registry configuration (`[workspaces]`).
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct WorkspacesConfig {
     /// Enables in-process workspace registry behavior.
     #[serde(default)]
@@ -333,15 +333,6 @@ impl WorkspacesConfig {
                 }
             }
             None => config_dir.join("workspaces"),
-        }
-    }
-}
-
-impl Default for WorkspacesConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            root: None,
         }
     }
 }

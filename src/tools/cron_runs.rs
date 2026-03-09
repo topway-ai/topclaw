@@ -121,10 +121,21 @@ mod tests {
     use chrono::{Duration as ChronoDuration, Utc};
     use tempfile::TempDir;
 
+    fn test_allowed_commands() -> Vec<String> {
+        ["echo"]
+            .into_iter()
+            .map(std::string::ToString::to_string)
+            .collect()
+    }
+
     async fn test_config(tmp: &TempDir) -> Arc<Config> {
         let config = Config {
             workspace_dir: tmp.path().join("workspace"),
             config_path: tmp.path().join("config.toml"),
+            autonomy: crate::config::AutonomyConfig {
+                allowed_commands: test_allowed_commands(),
+                ..crate::config::AutonomyConfig::default()
+            },
             ..Config::default()
         };
         tokio::fs::create_dir_all(&config.workspace_dir)

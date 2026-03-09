@@ -585,7 +585,11 @@ mod tests {
             .await
             .unwrap();
         assert!(!result.success);
-        assert!(result.error.unwrap().contains("rate limit"));
+        assert!(result
+            .error
+            .unwrap()
+            .to_ascii_lowercase()
+            .contains("rate limit"));
     }
 
     #[tokio::test]

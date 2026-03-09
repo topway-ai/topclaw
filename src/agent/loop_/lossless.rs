@@ -298,10 +298,7 @@ impl LosslessContext {
              ORDER BY depth",
         )?;
         let rows = stmt.query_map(params![self.conversation_id.clone()], |row| {
-            Ok((
-                row.get::<_, i64>(0)? as usize,
-                row.get::<_, i64>(1)? as usize,
-            ))
+            Ok((row.get(0)?, row.get(1)?))
         })?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .context("failed to load summary depth counts")
@@ -315,7 +312,7 @@ impl LosslessContext {
             params![self.conversation_id.clone()],
             |row| row.get(0),
         )?;
-        Ok(count as usize)
+        usize::try_from(count).context("message count cannot be negative")
     }
 
     async fn ensure_leaf_summaries(&mut self, provider: &dyn Provider, model: &str) -> Result<()> {
@@ -529,13 +526,13 @@ impl LosslessContext {
 
         let summary_id = format!("sum_{}", Uuid::new_v4());
         let now = Utc::now().to_rfc3339();
-        let descendant_count = if !raw_messages.is_empty() {
-            raw_messages.len()
-        } else {
+        let descendant_count = if raw_messages.is_empty() {
             parent_summaries
                 .iter()
                 .map(|summary| summary.descendant_message_count)
                 .sum()
+        } else {
+            raw_messages.len()
         };
         let earliest_ordinal = raw_messages
             .first()
@@ -634,8 +631,8 @@ pub(crate) fn inspect_store(
             session_scope: row.get(0)?,
             session_key: row.get(1)?,
             conversation_id: row.get(2)?,
-            message_count: row.get::<_, i64>(3)? as usize,
-            summary_count: row.get::<_, i64>(4)? as usize,
+            message_count: row.get(3)?,
+            summary_count: row.get(4)?,
             latest_activity_at: row.get(5)?,
         })
     })?;
@@ -662,7 +659,7 @@ pub(crate) fn search_store(
     let conn = open_connection(&db_path)?;
     init_schema(&conn)?;
     let pattern = format!("%{}%", escape_like(trimmed));
-    let limit = limit.max(1) as i64;
+    let limit = limit.max(1);
 
     let mut hits = Vec::new();
     {
@@ -682,22 +679,25 @@ pub(crate) fn search_store(
              ORDER BY m.created_at DESC
              LIMIT ?4",
         )?;
-        let rows = stmt.query_map(params![pattern, session_scope, session_key, limit], |row| {
-            Ok(LosslessSearchHit {
-                session_scope: row.get(0)?,
-                session_key: row.get(1)?,
-                conversation_id: row.get(2)?,
-                source_kind: row.get(3)?,
-                ordinal_hint: row.get(4)?,
-                role: row.get(5)?,
-                excerpt: truncate_with_ellipsis(&row.get::<_, String>(6)?, 240),
-            })
-        })?;
+        let rows = stmt.query_map(
+            params![pattern, session_scope, session_key, limit as i64],
+            |row| {
+                Ok(LosslessSearchHit {
+                    session_scope: row.get(0)?,
+                    session_key: row.get(1)?,
+                    conversation_id: row.get(2)?,
+                    source_kind: row.get(3)?,
+                    ordinal_hint: row.get(4)?,
+                    role: row.get(5)?,
+                    excerpt: truncate_with_ellipsis(&row.get::<_, String>(6)?, 240),
+                })
+            },
+        )?;
         hits.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
     }
 
-    if hits.len() < limit as usize {
-        let remaining = (limit as usize - hits.len()).max(1) as i64;
+    if hits.len() < limit {
+        let remaining = (limit - hits.len()).max(1);
         let mut stmt = conn.prepare(
             "SELECT sb.session_scope,
                     sb.session_key,
@@ -715,7 +715,7 @@ pub(crate) fn search_store(
              LIMIT ?4",
         )?;
         let rows = stmt.query_map(
-            params![pattern, session_scope, session_key, remaining],
+            params![pattern, session_scope, session_key, remaining as i64],
             |row| {
                 Ok(LosslessSearchHit {
                     session_scope: row.get(0)?,
@@ -731,7 +731,7 @@ pub(crate) fn search_store(
         hits.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
     }
 
-    Ok(hits.into_iter().take(limit as usize).collect())
+    Ok(hits.into_iter().take(limit).collect())
 }
 
 fn open_connection(path: &Path) -> Result<Connection> {
@@ -827,7 +827,7 @@ fn read_messages<P: rusqlite::Params>(
             ordinal: row.get(1)?,
             role: row.get(2)?,
             content: row.get(3)?,
-            token_estimate: row.get::<_, i64>(4)? as usize,
+            token_estimate: row.get(4)?,
         })
     })?;
     rows.collect::<rusqlite::Result<Vec<_>>>()
@@ -841,10 +841,10 @@ fn read_summaries<P: rusqlite::Params>(
     let rows = stmt.query_map(params, |row| {
         Ok(SummaryNode {
             id: row.get(0)?,
-            depth: row.get::<_, i64>(1)? as usize,
+            depth: row.get(1)?,
             content: row.get(2)?,
-            token_estimate: row.get::<_, i64>(3)? as usize,
-            descendant_message_count: row.get::<_, i64>(4)? as usize,
+            token_estimate: row.get(3)?,
+            descendant_message_count: row.get(4)?,
             earliest_ordinal: row.get(5)?,
             latest_ordinal: row.get(6)?,
         })

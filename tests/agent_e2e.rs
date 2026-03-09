@@ -726,7 +726,6 @@ async fn e2e_live_research_phase() {
     use topclaw::config::{ResearchPhaseConfig, ResearchTrigger};
     use topclaw::observability::NoopObserver;
     use topclaw::providers::openai_codex::OpenAiCodexProvider;
-    use topclaw::providers::traits::Provider;
     use topclaw::tools::{Tool, ToolResult};
 
     // ── Test should_trigger ──

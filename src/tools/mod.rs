@@ -51,7 +51,9 @@ pub mod memory_forget;
 pub mod memory_recall;
 pub mod memory_store;
 pub mod model_routing_config;
+mod path_resolution;
 pub mod pdf_read;
+mod policy_gate;
 pub mod process;
 pub mod proxy_config;
 pub mod pushover;
@@ -330,7 +332,7 @@ pub fn all_tools_with_runtime(
 
     if browser_config.enabled {
         // Add legacy browser_open tool for simple URL opening (unless disabled)
-        if has_shell_access && browser_config.browser_open.to_ascii_lowercase() != "disable" {
+        if has_shell_access && !browser_config.browser_open.eq_ignore_ascii_case("disable") {
             tool_arcs.push(Arc::new(BrowserOpenTool::new(
                 security.clone(),
                 browser_config.allowed_domains.clone(),

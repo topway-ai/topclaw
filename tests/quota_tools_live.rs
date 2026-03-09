@@ -9,6 +9,4 @@
 
 #[test]
 #[ignore = "legacy quota tools were removed; replace with live coverage for the current quota surface before re-enabling"]
-fn quota_tools_live_is_deferred_until_new_public_surface_exists() {
-    assert!(true);
-}
+fn quota_tools_live_is_deferred_until_new_public_surface_exists() {}

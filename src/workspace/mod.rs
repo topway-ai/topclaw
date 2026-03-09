@@ -107,17 +107,16 @@ impl WorkspaceRegistry {
                 );
             }
 
-            if metadata.enabled {
-                if registry
+            if metadata.enabled
+                && registry
                     .token_index
                     .insert(metadata.token_hash.clone(), normalized_id.clone())
                     .is_some()
-                {
-                    bail!(
-                        "duplicate enabled token hash detected while loading {}",
-                        metadata_path.display()
-                    );
-                }
+            {
+                bail!(
+                    "duplicate enabled token hash detected while loading {}",
+                    metadata_path.display()
+                );
             }
 
             registry.workspaces.insert(
