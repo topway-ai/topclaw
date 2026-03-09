@@ -1046,7 +1046,7 @@ pub(crate) async fn run_tool_call_loop(
                         Some(model),
                         Some(&turn_id),
                         Some(false),
-                        Some(&parse_issue),
+                        Some(parse_issue),
                         serde_json::json!({
                             "iteration": iteration + 1,
                             "response_excerpt": truncate_with_ellipsis(
@@ -3696,6 +3696,7 @@ mod tests {
         let security = Arc::new(SecurityPolicy {
             autonomy: AutonomyLevel::Full,
             workspace_dir: workspace.path().to_path_buf(),
+            allowed_commands: vec!["echo".into()],
             shell_redirect_policy: ShellRedirectPolicy::Strip,
             ..SecurityPolicy::default()
         });

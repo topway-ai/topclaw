@@ -241,10 +241,7 @@ impl DiscordHistoryFetchTool {
         &self,
         channel_id: String,
         mut messages: Vec<DiscordApiMessage>,
-        include_bots: bool,
-        include_system: bool,
-        include_content: bool,
-        include_attachments: bool,
+        options: HistoryRenderOptions,
     ) -> anyhow::Result<ToolResult> {
         // Discord API returns newest-first; return oldest-first for predictable
         // downstream reasoning and sampling.
@@ -254,10 +251,10 @@ impl DiscordHistoryFetchTool {
         let mut rendered_messages = Vec::new();
 
         for msg in messages {
-            if !include_bots && msg.author.bot {
+            if !options.include_bots && msg.author.bot {
                 continue;
             }
-            if !include_system && Self::is_system_message(msg.message_type) {
+            if !options.include_system && Self::is_system_message(msg.message_type) {
                 continue;
             }
 
@@ -273,7 +270,7 @@ impl DiscordHistoryFetchTool {
                 is_bot: msg.author.bot,
             };
 
-            let attachments = if include_attachments {
+            let attachments = if options.include_attachments {
                 msg.attachments
                     .into_iter()
                     .map(|att| HistoryAttachment {
@@ -292,7 +289,7 @@ impl DiscordHistoryFetchTool {
                 id: msg.id,
                 timestamp: msg.timestamp,
                 author,
-                content: if include_content {
+                content: if options.include_content {
                     msg.content
                 } else {
                     String::new()
@@ -314,6 +311,15 @@ impl DiscordHistoryFetchTool {
             error: None,
         })
     }
+}
+
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Copy, Clone)]
+struct HistoryRenderOptions {
+    include_bots: bool,
+    include_system: bool,
+    include_content: bool,
+    include_attachments: bool,
 }
 
 #[async_trait]
@@ -479,10 +485,12 @@ impl Tool for DiscordHistoryFetchTool {
         self.render_history_output(
             channel_id,
             messages,
-            include_bots,
-            include_system,
-            include_content,
-            include_attachments,
+            HistoryRenderOptions {
+                include_bots,
+                include_system,
+                include_content,
+                include_attachments,
+            },
         )
     }
 }

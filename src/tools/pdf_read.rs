@@ -1,3 +1,4 @@
+use super::path_resolution::resolve_allowed_existing_path;
 use super::traits::{Tool, ToolResult};
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
@@ -75,54 +76,27 @@ impl Tool for PdfReadTool {
             })
             .unwrap_or(DEFAULT_MAX_CHARS);
 
-        if self.security.is_rate_limited() {
+        if let Err(error) = self
+            .security
+            .enforce_tool_operation(crate::security::policy::ToolOperation::Read, self.name())
+        {
             return Ok(ToolResult {
                 success: false,
                 output: String::new(),
-                error: Some("Rate limit exceeded: too many actions in the last hour".into()),
+                error: Some(error),
             });
         }
 
-        if !self.security.is_path_allowed(path) {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!("Path not allowed by security policy: {path}")),
-            });
-        }
-
-        // Record action before canonicalization so path-probing still consumes budget.
-        if !self.security.record_action() {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Rate limit exceeded: action budget exhausted".into()),
-            });
-        }
-
-        let full_path = self.security.workspace_dir.join(path);
-
-        let resolved_path = match tokio::fs::canonicalize(&full_path).await {
-            Ok(p) => p,
-            Err(e) => {
+        let resolved_path = match resolve_allowed_existing_path(&self.security, path).await {
+            Ok(path) => path,
+            Err(error) => {
                 return Ok(ToolResult {
                     success: false,
                     output: String::new(),
-                    error: Some(format!("Failed to resolve file path: {e}")),
+                    error: Some(error),
                 });
             }
         };
-
-        if !self.security.is_resolved_path_allowed(&resolved_path) {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(
-                    self.security
-                        .resolved_path_violation_message(&resolved_path),
-                ),
-            });
-        }
 
         tracing::debug!("Reading PDF: {}", resolved_path.display());
 
@@ -333,23 +307,26 @@ mod tests {
             .error
             .as_deref()
             .unwrap_or("")
-            .contains("Failed to resolve"));
+            .contains("File not found"));
     }
 
     #[tokio::test]
-    async fn rate_limit_blocks_request() {
+    async fn rate_limit_does_not_block_read_request() {
         let tmp = TempDir::new().unwrap();
         let tool = PdfReadTool::new(test_security_with_limit(tmp.path().to_path_buf(), 0));
         let result = tool.execute(json!({"path": "any.pdf"})).await.unwrap();
         assert!(!result.success);
-        assert!(result.error.as_deref().unwrap_or("").contains("Rate limit"));
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("File not found"));
     }
 
     #[tokio::test]
-    async fn probing_nonexistent_consumes_rate_limit_budget() {
+    async fn probing_nonexistent_does_not_consume_rate_limit_budget() {
         let tmp = TempDir::new().unwrap();
-        // Allow 2 actions; both will fail on missing file but must consume budget.
-        let tool = PdfReadTool::new(test_security_with_limit(tmp.path().to_path_buf(), 2));
+        let tool = PdfReadTool::new(test_security_with_limit(tmp.path().to_path_buf(), 0));
 
         let r1 = tool.execute(json!({"path": "a.pdf"})).await.unwrap();
         assert!(!r1.success);
@@ -357,7 +334,7 @@ mod tests {
             .error
             .as_deref()
             .unwrap_or("")
-            .contains("Failed to resolve"));
+            .contains("File not found"));
 
         let r2 = tool.execute(json!({"path": "b.pdf"})).await.unwrap();
         assert!(!r2.success);
@@ -365,16 +342,15 @@ mod tests {
             .error
             .as_deref()
             .unwrap_or("")
-            .contains("Failed to resolve"));
+            .contains("File not found"));
 
-        // Third attempt must hit rate limit.
         let r3 = tool.execute(json!({"path": "c.pdf"})).await.unwrap();
         assert!(!r3.success);
-        assert!(
-            r3.error.as_deref().unwrap_or("").contains("Rate limit"),
-            "expected rate limit, got: {:?}",
-            r3.error
-        );
+        assert!(r3
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("File not found"));
     }
 
     #[cfg(unix)]

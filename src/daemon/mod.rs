@@ -97,7 +97,7 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
                 max_backoff,
                 move || {
                     let cfg = channels_cfg.clone();
-                    async move { crate::channels::start_channels(cfg).await }
+                    async move { Box::pin(crate::channels::start_channels(cfg)).await }
                 },
             ));
         } else {
@@ -258,16 +258,15 @@ async fn run_heartbeat_worker(config: Config) -> Result<()> {
     loop {
         interval.tick().await;
 
-        let file_tasks = engine.collect_tasks().await?;
-        let tasks = heartbeat_tasks_for_tick(file_tasks, config.heartbeat.message.as_deref());
+        let tasks = engine.due_tasks().await?;
         if tasks.is_empty() {
             continue;
         }
 
         for task in tasks {
-            let prompt = format!("[Heartbeat Task] {task}");
+            let prompt = format!("[Heartbeat Task] {}", task.text);
             let temp = config.default_temperature;
-            match crate::agent::run(
+            match Box::pin(crate::agent::run(
                 config.clone(),
                 Some(prompt),
                 None,
@@ -275,10 +274,13 @@ async fn run_heartbeat_worker(config: Config) -> Result<()> {
                 temp,
                 vec![],
                 false,
-            )
+            ))
             .await
             {
                 Ok(output) => {
+                    if let Err(state_err) = engine.record_task_result(&task, true).await {
+                        tracing::warn!("Heartbeat state update failed after success: {state_err}");
+                    }
                     crate::health::mark_component_ok("heartbeat");
                     let announcement = if output.trim().is_empty() {
                         "heartbeat task executed".to_string()
@@ -303,27 +305,15 @@ async fn run_heartbeat_worker(config: Config) -> Result<()> {
                     }
                 }
                 Err(e) => {
+                    if let Err(state_err) = engine.record_task_result(&task, false).await {
+                        tracing::warn!("Heartbeat state update failed after failure: {state_err}");
+                    }
                     crate::health::mark_component_error("heartbeat", e.to_string());
                     tracing::warn!("Heartbeat task failed: {e}");
                 }
             }
         }
     }
-}
-
-fn heartbeat_tasks_for_tick(
-    file_tasks: Vec<String>,
-    fallback_message: Option<&str>,
-) -> Vec<String> {
-    if !file_tasks.is_empty() {
-        return file_tasks;
-    }
-
-    fallback_message
-        .map(str::trim)
-        .filter(|message| !message.is_empty())
-        .map(|message| vec![message.to_string()])
-        .unwrap_or_default()
 }
 
 fn heartbeat_delivery_target(config: &Config) -> Result<Option<(String, String)>> {
@@ -575,25 +565,6 @@ mod tests {
             allowed_users: vec!["*".into()],
         });
         assert!(has_supervised_channels(&config));
-    }
-
-    #[test]
-    fn heartbeat_tasks_use_file_tasks_when_available() {
-        let tasks =
-            heartbeat_tasks_for_tick(vec!["From file".to_string()], Some("Fallback from config"));
-        assert_eq!(tasks, vec!["From file".to_string()]);
-    }
-
-    #[test]
-    fn heartbeat_tasks_fall_back_to_config_message() {
-        let tasks = heartbeat_tasks_for_tick(vec![], Some("  check london time  "));
-        assert_eq!(tasks, vec!["check london time".to_string()]);
-    }
-
-    #[test]
-    fn heartbeat_tasks_ignore_empty_fallback_message() {
-        let tasks = heartbeat_tasks_for_tick(vec![], Some("   "));
-        assert!(tasks.is_empty());
     }
 
     #[test]

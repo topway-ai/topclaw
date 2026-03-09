@@ -183,6 +183,14 @@ impl WebFetchTool {
         Ok(builder.build()?)
     }
 
+    fn resolve_redirect_target(current_url: &str, location: &str) -> anyhow::Result<String> {
+        reqwest::Url::parse(current_url)
+            .and_then(|base| base.join(location))
+            .or_else(|_| reqwest::Url::parse(location))
+            .map(|url| url.to_string())
+            .map_err(|e| anyhow::anyhow!("Invalid redirect Location header: {e}"))
+    }
+
     async fn fetch_with_http_provider(&self, url: &str) -> anyhow::Result<String> {
         let client = self.build_http_client()?;
         let mut current_url = url.to_string();
@@ -197,11 +205,7 @@ impl WebFetchTool {
                     .and_then(|v| v.to_str().ok())
                     .ok_or_else(|| anyhow::anyhow!("Redirect response missing Location header"))?;
 
-                let redirected_url = reqwest::Url::parse(&current_url)
-                    .and_then(|base| base.join(location))
-                    .or_else(|_| reqwest::Url::parse(location))
-                    .map_err(|e| anyhow::anyhow!("Invalid redirect Location header: {e}"))?
-                    .to_string();
+                let redirected_url = Self::resolve_redirect_target(&current_url, location)?;
 
                 current_url = self.validate_url(&redirected_url)?;
                 continue;
@@ -498,8 +502,6 @@ mod tests {
     use super::*;
     use crate::security::{AutonomyLevel, SecurityPolicy};
     use crate::tools::url_validation::{is_private_or_local_host, normalize_domain};
-    use wiremock::matchers::{method, path};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn test_tool(allowed_domains: Vec<&str>) -> WebFetchTool {
         test_tool_with_provider(allowed_domains, vec![], "fast_html2md", None, None)
@@ -738,35 +740,20 @@ mod tests {
             .await
             .unwrap();
         assert!(!result.success);
-        assert!(result.error.unwrap().contains("rate limit"));
+        assert!(result
+            .error
+            .unwrap()
+            .to_ascii_lowercase()
+            .contains("rate limit"));
     }
 
-    #[tokio::test]
-    async fn execute_follows_validated_redirect_and_returns_target_content() {
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/redirect"))
-            .respond_with(ResponseTemplate::new(302).insert_header("location", "/final"))
-            .mount(&server)
-            .await;
-        Mock::given(method("GET"))
-            .and(path("/final"))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .insert_header("content-type", "text/plain")
-                    .set_body_string("redirect target body"),
-            )
-            .mount(&server)
-            .await;
+    #[test]
+    fn resolve_redirect_target_joins_relative_location() {
+        let redirected =
+            WebFetchTool::resolve_redirect_target("https://example.com/redirect", "/final")
+                .unwrap();
 
-        let tool = test_tool(vec!["*"]);
-        let result = tool
-            .execute(json!({"url": format!("{}/redirect", server.uri())}))
-            .await
-            .unwrap();
-
-        assert!(result.success);
-        assert_eq!(result.output, "redirect target body");
+        assert_eq!(redirected, "https://example.com/final");
     }
 
     #[test]

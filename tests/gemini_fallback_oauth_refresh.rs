@@ -21,7 +21,6 @@ use chrono::{Duration, Utc};
 use serde_json::Value;
 use std::env;
 use std::fs;
-use std::path::PathBuf;
 
 /// Tests that Gemini warmup() refreshes expired OAuth tokens.
 ///
@@ -45,7 +44,7 @@ async fn gemini_warmup_refreshes_expired_oauth_token() -> Result<()> {
         return Ok(());
     }
 
-    let topclaw_dir = PathBuf::from(home).join(".topclaw");
+    let topclaw_dir = home.join(".topclaw");
     let auth_profiles_path = topclaw_dir.join("auth-profiles.json");
 
     if !auth_profiles_path.exists() {

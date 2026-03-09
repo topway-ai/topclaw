@@ -1,9 +1,10 @@
+use super::path_resolution::resolve_allowed_existing_path;
 use super::traits::{Tool, ToolResult};
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use serde_json::json;
 use std::fmt::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Maximum file size we will read and base64-encode (5 MB).
@@ -117,30 +118,8 @@ impl ImageInfoTool {
         None
     }
 
-    fn resolve_image_path(&self, path_str: &str) -> Result<PathBuf, String> {
-        // Syntax-level checks first.
-        if !self.security.is_path_allowed(path_str) {
-            return Err(format!(
-                "Path not allowed: {path_str} (must be within workspace)"
-            ));
-        }
-
-        let raw_path = Path::new(path_str);
-        let candidate = if raw_path.is_absolute() {
-            raw_path.to_path_buf()
-        } else {
-            self.security.workspace_dir.join(raw_path)
-        };
-
-        let resolved = candidate
-            .canonicalize()
-            .map_err(|_| format!("File not found: {path_str}"))?;
-
-        if !self.security.is_resolved_path_allowed(&resolved) {
-            return Err(self.security.resolved_path_violation_message(&resolved));
-        }
-
-        Ok(resolved)
+    async fn resolve_image_path(&self, path_str: &str) -> Result<PathBuf, String> {
+        resolve_allowed_existing_path(&self.security, path_str).await
     }
 }
 
@@ -182,7 +161,7 @@ impl Tool for ImageInfoTool {
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
 
-        let resolved_path = match self.resolve_image_path(path_str) {
+        let resolved_path = match self.resolve_image_path(path_str).await {
             Ok(path) => path,
             Err(error) => {
                 return Ok(ToolResult {

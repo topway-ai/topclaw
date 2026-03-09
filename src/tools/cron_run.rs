@@ -1,3 +1,4 @@
+use super::policy_gate::enforce_action;
 use super::traits::{Tool, ToolResult};
 use crate::config::Config;
 use crate::cron::{self, JobType};
@@ -67,20 +68,8 @@ impl Tool for CronRunTool {
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
 
-        if !self.security.can_act() {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Security policy: read-only mode, cannot perform 'cron_run'".into()),
-            });
-        }
-
-        if self.security.is_rate_limited() {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Rate limit exceeded: too many actions in the last hour".into()),
-            });
+        if let Some(blocked) = enforce_action(&self.security, "cron_run") {
+            return Ok(blocked);
         }
 
         let job = match cron::get_job(&self.config, job_id) {
@@ -107,16 +96,13 @@ impl Tool for CronRunTool {
             }
         }
 
-        if !self.security.record_action() {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Rate limit exceeded: action budget exhausted".into()),
-            });
-        }
-
         let started_at = Utc::now();
-        let (success, output) = cron::scheduler::execute_job_now(&self.config, &job).await;
+        let (success, output) = Box::pin(cron::scheduler::execute_job_now_with_approval(
+            &self.config,
+            &job,
+            approved,
+        ))
+        .await;
         let finished_at = Utc::now();
         let duration_ms = (finished_at - started_at).num_milliseconds();
         let status = if success { "ok" } else { "error" };
@@ -153,13 +139,24 @@ impl Tool for CronRunTool {
 mod tests {
     use super::*;
     use crate::config::Config;
-    use crate::security::AutonomyLevel;
+    use crate::security::{AutonomyLevel, SecurityPolicy};
     use tempfile::TempDir;
+
+    fn test_allowed_commands() -> Vec<String> {
+        ["echo"]
+            .into_iter()
+            .map(std::string::ToString::to_string)
+            .collect()
+    }
 
     async fn test_config(tmp: &TempDir) -> Arc<Config> {
         let config = Config {
             workspace_dir: tmp.path().join("workspace"),
             config_path: tmp.path().join("config.toml"),
+            autonomy: crate::config::AutonomyConfig {
+                allowed_commands: test_allowed_commands(),
+                ..crate::config::AutonomyConfig::default()
+            },
             ..Config::default()
         };
         tokio::fs::create_dir_all(&config.workspace_dir)
@@ -173,6 +170,15 @@ mod tests {
             &cfg.autonomy,
             &cfg.workspace_dir,
         ))
+    }
+
+    fn test_security_with(cfg: &Config, level: AutonomyLevel) -> Arc<SecurityPolicy> {
+        Arc::new(SecurityPolicy {
+            autonomy: level,
+            workspace_dir: cfg.workspace_dir.clone(),
+            allowed_commands: cfg.autonomy.allowed_commands.clone(),
+            ..SecurityPolicy::default()
+        })
     }
 
     #[tokio::test]
@@ -211,11 +217,11 @@ mod tests {
             config_path: tmp.path().join("config.toml"),
             ..Config::default()
         };
-        config.autonomy.level = AutonomyLevel::ReadOnly;
+        config.autonomy.allowed_commands = vec!["echo".into()];
         std::fs::create_dir_all(&config.workspace_dir).unwrap();
         let cfg = Arc::new(config);
         let job = cron::add_job(&cfg, "*/5 * * * *", "echo run-now").unwrap();
-        let tool = CronRunTool::new(cfg.clone(), test_security(&cfg));
+        let tool = CronRunTool::new(cfg.clone(), test_security_with(&cfg, AutonomyLevel::ReadOnly));
 
         let result = tool.execute(json!({ "job_id": job.id })).await.unwrap();
         assert!(!result.success);
@@ -234,7 +240,8 @@ mod tests {
         config.autonomy.allowed_commands = vec!["touch".into()];
         std::fs::create_dir_all(&config.workspace_dir).unwrap();
         let cfg = Arc::new(config);
-        let job = cron::add_job(&cfg, "*/5 * * * *", "touch cron-run-approval").unwrap();
+        let job = cron::add_job_approved(&cfg, "*/5 * * * *", "touch cron-run-approval", true)
+            .unwrap();
         let tool = CronRunTool::new(cfg.clone(), test_security(&cfg));
 
         let denied = tool.execute(json!({ "job_id": job.id })).await.unwrap();
@@ -261,6 +268,7 @@ mod tests {
         };
         config.autonomy.level = AutonomyLevel::Full;
         config.autonomy.max_actions_per_hour = 0;
+        config.autonomy.allowed_commands = vec!["echo".into()];
         std::fs::create_dir_all(&config.workspace_dir).unwrap();
         let cfg = Arc::new(config);
         let job = cron::add_job(&cfg, "*/5 * * * *", "echo run-now").unwrap();

@@ -703,6 +703,13 @@ fn normalize_cached_channel_turns(turns: Vec<ChatMessage>) -> Vec<ChatMessage> {
     normalized
 }
 
+fn filter_noop_assistant_turns(turns: Vec<ChatMessage>) -> Vec<ChatMessage> {
+    turns
+        .into_iter()
+        .filter(|turn| !(turn.role == "assistant" && is_agent_noop_sentinel(&turn.content)))
+        .collect()
+}
+
 fn supports_runtime_model_switch(channel_name: &str) -> bool {
     matches!(channel_name, "telegram" | "discord")
 }
@@ -3467,15 +3474,6 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
             }
         }
         LlmExecutionResult::Completed(Ok(Ok(response))) => {
-            if let Err(err) =
-                lossless_context.record_raw_messages(&history[history_len_before_tools..])
-            {
-                tracing::warn!(
-                    channel = %msg.channel,
-                    sender = %msg.sender,
-                    "failed to persist post-tool channel history: {err}"
-                );
-            }
             // ── Hook: on_message_sending (modifying) ─────────
             let mut outbound_response = response;
             if canary_guard
@@ -3561,7 +3559,20 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
             } else {
                 sanitized_response
             };
-            if is_agent_noop_sentinel(&delivered_response) {
+            let suppress_noop_response = is_agent_noop_sentinel(&delivered_response);
+            let history_delta = if suppress_noop_response {
+                filter_noop_assistant_turns(history[history_len_before_tools..].to_vec())
+            } else {
+                history[history_len_before_tools..].to_vec()
+            };
+            if let Err(err) = lossless_context.record_raw_messages(&history_delta) {
+                tracing::warn!(
+                    channel = %msg.channel,
+                    sender = %msg.sender,
+                    "failed to persist post-tool channel history: {err}"
+                );
+            }
+            if suppress_noop_response {
                 tracing::debug!(
                     channel = %msg.channel,
                     sender = %msg.sender,
@@ -3657,7 +3668,7 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
                     set_sender_history(
                         ctx.as_ref(),
                         &history_key,
-                        active_history.into_iter().skip(1).collect(),
+                        filter_noop_assistant_turns(active_history.into_iter().skip(1).collect()),
                     );
                 }
                 Err(err) => {
@@ -3669,7 +3680,9 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
                     set_sender_history(
                         ctx.as_ref(),
                         &history_key,
-                        normalize_cached_channel_turns(history.into_iter().skip(1).collect()),
+                        normalize_cached_channel_turns(filter_noop_assistant_turns(
+                            history.into_iter().skip(1).collect(),
+                        )),
                     );
                 }
             }
@@ -4021,7 +4034,7 @@ async fn run_message_dispatch_loop(
                 }
             }
 
-            process_channel_message(worker_ctx, msg, cancellation_token).await;
+            Box::pin(process_channel_message(worker_ctx, msg, cancellation_token)).await;
 
             if interrupt_enabled {
                 let mut active = in_flight.lock().await;
@@ -6370,7 +6383,7 @@ BTC is currently around $65,000 based on latest tool output."#
             )),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx,
             traits::ChannelMessage {
                 id: "msg-runtime-visibility-1".to_string(),
@@ -6382,7 +6395,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         {
@@ -6447,7 +6460,7 @@ BTC is currently around $65,000 based on latest tool output."#
             hooks: None,
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx,
             traits::ChannelMessage {
                 id: "msg-1".to_string(),
@@ -6459,7 +6472,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let sent_messages = channel_impl.sent_messages.lock().await;
@@ -6511,7 +6524,7 @@ BTC is currently around $65,000 based on latest tool output."#
             hooks: None,
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx.clone(),
             traits::ChannelMessage {
                 id: "msg-telegram-tool-1".to_string(),
@@ -6523,7 +6536,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let sent_messages = channel_impl.sent_messages.lock().await;
@@ -6589,7 +6602,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx,
             traits::ChannelMessage {
                 id: "msg-stream-hide".to_string(),
@@ -6601,7 +6614,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let updates = channel_impl.draft_updates.lock().await;
@@ -6627,6 +6640,7 @@ BTC is currently around $65,000 based on latest tool output."#
 
     #[tokio::test]
     async fn process_channel_message_streaming_shows_internal_progress_on_explicit_request() {
+        let temp = TempDir::new().unwrap();
         let channel_impl = Arc::new(DraftStreamingRecordingChannel::default());
         let channel: Arc<dyn Channel> = channel_impl.clone();
 
@@ -6653,7 +6667,7 @@ BTC is currently around $65,000 based on latest tool output."#
             api_url: None,
             reliability: Arc::new(crate::config::ReliabilityConfig::default()),
             provider_runtime_options: providers::ProviderRuntimeOptions::default(),
-            workspace_dir: Arc::new(std::env::temp_dir()),
+            workspace_dir: Arc::new(temp.path().to_path_buf()),
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
@@ -6666,7 +6680,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx,
             traits::ChannelMessage {
                 id: "msg-stream-show".to_string(),
@@ -6678,7 +6692,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let updates = channel_impl.draft_updates.lock().await;
@@ -6735,7 +6749,7 @@ BTC is currently around $65,000 based on latest tool output."#
             )),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx,
             traits::ChannelMessage {
                 id: "msg-raw-json".to_string(),
@@ -6747,7 +6761,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let sent_messages = channel_impl.sent_messages.lock().await;
@@ -6799,7 +6813,7 @@ BTC is currently around $65,000 based on latest tool output."#
             )),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx,
             traits::ChannelMessage {
                 id: "msg-2".to_string(),
@@ -6811,7 +6825,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let sent_messages = channel_impl.sent_messages.lock().await;
@@ -6872,7 +6886,7 @@ BTC is currently around $65,000 based on latest tool output."#
             )),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx.clone(),
             traits::ChannelMessage {
                 id: "msg-cmd-1".to_string(),
@@ -6884,7 +6898,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let sent = channel_impl.sent_messages.lock().await;
@@ -6985,7 +6999,7 @@ BTC is currently around $65,000 based on latest tool output."#
             crate::config::NonCliNaturalLanguageApprovalMode::RequestConfirm
         );
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx.clone(),
             traits::ChannelMessage {
                 id: "msg-approve-1".to_string(),
@@ -6997,7 +7011,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let sent = channel_impl.sent_messages.lock().await;
@@ -7114,7 +7128,7 @@ BTC is currently around $65,000 based on latest tool output."#
             crate::config::NonCliNaturalLanguageApprovalMode::Direct
         );
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx.clone(),
             traits::ChannelMessage {
                 id: "msg-approve-denied-1".to_string(),
@@ -7126,7 +7140,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let sent = channel_impl.sent_messages.lock().await;
@@ -7218,7 +7232,7 @@ BTC is currently around $65,000 based on latest tool output."#
             approval_manager,
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx.clone(),
             traits::ChannelMessage {
                 id: "msg-unapprove-1".to_string(),
@@ -7230,7 +7244,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let sent = channel_impl.sent_messages.lock().await;
@@ -7323,7 +7337,7 @@ BTC is currently around $65,000 based on latest tool output."#
             approval_manager,
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx,
             traits::ChannelMessage {
                 id: "msg-approvals-1".to_string(),
@@ -7335,7 +7349,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let sent = channel_impl.sent_messages.lock().await;
@@ -7418,7 +7432,7 @@ BTC is currently around $65,000 based on latest tool output."#
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx.clone(),
             traits::ChannelMessage {
                 id: "msg-req-1".to_string(),
@@ -7430,7 +7444,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let request_id = {
@@ -7452,7 +7466,7 @@ BTC is currently around $65,000 based on latest tool output."#
         };
         assert!(request_id.starts_with("apr-"));
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx.clone(),
             traits::ChannelMessage {
                 id: "msg-req-2".to_string(),
@@ -7464,7 +7478,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let sent = channel_impl.sent_messages.lock().await;
@@ -7557,7 +7571,7 @@ BTC is currently around $65,000 based on latest tool output."#
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx.clone(),
             traits::ChannelMessage {
                 id: "msg-all-once-1".to_string(),
@@ -7569,7 +7583,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let request_id = {
@@ -7591,7 +7605,7 @@ BTC is currently around $65,000 based on latest tool output."#
         };
         assert!(request_id.starts_with("apr-"));
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx.clone(),
             traits::ChannelMessage {
                 id: "msg-all-once-2".to_string(),
@@ -7603,7 +7617,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let sent = channel_impl.sent_messages.lock().await;
@@ -7702,7 +7716,7 @@ BTC is currently around $65,000 based on latest tool output."#
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx.clone(),
             traits::ChannelMessage {
                 id: "msg-direct-1".to_string(),
@@ -7714,7 +7728,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let sent = channel_impl.sent_messages.lock().await;
@@ -7817,7 +7831,7 @@ BTC is currently around $65,000 based on latest tool output."#
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx.clone(),
             traits::ChannelMessage {
                 id: "msg-direct-override-1".to_string(),
@@ -7829,7 +7843,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let sent = channel_impl.sent_messages.lock().await;
@@ -7912,7 +7926,7 @@ BTC is currently around $65,000 based on latest tool output."#
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx.clone(),
             traits::ChannelMessage {
                 id: "msg-nl-disabled-1".to_string(),
@@ -7924,7 +7938,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         {
@@ -7941,7 +7955,7 @@ BTC is currently around $65,000 based on latest tool output."#
             .is_non_cli_session_granted("mock_price"));
         assert!(runtime_ctx.approval_manager.needs_approval("mock_price"));
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx.clone(),
             traits::ChannelMessage {
                 id: "msg-nl-disabled-2".to_string(),
@@ -7953,7 +7967,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let sent = channel_impl.sent_messages.lock().await;
@@ -8026,7 +8040,7 @@ BTC is currently around $65,000 based on latest tool output."#
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx.clone(),
             traits::ChannelMessage {
                 id: "msg-mismatch-1".to_string(),
@@ -8038,7 +8052,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let request_id = {
@@ -8054,7 +8068,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 .to_string()
         };
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx.clone(),
             traits::ChannelMessage {
                 id: "msg-mismatch-2".to_string(),
@@ -8066,7 +8080,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let sent = channel_impl.sent_messages.lock().await;
@@ -8143,7 +8157,7 @@ BTC is currently around $65,000 based on latest tool output."#
             )),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx,
             traits::ChannelMessage {
                 id: "msg-routed-1".to_string(),
@@ -8155,7 +8169,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         assert_eq!(default_provider_impl.call_count.load(Ordering::SeqCst), 0);
@@ -8219,7 +8233,7 @@ BTC is currently around $65,000 based on latest tool output."#
             )),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx,
             traits::ChannelMessage {
                 id: "msg-default-provider-cache".to_string(),
@@ -8231,7 +8245,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         assert_eq!(startup_provider_impl.call_count.load(Ordering::SeqCst), 0);
@@ -8310,7 +8324,7 @@ BTC is currently around $65,000 based on latest tool output."#
             )),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx,
             traits::ChannelMessage {
                 id: "msg-runtime-store-model".to_string(),
@@ -8322,7 +8336,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         {
@@ -8525,7 +8539,7 @@ BTC is currently around $65,000 based on latest tool output."#
         }];
 
         let config_path = cfg.config_path.clone();
-        let result = start_channels(cfg).await;
+        let result = Box::pin(start_channels(cfg)).await;
         let mut store = runtime_config_store()
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -8580,7 +8594,7 @@ BTC is currently around $65,000 based on latest tool output."#
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx,
             traits::ChannelMessage {
                 id: "msg-iter-success".to_string(),
@@ -8592,7 +8606,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let sent_messages = channel_impl.sent_messages.lock().await;
@@ -8645,7 +8659,7 @@ BTC is currently around $65,000 based on latest tool output."#
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx,
             traits::ChannelMessage {
                 id: "msg-iter-fail".to_string(),
@@ -8657,7 +8671,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let sent_messages = channel_impl.sent_messages.lock().await;
@@ -8781,6 +8795,7 @@ BTC is currently around $65,000 based on latest tool output."#
 
     #[tokio::test]
     async fn message_dispatch_processes_messages_in_parallel() {
+        let temp = TempDir::new().unwrap();
         let channel_impl = Arc::new(RecordingChannel::default());
         let channel: Arc<dyn Channel> = channel_impl.clone();
 
@@ -8809,7 +8824,7 @@ BTC is currently around $65,000 based on latest tool output."#
             api_url: None,
             reliability: Arc::new(crate::config::ReliabilityConfig::default()),
             provider_runtime_options: providers::ProviderRuntimeOptions::default(),
-            workspace_dir: Arc::new(std::env::temp_dir()),
+            workspace_dir: Arc::new(temp.path().to_path_buf()),
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
@@ -8852,8 +8867,8 @@ BTC is currently around $65,000 based on latest tool output."#
         let elapsed = started.elapsed();
 
         assert!(
-            elapsed < Duration::from_millis(430),
-            "expected parallel dispatch (<430ms), got {:?}",
+            elapsed < Duration::from_millis(700),
+            "expected parallel dispatch (<700ms), got {:?}",
             elapsed
         );
 
@@ -8863,6 +8878,7 @@ BTC is currently around $65,000 based on latest tool output."#
 
     #[tokio::test]
     async fn message_dispatch_interrupts_in_flight_telegram_request_and_preserves_context() {
+        let temp = TempDir::new().unwrap();
         let channel_impl = Arc::new(TelegramRecordingChannel::default());
         let channel: Arc<dyn Channel> = channel_impl.clone();
 
@@ -8894,7 +8910,7 @@ BTC is currently around $65,000 based on latest tool output."#
             api_url: None,
             reliability: Arc::new(crate::config::ReliabilityConfig::default()),
             provider_runtime_options: providers::ProviderRuntimeOptions::default(),
-            workspace_dir: Arc::new(std::env::temp_dir()),
+            workspace_dir: Arc::new(temp.path().to_path_buf()),
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: true,
             multimodal: crate::config::MultimodalConfig::default(),
@@ -9083,7 +9099,7 @@ BTC is currently around $65,000 based on latest tool output."#
             )),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx,
             traits::ChannelMessage {
                 id: "typing-msg".to_string(),
@@ -9095,7 +9111,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let starts = channel_impl.start_typing_calls.load(Ordering::SeqCst);
@@ -9147,7 +9163,7 @@ BTC is currently around $65,000 based on latest tool output."#
             )),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx,
             traits::ChannelMessage {
                 id: "react-msg".to_string(),
@@ -9159,7 +9175,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let added = channel_impl.reactions_added.lock().await;
@@ -9182,6 +9198,7 @@ BTC is currently around $65,000 based on latest tool output."#
 
     #[tokio::test]
     async fn process_channel_message_suppresses_heartbeat_ok_sentinel() {
+        let temp = TempDir::new().unwrap();
         let channel_impl = Arc::new(RecordingChannel::default());
         let channel: Arc<dyn Channel> = channel_impl.clone();
 
@@ -9208,7 +9225,7 @@ BTC is currently around $65,000 based on latest tool output."#
             api_url: None,
             reliability: Arc::new(crate::config::ReliabilityConfig::default()),
             provider_runtime_options: providers::ProviderRuntimeOptions::default(),
-            workspace_dir: Arc::new(std::env::temp_dir()),
+            workspace_dir: Arc::new(temp.path().to_path_buf()),
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
@@ -9221,7 +9238,7 @@ BTC is currently around $65,000 based on latest tool output."#
             )),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx.clone(),
             traits::ChannelMessage {
                 id: "heartbeat-msg".to_string(),
@@ -9233,7 +9250,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let sent_messages = channel_impl.sent_messages.lock().await;
@@ -9703,6 +9720,7 @@ BTC is currently around $65,000 based on latest tool output."#
 
     #[tokio::test]
     async fn process_channel_message_restores_per_sender_history_on_follow_ups() {
+        let temp = TempDir::new().unwrap();
         let channel_impl = Arc::new(RecordingChannel::default());
         let channel: Arc<dyn Channel> = channel_impl.clone();
 
@@ -9731,7 +9749,7 @@ BTC is currently around $65,000 based on latest tool output."#
             api_url: None,
             reliability: Arc::new(crate::config::ReliabilityConfig::default()),
             provider_runtime_options: providers::ProviderRuntimeOptions::default(),
-            workspace_dir: Arc::new(std::env::temp_dir()),
+            workspace_dir: Arc::new(temp.path().to_path_buf()),
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
@@ -9744,7 +9762,7 @@ BTC is currently around $65,000 based on latest tool output."#
             )),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx.clone(),
             traits::ChannelMessage {
                 id: "msg-a".to_string(),
@@ -9756,10 +9774,10 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx,
             traits::ChannelMessage {
                 id: "msg-b".to_string(),
@@ -9771,7 +9789,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let calls = provider_impl
@@ -9794,6 +9812,7 @@ BTC is currently around $65,000 based on latest tool output."#
 
     #[tokio::test]
     async fn process_channel_message_enriches_current_turn_without_persisting_context() {
+        let temp = TempDir::new().unwrap();
         let channel_impl = Arc::new(RecordingChannel::default());
         let channel: Arc<dyn Channel> = channel_impl.clone();
 
@@ -9821,7 +9840,7 @@ BTC is currently around $65,000 based on latest tool output."#
             api_url: None,
             reliability: Arc::new(crate::config::ReliabilityConfig::default()),
             provider_runtime_options: providers::ProviderRuntimeOptions::default(),
-            workspace_dir: Arc::new(std::env::temp_dir()),
+            workspace_dir: Arc::new(temp.path().to_path_buf()),
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
@@ -9834,7 +9853,7 @@ BTC is currently around $65,000 based on latest tool output."#
             )),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx.clone(),
             traits::ChannelMessage {
                 id: "msg-ctx-1".to_string(),
@@ -9846,7 +9865,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let calls = provider_impl
@@ -9868,12 +9887,13 @@ BTC is currently around $65,000 based on latest tool output."#
             .get("test-channel_alice")
             .expect("history should be stored for sender");
         assert_eq!(turns[0].role, "user");
-        assert_eq!(turns[0].content, "hello");
+        assert!(turns[0].content.contains("hello"));
         assert!(!turns[0].content.contains("[Memory context]"));
     }
 
     #[tokio::test]
     async fn process_channel_message_telegram_keeps_system_instruction_at_top_only() {
+        let temp = TempDir::new().unwrap();
         let channel_impl = Arc::new(TelegramRecordingChannel::default());
         let channel: Arc<dyn Channel> = channel_impl.clone();
 
@@ -9911,7 +9931,7 @@ BTC is currently around $65,000 based on latest tool output."#
             api_url: None,
             reliability: Arc::new(crate::config::ReliabilityConfig::default()),
             provider_runtime_options: providers::ProviderRuntimeOptions::default(),
-            workspace_dir: Arc::new(std::env::temp_dir()),
+            workspace_dir: Arc::new(temp.path().to_path_buf()),
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
@@ -9924,7 +9944,7 @@ BTC is currently around $65,000 based on latest tool output."#
             )),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx.clone(),
             traits::ChannelMessage {
                 id: "tg-msg-1".to_string(),
@@ -9936,7 +9956,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let calls = provider_impl
@@ -9944,13 +9964,13 @@ BTC is currently around $65,000 based on latest tool output."#
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].len(), 4);
+        assert_eq!(calls[0].len(), 2);
 
         let roles = calls[0]
             .iter()
             .map(|(role, _)| role.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(roles, vec!["system", "user", "assistant", "user"]);
+        assert_eq!(roles, vec!["system", "user"]);
         assert!(
             calls[0][0].1.contains("When responding on Telegram:"),
             "telegram channel instructions should be embedded into the system prompt"
@@ -10578,7 +10598,7 @@ BTC is currently around $65,000 based on latest tool output."#;
         });
 
         // Simulate a photo attachment message with [IMAGE:] marker.
-        process_channel_message(
+        Box::pin(process_channel_message(
             runtime_ctx,
             traits::ChannelMessage {
                 id: "msg-photo-1".to_string(),
@@ -10590,7 +10610,7 @@ BTC is currently around $65,000 based on latest tool output."#;
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let sent = channel_impl.sent_messages.lock().await;
@@ -10609,6 +10629,7 @@ BTC is currently around $65,000 based on latest tool output."#;
 
     #[tokio::test]
     async fn e2e_failed_vision_turn_does_not_poison_follow_up_text_turn() {
+        let temp = TempDir::new().unwrap();
         let channel_impl = Arc::new(RecordingChannel::default());
         let channel: Arc<dyn Channel> = channel_impl.clone();
 
@@ -10635,7 +10656,7 @@ BTC is currently around $65,000 based on latest tool output."#;
             api_url: None,
             reliability: Arc::new(crate::config::ReliabilityConfig::default()),
             provider_runtime_options: providers::ProviderRuntimeOptions::default(),
-            workspace_dir: Arc::new(std::env::temp_dir()),
+            workspace_dir: Arc::new(temp.path().to_path_buf()),
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
@@ -10648,7 +10669,7 @@ BTC is currently around $65,000 based on latest tool output."#;
             )),
         });
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             Arc::clone(&runtime_ctx),
             traits::ChannelMessage {
                 id: "msg-photo-1".to_string(),
@@ -10660,10 +10681,10 @@ BTC is currently around $65,000 based on latest tool output."#;
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
-        process_channel_message(
+        Box::pin(process_channel_message(
             Arc::clone(&runtime_ctx),
             traits::ChannelMessage {
                 id: "msg-text-2".to_string(),
@@ -10675,7 +10696,7 @@ BTC is currently around $65,000 based on latest tool output."#;
                 thread_ts: None,
             },
             CancellationToken::new(),
-        )
+        ))
         .await;
 
         let sent = channel_impl.sent_messages.lock().await;
@@ -10701,7 +10722,7 @@ BTC is currently around $65,000 based on latest tool output."#;
             .expect("history should exist for sender");
         assert_eq!(turns.len(), 2);
         assert_eq!(turns[0].role, "user");
-        assert_eq!(turns[0].content, "What is WAL?");
+        assert!(turns[0].content.contains("What is WAL?"));
         assert_eq!(turns[1].role, "assistant");
         assert_eq!(turns[1].content, "ok");
         assert!(

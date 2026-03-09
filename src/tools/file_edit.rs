@@ -1,3 +1,4 @@
+use super::path_resolution::resolve_allowed_parent_and_target;
 use super::traits::{Tool, ToolResult};
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
@@ -110,58 +111,17 @@ impl Tool for FileEditTool {
             });
         }
 
-        // ── 3. Path pre-validation ─────────────────────────────────
-        if !self.security.is_path_allowed(path) {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!("Path not allowed by security policy: {path}")),
-            });
-        }
-
-        let full_path = self.security.workspace_dir.join(path);
-
         // ── 4. Canonicalize parent ─────────────────────────────────
-        let Some(parent) = full_path.parent() else {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Invalid path: missing parent directory".into()),
-            });
-        };
-
-        let resolved_parent = match tokio::fs::canonicalize(parent).await {
-            Ok(p) => p,
-            Err(e) => {
+        let resolved_target = match resolve_allowed_parent_and_target(&self.security, path).await {
+            Ok(path) => path,
+            Err(error) => {
                 return Ok(ToolResult {
                     success: false,
                     output: String::new(),
-                    error: Some(format!("Failed to resolve file path: {e}")),
+                    error: Some(error),
                 });
             }
         };
-
-        // ── 5. Resolved path post-validation ───────────────────────
-        if !self.security.is_resolved_path_allowed(&resolved_parent) {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(
-                    self.security
-                        .resolved_path_violation_message(&resolved_parent),
-                ),
-            });
-        }
-
-        let Some(file_name) = full_path.file_name() else {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Invalid path: missing file name".into()),
-            });
-        };
-
-        let resolved_target = resolved_parent.join(file_name);
 
         // ── 6. Symlink check ───────────────────────────────────────
         if let Ok(meta) = tokio::fs::symlink_metadata(&resolved_target).await {
@@ -341,6 +301,40 @@ mod tests {
         assert_eq!(content, "goodbye world");
 
         let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+
+    #[tokio::test]
+    async fn file_edit_allows_absolute_path_inside_allowed_root() {
+        let workspace = std::env::temp_dir().join("topclaw_test_file_edit_workspace");
+        let allowed = std::env::temp_dir().join("topclaw_test_file_edit_allowed");
+        let _ = tokio::fs::remove_dir_all(&workspace).await;
+        let _ = tokio::fs::remove_dir_all(&allowed).await;
+        tokio::fs::create_dir_all(&workspace).await.unwrap();
+        tokio::fs::create_dir_all(&allowed).await.unwrap();
+
+        let target = allowed.join("shared.txt");
+        tokio::fs::write(&target, "before").await.unwrap();
+
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Supervised,
+            workspace_dir: workspace,
+            allowed_roots: vec![allowed.clone()],
+            ..SecurityPolicy::default()
+        });
+        let tool = FileEditTool::new(security);
+        let result = tool
+            .execute(json!({
+                "path": target.display().to_string(),
+                "old_string": "before",
+                "new_string": "after"
+            }))
+            .await
+            .unwrap();
+
+        assert!(result.success, "{result:?}");
+        assert_eq!(tokio::fs::read_to_string(&target).await.unwrap(), "after");
+
+        let _ = tokio::fs::remove_dir_all(&allowed).await;
     }
 
     #[tokio::test]

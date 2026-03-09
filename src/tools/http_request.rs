@@ -128,6 +128,52 @@ impl HttpRequestTool {
         Ok(request.send().await?)
     }
 
+    async fn render_response(&self, response: reqwest::Response) -> ToolResult {
+        let status = response.status();
+        let status_code = status.as_u16();
+
+        let headers_text = response
+            .headers()
+            .iter()
+            .map(|(key, value)| {
+                let is_sensitive = key.as_str().to_lowercase().contains("set-cookie");
+                if is_sensitive {
+                    format!("{}: ***REDACTED***", key.as_str())
+                } else {
+                    format!(
+                        "{}: {}",
+                        key.as_str(),
+                        value.to_str().unwrap_or("<non-utf8>")
+                    )
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let response_text = match response.text().await {
+            Ok(text) => self.truncate_response(&text),
+            Err(error) => format!("[Failed to read response body: {error}]"),
+        };
+
+        let output = format!(
+            "Status: {} {}\nResponse Headers: {}\n\nResponse Body:\n{}",
+            status_code,
+            status.canonical_reason().unwrap_or("Unknown"),
+            headers_text,
+            response_text
+        );
+
+        ToolResult {
+            success: status.is_success(),
+            output,
+            error: if status.is_client_error() || status.is_server_error() {
+                Some(format!("HTTP {}", status_code))
+            } else {
+                None
+            },
+        }
+    }
+
     fn truncate_response(&self, text: &str) -> String {
         if text.len() > self.max_response_size {
             let mut truncated = text
@@ -245,48 +291,7 @@ impl Tool for HttpRequestTool {
             .execute_request(&url, method, request_headers, body)
             .await
         {
-            Ok(response) => {
-                let status = response.status();
-                let status_code = status.as_u16();
-
-                // Get response headers (redact sensitive ones)
-                let response_headers = response.headers().iter();
-                let headers_text = response_headers
-                    .map(|(k, v)| {
-                        let is_sensitive = k.as_str().to_lowercase().contains("set-cookie");
-                        if is_sensitive {
-                            format!("{}: ***REDACTED***", k.as_str())
-                        } else {
-                            format!("{}: {}", k.as_str(), v.to_str().unwrap_or("<non-utf8>"))
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-
-                // Get response body with size limit
-                let response_text = match response.text().await {
-                    Ok(text) => self.truncate_response(&text),
-                    Err(e) => format!("[Failed to read response body: {e}]"),
-                };
-
-                let output = format!(
-                    "Status: {} {}\nResponse Headers: {}\n\nResponse Body:\n{}",
-                    status_code,
-                    status.canonical_reason().unwrap_or("Unknown"),
-                    headers_text,
-                    response_text
-                );
-
-                Ok(ToolResult {
-                    success: status.is_success(),
-                    output,
-                    error: if status.is_client_error() || status.is_server_error() {
-                        Some(format!("HTTP {}", status_code))
-                    } else {
-                        None
-                    },
-                })
-            }
+            Ok(response) => Ok(self.render_response(response).await),
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
@@ -579,7 +584,11 @@ mod tests {
             .await
             .unwrap();
         assert!(!result.success);
-        assert!(result.error.unwrap().contains("rate limit"));
+        assert!(result
+            .error
+            .unwrap()
+            .to_ascii_lowercase()
+            .contains("rate limit"));
     }
 
     #[tokio::test]
@@ -596,10 +605,16 @@ mod tests {
             .await;
 
         let tool = test_tool(vec!["*"]);
-        let result = tool
-            .execute(json!({"url": format!("{}/headers", server.uri())}))
+        let response = tool
+            .execute_request(
+                &format!("{}/headers", server.uri()),
+                reqwest::Method::GET,
+                vec![],
+                None,
+            )
             .await
             .unwrap();
+        let result = tool.render_response(response).await;
 
         assert!(result.success);
         assert!(result.output.contains("x-trace-id: trace-123"));

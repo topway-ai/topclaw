@@ -265,6 +265,49 @@ The agent will research the codebase before responding to queries like:
 - "Show contents of main.rs"
 - "How many files in the project?"
 
+## `[heartbeat]`
+
+| Key | Default | Purpose |
+|---|---|---|
+| `enabled` | `false` | Enable periodic daemon heartbeat work |
+| `interval_minutes` | `30` | Base tick interval in minutes |
+| `message` | unset | Fallback heartbeat task when `HEARTBEAT.md` has no task bullets |
+| `target` | unset | Optional delivery channel for heartbeat output |
+| `to` | unset | Optional delivery recipient/chat identifier |
+
+Notes:
+
+- Heartbeat now uses stateful scheduling instead of rerunning every task on every tick.
+- Task source file: `<workspace>/HEARTBEAT.md`
+- Task state file: `<workspace>/state/heartbeat_state.json`
+- Plain `- task` lines still work.
+- Optional metadata prefixes in `HEARTBEAT.md`:
+  - `[every=4h]` or `[cooldown=4h]`
+  - `[priority=2]`
+  - `[max_runs=1]`
+- New tasks are due immediately.
+- Successful runs schedule the next due time from the task cooldown.
+- Failed runs retry sooner at first, then back off.
+- Each tick runs only the highest-priority due tasks, not the entire list.
+
+Example:
+
+```toml
+[heartbeat]
+enabled = true
+interval_minutes = 15
+target = "telegram"
+to = "123456"
+```
+
+Example `HEARTBEAT.md`:
+
+```md
+- [every=4h] Review my calendar for the next 24 hours
+- [every=1d] [priority=2] Check active repos for stale branches
+- [every=30m] [max_runs=1] Remind me to finish onboarding notes
+```
+
 ## `[runtime]`
 
 | Key | Default | Purpose |

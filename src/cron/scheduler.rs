@@ -47,6 +47,14 @@ pub async fn run(config: Config) -> Result<()> {
 }
 
 pub async fn execute_job_now(config: &Config, job: &CronJob) -> (bool, String) {
+    execute_job_now_with_approval(config, job, false).await
+}
+
+pub async fn execute_job_now_with_approval(
+    config: &Config,
+    job: &CronJob,
+    approved: bool,
+) -> (bool, String) {
     let security = match SecurityPolicy::from_runtime_config(config) {
         Ok(policy) => policy,
         Err(error) => {
@@ -56,13 +64,14 @@ pub async fn execute_job_now(config: &Config, job: &CronJob) -> (bool, String) {
             )
         }
     };
-    execute_job_with_retry(config, &security, job).await
+    Box::pin(execute_job_with_retry(config, &security, job, approved)).await
 }
 
 async fn execute_job_with_retry(
     config: &Config,
     security: &SecurityPolicy,
     job: &CronJob,
+    approved: bool,
 ) -> (bool, String) {
     let mut last_output = String::new();
     let retries = config.reliability.scheduler_retries;
@@ -70,8 +79,8 @@ async fn execute_job_with_retry(
 
     for attempt in 0..=retries {
         let (success, output) = match job.job_type {
-            JobType::Shell => run_job_command(config, security, job).await,
-            JobType::Agent => run_agent_job(config, security, job).await,
+            JobType::Shell => run_job_command(config, security, job, approved).await,
+            JobType::Agent => Box::pin(run_agent_job(config, security, job)).await,
         };
         last_output = output;
 
@@ -104,18 +113,21 @@ async fn process_due_jobs(
     crate::health::mark_component_ok(component);
 
     let max_concurrent = config.scheduler.max_concurrent.max(1);
-    let mut in_flight =
-        stream::iter(
-            jobs.into_iter().map(|job| {
-                let config = config.clone();
-                let security = Arc::clone(security);
-                let component = component.to_owned();
-                async move {
-                    execute_and_persist_job(&config, security.as_ref(), &job, &component).await
-                }
-            }),
-        )
-        .buffer_unordered(max_concurrent);
+    let mut in_flight = stream::iter(jobs.into_iter().map(|job| {
+        let config = config.clone();
+        let security = Arc::clone(security);
+        let component = component.to_owned();
+        async move {
+            Box::pin(execute_and_persist_job(
+                &config,
+                security.as_ref(),
+                &job,
+                &component,
+            ))
+            .await
+        }
+    }))
+    .buffer_unordered(max_concurrent);
 
     while let Some((job_id, success, output)) = in_flight.next().await {
         if !success {
@@ -134,7 +146,7 @@ async fn execute_and_persist_job(
     warn_if_high_frequency_agent_job(job);
 
     let started_at = Utc::now();
-    let (success, output) = execute_job_with_retry(config, security, job).await;
+    let (success, output) = Box::pin(execute_job_with_retry(config, security, job, false)).await;
     let finished_at = Utc::now();
     let success = persist_job_result(config, job, success, &output, started_at, finished_at).await;
 
@@ -173,7 +185,7 @@ async fn run_agent_job(
 
     let run_result = match job.session_target {
         SessionTarget::Main | SessionTarget::Isolated => {
-            crate::agent::run(
+            Box::pin(crate::agent::run(
                 config.clone(),
                 Some(prefixed_prompt),
                 None,
@@ -181,7 +193,7 @@ async fn run_agent_job(
                 config.default_temperature,
                 vec![],
                 false,
-            )
+            ))
             .await
         }
     };
@@ -403,11 +415,13 @@ async fn run_job_command(
     config: &Config,
     security: &SecurityPolicy,
     job: &CronJob,
+    approved: bool,
 ) -> (bool, String) {
     run_job_command_with_timeout(
         config,
         security,
         job,
+        approved,
         Duration::from_secs(SHELL_JOB_TIMEOUT_SECS),
     )
     .await
@@ -417,6 +431,7 @@ async fn run_job_command_with_timeout(
     config: &Config,
     security: &SecurityPolicy,
     job: &CronJob,
+    approved: bool,
     timeout: Duration,
 ) -> (bool, String) {
     let effective_command = security.apply_shell_redirect_policy(&job.command);
@@ -435,20 +450,10 @@ async fn run_job_command_with_timeout(
         );
     }
 
-    if !security.is_command_allowed(&effective_command) {
+    if let Err(reason) = security.validate_command_execution(&effective_command, approved) {
         return (
             false,
-            format!(
-                "blocked by security policy: command not allowed: {}",
-                job.command
-            ),
-        );
-    }
-
-    if let Some(path) = security.forbidden_path_argument(&effective_command) {
-        return (
-            false,
-            format!("blocked by security policy: forbidden path argument: {path}"),
+            format!("blocked by security policy: {reason}"),
         );
     }
 
@@ -510,6 +515,13 @@ mod tests {
             .await
     }
 
+    fn test_allowed_commands() -> Vec<String> {
+        ["echo", "ls"]
+            .into_iter()
+            .map(std::string::ToString::to_string)
+            .collect()
+    }
+
     struct EnvGuard {
         key: &'static str,
         original: Option<String>,
@@ -536,6 +548,10 @@ mod tests {
         let config = Config {
             workspace_dir: tmp.path().join("workspace"),
             config_path: tmp.path().join("config.toml"),
+            autonomy: crate::config::AutonomyConfig {
+                allowed_commands: test_allowed_commands(),
+                ..crate::config::AutonomyConfig::default()
+            },
             ..Config::default()
         };
         tokio::fs::create_dir_all(&config.workspace_dir)
@@ -580,7 +596,7 @@ mod tests {
         let job = test_job("echo scheduler-ok");
         let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
 
-        let (success, output) = run_job_command(&config, &security, &job).await;
+        let (success, output) = run_job_command(&config, &security, &job, false).await;
         assert!(success);
         assert!(output.contains("scheduler-ok"));
         assert!(output.contains("status=exit status: 0"));
@@ -593,7 +609,7 @@ mod tests {
         let job = test_job("ls definitely_missing_file_for_scheduler_test");
         let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
 
-        let (success, output) = run_job_command(&config, &security, &job).await;
+        let (success, output) = run_job_command(&config, &security, &job, false).await;
         assert!(!success);
         assert!(output.contains("definitely_missing_file_for_scheduler_test"));
         assert!(output.contains("status=exit status:"));
@@ -607,8 +623,14 @@ mod tests {
         let job = test_job("sleep 1");
         let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
 
-        let (success, output) =
-            run_job_command_with_timeout(&config, &security, &job, Duration::from_millis(50)).await;
+        let (success, output) = run_job_command_with_timeout(
+            &config,
+            &security,
+            &job,
+            false,
+            Duration::from_millis(50),
+        )
+        .await;
         assert!(!success);
         assert!(output.contains("job timed out after"));
     }
@@ -621,10 +643,10 @@ mod tests {
         let job = test_job("curl https://evil.example");
         let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
 
-        let (success, output) = run_job_command(&config, &security, &job).await;
+        let (success, output) = run_job_command(&config, &security, &job, false).await;
         assert!(!success);
         assert!(output.contains("blocked by security policy"));
-        assert!(output.contains("command not allowed"));
+        assert!(output.contains("Command not allowed"));
     }
 
     #[tokio::test]
@@ -635,10 +657,10 @@ mod tests {
         let job = test_job("cat /etc/passwd");
         let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
 
-        let (success, output) = run_job_command(&config, &security, &job).await;
+        let (success, output) = run_job_command(&config, &security, &job, false).await;
         assert!(!success);
         assert!(output.contains("blocked by security policy"));
-        assert!(output.contains("forbidden path argument"));
+        assert!(output.contains("Path blocked"));
         assert!(output.contains("/etc/passwd"));
     }
 
@@ -650,10 +672,10 @@ mod tests {
         let job = test_job("grep --file=/etc/passwd root ./src");
         let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
 
-        let (success, output) = run_job_command(&config, &security, &job).await;
+        let (success, output) = run_job_command(&config, &security, &job, false).await;
         assert!(!success);
         assert!(output.contains("blocked by security policy"));
-        assert!(output.contains("forbidden path argument"));
+        assert!(output.contains("Path blocked"));
         assert!(output.contains("/etc/passwd"));
     }
 
@@ -665,10 +687,10 @@ mod tests {
         let job = test_job("grep -f/etc/passwd root ./src");
         let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
 
-        let (success, output) = run_job_command(&config, &security, &job).await;
+        let (success, output) = run_job_command(&config, &security, &job, false).await;
         assert!(!success);
         assert!(output.contains("blocked by security policy"));
-        assert!(output.contains("forbidden path argument"));
+        assert!(output.contains("Path blocked"));
         assert!(output.contains("/etc/passwd"));
     }
 
@@ -680,10 +702,10 @@ mod tests {
         let job = test_job("cat ~root/.ssh/id_rsa");
         let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
 
-        let (success, output) = run_job_command(&config, &security, &job).await;
+        let (success, output) = run_job_command(&config, &security, &job, false).await;
         assert!(!success);
         assert!(output.contains("blocked by security policy"));
-        assert!(output.contains("forbidden path argument"));
+        assert!(output.contains("Path blocked"));
         assert!(output.contains("~root/.ssh/id_rsa"));
     }
 
@@ -695,10 +717,10 @@ mod tests {
         let job = test_job("cat </etc/passwd");
         let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
 
-        let (success, output) = run_job_command(&config, &security, &job).await;
+        let (success, output) = run_job_command(&config, &security, &job, false).await;
         assert!(!success);
         assert!(output.contains("blocked by security policy"));
-        assert!(output.contains("command not allowed"));
+        assert!(output.contains("Command not allowed"));
     }
 
     #[tokio::test]
@@ -710,7 +732,7 @@ mod tests {
         let job = test_job("echo scheduler-strip 2>&1");
         let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
 
-        let (success, output) = run_job_command(&config, &security, &job).await;
+        let (success, output) = run_job_command(&config, &security, &job, false).await;
         assert!(success);
         assert!(output.contains("scheduler-strip"));
     }
@@ -723,7 +745,7 @@ mod tests {
         let job = test_job("echo should-not-run");
         let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
 
-        let (success, output) = run_job_command(&config, &security, &job).await;
+        let (success, output) = run_job_command(&config, &security, &job, false).await;
         assert!(!success);
         assert!(output.contains("blocked by security policy"));
         assert!(output.contains("read-only"));
@@ -737,7 +759,7 @@ mod tests {
         let job = test_job("echo should-not-run");
         let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
 
-        let (success, output) = run_job_command(&config, &security, &job).await;
+        let (success, output) = run_job_command(&config, &security, &job, false).await;
         assert!(!success);
         assert!(output.contains("blocked by security policy"));
         assert!(output.contains("rate limit exceeded"));
@@ -760,7 +782,8 @@ mod tests {
         .unwrap();
         let job = test_job("sh ./retry-once.sh");
 
-        let (success, output) = execute_job_with_retry(&config, &security, &job).await;
+        let (success, output) =
+            Box::pin(execute_job_with_retry(&config, &security, &job, false)).await;
         assert!(success);
         assert!(output.contains("recovered"));
     }
@@ -775,7 +798,8 @@ mod tests {
 
         let job = test_job("ls always_missing_for_retry_test");
 
-        let (success, output) = execute_job_with_retry(&config, &security, &job).await;
+        let (success, output) =
+            Box::pin(execute_job_with_retry(&config, &security, &job, false)).await;
         assert!(!success);
         assert!(output.contains("always_missing_for_retry_test"));
     }
@@ -793,7 +817,7 @@ mod tests {
         job.prompt = Some("Say hello".into());
         let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
 
-        let (success, output) = run_agent_job(&config, &security, &job).await;
+        let (success, output) = Box::pin(run_agent_job(&config, &security, &job)).await;
         assert!(!success);
         assert!(output.contains("agent job failed:"));
     }
@@ -808,7 +832,7 @@ mod tests {
         job.prompt = Some("Say hello".into());
         let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
 
-        let (success, output) = run_agent_job(&config, &security, &job).await;
+        let (success, output) = Box::pin(run_agent_job(&config, &security, &job)).await;
         assert!(!success);
         assert!(output.contains("blocked by security policy"));
         assert!(output.contains("read-only"));
@@ -824,7 +848,7 @@ mod tests {
         job.prompt = Some("Say hello".into());
         let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
 
-        let (success, output) = run_agent_job(&config, &security, &job).await;
+        let (success, output) = Box::pin(run_agent_job(&config, &security, &job)).await;
         assert!(!success);
         assert!(output.contains("blocked by security policy"));
         assert!(output.contains("rate limit exceeded"));

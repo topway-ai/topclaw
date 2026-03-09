@@ -2690,14 +2690,14 @@ Reminder set successfully."#;
             event_tx: tokio::sync::broadcast::channel(16).0,
         };
 
-        let unauthorized = handle_agent(
+        let unauthorized = Box::pin(handle_agent(
             State(state),
             test_connect_info(),
             HeaderMap::new(),
             Ok(Json(AgentBody {
                 message: "hello".into(),
             })),
-        )
+        ))
         .await
         .into_response();
         assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);

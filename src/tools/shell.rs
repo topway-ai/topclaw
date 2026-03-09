@@ -275,10 +275,18 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
     use tempfile::TempDir;
 
+    fn test_allowed_commands() -> Vec<String> {
+        ["echo", "ls", "cat", "grep", "touch"]
+            .into_iter()
+            .map(std::string::ToString::to_string)
+            .collect()
+    }
+
     fn test_security(autonomy: AutonomyLevel) -> Arc<SecurityPolicy> {
         Arc::new(SecurityPolicy {
             autonomy,
             workspace_dir: std::env::temp_dir(),
+            allowed_commands: test_allowed_commands(),
             ..SecurityPolicy::default()
         })
     }
@@ -290,6 +298,7 @@ mod tests {
         Arc::new(SecurityPolicy {
             autonomy,
             workspace_dir: std::env::temp_dir(),
+            allowed_commands: test_allowed_commands(),
             shell_redirect_policy,
             ..SecurityPolicy::default()
         })
@@ -823,6 +832,7 @@ mod tests {
         let security = Arc::new(SecurityPolicy {
             autonomy: AutonomyLevel::Supervised,
             max_actions_per_hour: 0,
+            allowed_commands: vec!["echo".into()],
             workspace_dir: std::env::temp_dir(),
             ..SecurityPolicy::default()
         });
@@ -832,7 +842,12 @@ mod tests {
             .await
             .expect("rate-limited command should return a result");
         assert!(!result.success);
-        assert!(result.error.as_deref().unwrap_or("").contains("Rate limit"));
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .to_ascii_lowercase()
+            .contains("rate limit"));
     }
 
     #[tokio::test]
@@ -866,6 +881,7 @@ mod tests {
             autonomy: AutonomyLevel::Full,
             max_actions_per_hour: 1,
             workspace_dir: std::env::temp_dir(),
+            allowed_commands: vec!["echo".into()],
             ..SecurityPolicy::default()
         });
         let tool = ShellTool::new(security, test_runtime());

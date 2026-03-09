@@ -113,7 +113,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
             return run_provider_update_wizard(&workspace_dir, &config_path).await;
         }
         InteractiveOnboardingMode::UpdateChannelsOnly => {
-            return run_channels_repair_wizard().await;
+            return Box::pin(run_channels_repair_wizard()).await;
         }
     }
 
@@ -424,14 +424,14 @@ pub async fn run_quick_setup(
         .map(|u| u.home_dir().to_path_buf())
         .context("Could not find home directory")?;
 
-    run_quick_setup_with_home(
+    Box::pin(run_quick_setup_with_home(
         credential_override,
         provider,
         model_override,
         memory_backend,
         force,
         &home,
-    )
+    ))
     .await
 }
 
@@ -476,13 +476,13 @@ async fn run_quick_setup_with_home(
         || memory_backend.is_some();
     let interactive_terminal = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
 
-    if should_redirect_existing_config_to_interactive_menu(
+    if should_redirect_existing_config_to_interactive_menu(QuickSetupRedirectContext {
         has_existing_config,
         has_quick_overrides,
         force,
         interactive_terminal,
-    ) {
-        return run_wizard(false).await;
+    }) {
+        return Box::pin(run_wizard(false)).await;
     }
 
     println!("{}", style(BANNER).cyan().bold());
@@ -684,13 +684,20 @@ async fn run_quick_setup_with_home(
     Ok(config)
 }
 
-fn should_redirect_existing_config_to_interactive_menu(
+fn should_redirect_existing_config_to_interactive_menu(context: QuickSetupRedirectContext) -> bool {
+    context.has_existing_config
+        && !context.has_quick_overrides
+        && !context.force
+        && context.interactive_terminal
+}
+
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Copy, Clone)]
+struct QuickSetupRedirectContext {
     has_existing_config: bool,
     has_quick_overrides: bool,
     force: bool,
     interactive_terminal: bool,
-) -> bool {
-    has_existing_config && !has_quick_overrides && !force && interactive_terminal
 }
 
 fn canonical_provider_name(provider_name: &str) -> &str {
@@ -3024,8 +3031,8 @@ async fn prompt_for_default_model(
     let mut live_options: Option<Vec<(String, String)>> = None;
 
     if supports_live_model_fetch(provider_name) {
-        let ollama_remote = canonical_provider == "ollama"
-            && ollama_uses_remote_endpoint(provider_api_url.as_deref());
+        let ollama_remote =
+            canonical_provider == "ollama" && ollama_uses_remote_endpoint(provider_api_url);
         let can_fetch_without_key =
             allows_unauthenticated_model_fetch(provider_name) && !ollama_remote;
         let has_api_key = !api_key.trim().is_empty()
@@ -3076,11 +3083,7 @@ async fn prompt_for_default_model(
                 .interact()?;
 
             if should_fetch_now {
-                match fetch_live_models_for_provider(
-                    provider_name,
-                    &api_key,
-                    provider_api_url.as_deref(),
-                ) {
+                match fetch_live_models_for_provider(provider_name, api_key, provider_api_url) {
                     Ok(live_model_ids) if !live_model_ids.is_empty() => {
                         cache_live_models_for_provider(
                             workspace_dir,
@@ -5888,11 +5891,18 @@ async fn scaffold_workspace(workspace_dir: &Path, ctx: &ProjectContext) -> Resul
         "# HEARTBEAT.md\n\n\
          # Keep this file empty (or with only comments) to skip heartbeat work.\n\
          # Add tasks below when you want {agent} to check something periodically.\n\
+         # The heartbeat now keeps state in `state/heartbeat_state.json` so tasks\n\
+         # can cool down, back off after failures, and stop after `max_runs`.\n\
+         #\n\
+         # Optional metadata prefixes:\n\
+         # - [every=4h] run at most every 4 hours\n\
+         # - [priority=2] higher numbers run first when multiple tasks are due\n\
+         # - [max_runs=1] run once and then stop\n\
          #\n\
          # Examples:\n\
-         # - Check my email for important messages\n\
-         # - Review my calendar for upcoming events\n\
-         # - Run `git status` on my active projects\n"
+         # - [every=4h] Check my email for important messages\n\
+         # - [every=1d] [priority=2] Review my calendar for upcoming events\n\
+         # - [every=2h] Run `git status` on my active projects\n"
     );
 
     let soul = format!(
@@ -6440,14 +6450,14 @@ mod tests {
         let _workspace_env = EnvVarGuard::unset("TOPCLAW_WORKSPACE");
         let _config_env = EnvVarGuard::unset("TOPCLAW_CONFIG_DIR");
 
-        run_quick_setup_with_home(
+        Box::pin(run_quick_setup_with_home(
             credential_override,
             provider,
             model_override,
             memory_backend,
             force,
             home,
-        )
+        ))
         .await
     }
 
@@ -6517,14 +6527,14 @@ mod tests {
     async fn quick_setup_model_override_persists_to_config_toml() {
         let tmp = TempDir::new().unwrap();
 
-        let config = run_quick_setup_with_clean_env(
+        let config = Box::pin(run_quick_setup_with_clean_env(
             Some("sk-issue946"),
             Some("openrouter"),
             Some("custom-model-946"),
             Some("sqlite"),
             false,
             tmp.path(),
-        )
+        ))
         .await
         .unwrap();
 
@@ -6541,14 +6551,14 @@ mod tests {
     async fn quick_setup_without_model_uses_provider_default_model() {
         let tmp = TempDir::new().unwrap();
 
-        let config = run_quick_setup_with_clean_env(
+        let config = Box::pin(run_quick_setup_with_clean_env(
             Some("sk-issue946"),
             Some("anthropic"),
             None,
             Some("sqlite"),
             false,
             tmp.path(),
-        )
+        ))
         .await
         .unwrap();
 
@@ -6568,14 +6578,14 @@ mod tests {
             .await
             .unwrap();
 
-        let err = run_quick_setup_with_clean_env(
+        let err = Box::pin(run_quick_setup_with_clean_env(
             Some("sk-existing"),
             Some("openrouter"),
             Some("custom-model"),
             Some("sqlite"),
             false,
             tmp.path(),
-        )
+        ))
         .await
         .expect_err("quick setup should refuse overwrite without --force");
 
@@ -6598,14 +6608,14 @@ mod tests {
         .await
         .unwrap();
 
-        let config = run_quick_setup_with_clean_env(
+        let config = Box::pin(run_quick_setup_with_clean_env(
             Some("sk-force"),
             Some("openrouter"),
             Some("custom-model-fresh"),
             Some("sqlite"),
             true,
             tmp.path(),
-        )
+        ))
         .await
         .expect("quick setup should overwrite existing config with --force");
 
@@ -6621,19 +6631,44 @@ mod tests {
     #[test]
     fn quick_setup_redirects_existing_interactive_runs_without_overrides() {
         assert!(should_redirect_existing_config_to_interactive_menu(
-            true, false, false, true
+            QuickSetupRedirectContext {
+                has_existing_config: true,
+                has_quick_overrides: false,
+                force: false,
+                interactive_terminal: true,
+            }
         ));
         assert!(!should_redirect_existing_config_to_interactive_menu(
-            true, true, false, true
+            QuickSetupRedirectContext {
+                has_existing_config: true,
+                has_quick_overrides: true,
+                force: false,
+                interactive_terminal: true,
+            }
         ));
         assert!(!should_redirect_existing_config_to_interactive_menu(
-            true, false, true, true
+            QuickSetupRedirectContext {
+                has_existing_config: true,
+                has_quick_overrides: false,
+                force: true,
+                interactive_terminal: true,
+            }
         ));
         assert!(!should_redirect_existing_config_to_interactive_menu(
-            true, false, false, false
+            QuickSetupRedirectContext {
+                has_existing_config: true,
+                has_quick_overrides: false,
+                force: false,
+                interactive_terminal: false,
+            }
         ));
         assert!(!should_redirect_existing_config_to_interactive_menu(
-            false, false, false, true
+            QuickSetupRedirectContext {
+                has_existing_config: false,
+                has_quick_overrides: false,
+                force: false,
+                interactive_terminal: true,
+            }
         ));
     }
 
@@ -6651,14 +6686,14 @@ mod tests {
         );
         let _config_env = EnvVarGuard::unset("TOPCLAW_CONFIG_DIR");
 
-        let config = run_quick_setup_with_home(
+        let config = Box::pin(run_quick_setup_with_home(
             Some("sk-env"),
             Some("openrouter"),
             Some("model-env"),
             Some("sqlite"),
             false,
             tmp.path(),
-        )
+        ))
         .await
         .expect("quick setup should honor TOPCLAW_WORKSPACE");
 

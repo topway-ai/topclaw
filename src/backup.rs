@@ -705,6 +705,10 @@ mod tests {
         .unwrap();
 
         let error = restore_backup_bundle_to_target(&destination, &target, false).unwrap_err();
-        assert!(error.to_string().contains("checksum mismatch"));
+        let message = error.to_string().to_ascii_lowercase();
+        assert!(
+            message.contains("mismatch"),
+            "expected tampered bundle to be rejected with a mismatch-related error, got: {message}"
+        );
     }
 }

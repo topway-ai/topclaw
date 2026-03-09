@@ -125,6 +125,49 @@ model = "qwen2.5-coder:32b"
 temperature = 0.2
 ```
 
+## `[heartbeat]`
+
+| Khóa | Mặc định | Mục đích |
+|---|---|---|
+| `enabled` | `false` | Bật heartbeat định kỳ của daemon |
+| `interval_minutes` | `30` | Khoảng tick cơ sở tính bằng phút |
+| `message` | chưa đặt | Task heartbeat fallback khi `HEARTBEAT.md` không có bullet task |
+| `target` | chưa đặt | Kênh tùy chọn để gửi kết quả heartbeat |
+| `to` | chưa đặt | Định danh người nhận / chat đích |
+
+Lưu ý:
+
+- Heartbeat bây giờ dùng lịch có trạng thái thay vì chạy lại mọi task ở mọi tick.
+- File nguồn task: `<workspace>/HEARTBEAT.md`
+- File state task: `<workspace>/state/heartbeat_state.json`
+- Các dòng `- task` thuần vẫn dùng được.
+- Metadata tùy chọn trong `HEARTBEAT.md`:
+  - `[every=4h]` hoặc `[cooldown=4h]`
+  - `[priority=2]`
+  - `[max_runs=1]`
+- Task mới sẽ tới hạn ngay.
+- Task chạy thành công sẽ đặt lần chạy kế tiếp theo cooldown.
+- Task lỗi sẽ retry sớm lúc đầu, sau đó backoff dần.
+- Mỗi tick chỉ chạy các task tới hạn có ưu tiên cao nhất, không chạy toàn bộ danh sách.
+
+Ví dụ:
+
+```toml
+[heartbeat]
+enabled = true
+interval_minutes = 15
+target = "telegram"
+to = "123456"
+```
+
+Ví dụ `HEARTBEAT.md`:
+
+```md
+- [every=4h] Review my calendar for the next 24 hours
+- [every=1d] [priority=2] Check active repos for stale branches
+- [every=30m] [max_runs=1] Remind me to finish onboarding notes
+```
+
 ## `[runtime]`
 
 | Khóa | Mặc định | Mục đích |
