@@ -104,6 +104,7 @@ mod peripherals;
 mod providers;
 mod runtime;
 mod security;
+mod self_improvement;
 mod service;
 mod skillforge;
 mod skills;

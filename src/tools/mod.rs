@@ -60,6 +60,7 @@ pub mod pushover;
 pub mod schedule;
 pub mod schema;
 pub mod screenshot;
+pub mod self_improvement_task;
 pub mod shell;
 pub mod subagent_list;
 pub mod subagent_manage;
@@ -113,6 +114,7 @@ pub use schedule::ScheduleTool;
 #[allow(unused_imports)]
 pub use schema::{CleaningStrategy, SchemaCleanr};
 pub use screenshot::ScreenshotTool;
+pub use self_improvement_task::SelfImprovementTaskTool;
 pub use shell::ShellTool;
 pub use subagent_list::SubAgentListTool;
 pub use subagent_manage::SubAgentManageTool;
@@ -275,6 +277,10 @@ pub fn all_tools_with_runtime(
         Arc::new(MemoryForgetTool::new(memory, security.clone())),
         Arc::new(ScheduleTool::new(security.clone(), root_config.clone())),
         Arc::new(TaskPlanTool::new(security.clone())),
+        Arc::new(SelfImprovementTaskTool::new(
+            config.clone(),
+            security.clone(),
+        )),
         Arc::new(ModelRoutingConfigTool::new(
             config.clone(),
             security.clone(),

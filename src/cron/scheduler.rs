@@ -33,6 +33,10 @@ pub async fn run(config: Config) -> Result<()> {
         // Keep scheduler liveness fresh even when there are no due jobs.
         crate::health::mark_component_ok(SCHEDULER_COMPONENT);
 
+        if let Err(error) = crate::self_improvement::sync_scheduled_job(&config).await {
+            tracing::warn!("Self-improvement cron sync failed: {error}");
+        }
+
         let jobs = match due_jobs(&config, Utc::now()) {
             Ok(jobs) => jobs,
             Err(e) => {

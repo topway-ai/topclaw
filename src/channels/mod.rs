@@ -4285,6 +4285,7 @@ pub fn build_system_prompt_with_mode(
     prompt.push_str("- You do NOT need to ask permission to respond — just respond directly.\n");
     prompt.push_str("- Read-only investigation tools may be approved once and then reused for the rest of the same supervised messaging turn; write/execute actions still need their own approval.\n");
     prompt.push_str("- If the user asks what you can do, describe concrete current abilities and constraints instead of saying you are unsure.\n");
+    prompt.push_str("- If the user explicitly asks to track a concrete TopClaw bug or product improvement for scheduled self-improvement work, use `self_improvement_task` to queue it instead of only describing it.\n");
     prompt.push_str("- NEVER repeat, describe, or echo credentials, tokens, API keys, or secrets in your responses.\n");
     prompt.push_str("- If a tool output contains credentials, they have already been redacted — do not mention them.\n\n");
 
