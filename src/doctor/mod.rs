@@ -1303,8 +1303,10 @@ mod tests {
 
     #[test]
     fn next_step_suggestions_recommend_provider_auth_for_known_provider() {
+        let temp = tempfile::tempdir().expect("tempdir");
         let mut config = Config::default();
         config.default_provider = Some("openai-codex".into());
+        config.config_path = temp.path().join("config.toml");
 
         let results = diagnose(&config);
         let suggestions = next_step_suggestions(&config, &results);
@@ -1332,7 +1334,7 @@ mod tests {
 
         let mut config = Config::default();
         config.default_provider = Some("openai-codex".into());
-        config.state_dir = Some(state_dir.to_string_lossy().to_string());
+        config.config_path = state_dir.join("config.toml");
 
         let results = diagnose(&config);
 
@@ -1348,7 +1350,7 @@ mod tests {
 
         let mut config = Config::default();
         config.default_provider = Some("openai-codex".into());
-        config.state_dir = Some(temp.path().to_string_lossy().to_string());
+        config.config_path = temp.path().join("config.toml");
 
         let results = diagnose(&config);
 
