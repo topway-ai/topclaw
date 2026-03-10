@@ -2,13 +2,7 @@
   "schema_version": "topclaw.release-artifact-contract.v1",
   "release_archive_patterns": [
     "topclaw-x86_64-unknown-linux-gnu.tar.gz",
-    "topclaw-x86_64-unknown-linux-musl.tar.gz",
     "topclaw-aarch64-unknown-linux-gnu.tar.gz",
-    "topclaw-aarch64-unknown-linux-musl.tar.gz",
-    "topclaw-armv7-unknown-linux-gnueabihf.tar.gz",
-    "topclaw-armv7-linux-androideabi.tar.gz",
-    "topclaw-aarch64-linux-android.tar.gz",
-    "topclaw-x86_64-unknown-freebsd.tar.gz",
     "topclaw-x86_64-apple-darwin.tar.gz",
     "topclaw-aarch64-apple-darwin.tar.gz",
     "topclaw-x86_64-pc-windows-msvc.zip"
