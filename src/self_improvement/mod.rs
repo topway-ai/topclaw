@@ -459,16 +459,19 @@ fn build_task_prompt(
          2. Focus only on this one TopClaw task.\n\
          3. Start by using `self_improvement_task` to mark the task `in_progress`.\n\
          4. Implement the smallest effective fix.\n\
-         5. Run validation from the candidate worktree with `cargo fmt --all -- --check`, `cargo check --locked`, and the most relevant tests.\n\
-         6. If you are blocked, use `self_improvement_task` to mark the task `blocked` with the reason.\n"
+         5. If the task is really a new capability/skill candidate, first gather evidence with `web_search_tool`, `web_fetch`, `http_request`, or `browser` only when those tools are available and necessary; keep source links in the work notes.\n\
+         6. For capability/skill tasks, draft the narrowest safe candidate skill or repo change that solves the concrete problem instead of building a broad framework.\n\
+         7. For generated skills, run skill vetting before publish (`topclaw skills audit <skill-path>` from the candidate worktree, or the nearest equivalent validation path available in this environment).\n\
+         8. Run validation from the candidate worktree with `cargo fmt --all -- --check`, `cargo check --locked`, and the most relevant tests.\n\
+         9. If you are blocked, use `self_improvement_task` to mark the task `blocked` with the reason.\n"
     ));
     if cfg.auto_push_branch {
         prompt.push_str(
-            "7. If the fix is effective and validation passes, use `self_improvement_task` action `publish_pr` to commit, push, and optionally open the draft PR automatically.\n",
+            "10. If the fix is effective and validation passes, use `self_improvement_task` action `publish_pr` to commit, push, and optionally open the draft PR automatically.\n",
         );
     } else {
         prompt.push_str(
-            "7. If the fix is effective and validation passes, use `self_improvement_task` to mark the task `completed` with a validation summary.\n",
+            "10. If the fix is effective and validation passes, use `self_improvement_task` to mark the task `completed` with a validation summary.\n",
         );
     }
     prompt
@@ -755,6 +758,8 @@ mod tests {
         let prompt = build_task_prompt(&task, &readiness, &SelfImprovementConfig::default());
         assert!(prompt.contains("Candidate worktree"));
         assert!(prompt.contains("self_improvement_task"));
+        assert!(prompt.contains("web_search_tool"));
+        assert!(prompt.contains("skills audit"));
         assert!(prompt.contains("publish_pr"));
     }
 }

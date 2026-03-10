@@ -640,6 +640,815 @@ fn summarize_internal_progress_delta(delta: &str) -> Option<&'static str> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CapabilityRecoveryKind {
+    WebAccess,
+    ShellAccess,
+    FileReadAccess,
+    FileWriteAccess,
+    SkillCandidate,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CapabilityState {
+    Available,
+    NeedsApproval,
+    Excluded,
+    Missing,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CapabilityToolCandidate {
+    tool_name: &'static str,
+    setup_hint: &'static str,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct CapabilityRecoveryPlan {
+    kind: CapabilityRecoveryKind,
+    tool_name: String,
+    state: CapabilityState,
+    reason: String,
+    message: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct LlmCapabilityRecoverySuggestion {
+    #[serde(default)]
+    need_recovery: bool,
+    #[serde(default)]
+    tool_name: Option<String>,
+    #[serde(default)]
+    reason: Option<String>,
+    #[serde(default)]
+    queue_skill_candidate: bool,
+}
+
+#[cfg(test)]
+fn looks_like_remote_repo_review_request(user_message: &str) -> bool {
+    let trimmed = user_message.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let has_repo_url = lower.contains("github.com/")
+        || lower.contains("gitlab.com/")
+        || lower.contains("bitbucket.org/");
+
+    if !has_repo_url {
+        return false;
+    }
+
+    let english_review_hints = [
+        "review",
+        "inspect",
+        "audit",
+        "analyze",
+        "analyse",
+        "check",
+        "look at",
+        "look through",
+        "codebase",
+        "repository",
+        "repo",
+        "source code",
+        "what is wrong",
+        "obvious issue",
+    ];
+    if english_review_hints.iter().any(|hint| lower.contains(hint)) {
+        return true;
+    }
+
+    let cjk_review_hints = [
+        "代码库",
+        "仓库",
+        "源码",
+        "看看",
+        "检查",
+        "审查",
+        "评审",
+        "缺陷",
+        "问题",
+        "有什么明显",
+    ];
+    cjk_review_hints.iter().any(|hint| trimmed.contains(hint))
+}
+
+fn message_contains_url(user_message: &str) -> bool {
+    let lower = user_message.to_ascii_lowercase();
+    lower.contains("http://")
+        || lower.contains("https://")
+        || lower.contains("www.")
+        || lower.contains("github.com/")
+        || lower.contains("gitlab.com/")
+        || lower.contains("bitbucket.org/")
+}
+
+fn looks_like_web_task(user_message: &str) -> bool {
+    let trimmed = user_message.trim();
+    if trimmed.is_empty() || !message_contains_url(trimmed) {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let english_hints = [
+        "review",
+        "inspect",
+        "audit",
+        "analyze",
+        "analyse",
+        "check",
+        "look at",
+        "look through",
+        "read",
+        "summarize",
+        "open",
+        "browse",
+        "visit",
+        "fetch",
+        "search",
+        "look up",
+        "what is on",
+        "what's on",
+    ];
+    if english_hints.iter().any(|hint| lower.contains(hint)) {
+        return true;
+    }
+
+    let cjk_hints = [
+        "看看",
+        "检查",
+        "审查",
+        "评审",
+        "读",
+        "读取",
+        "总结",
+        "打开",
+        "访问",
+        "搜索",
+        "查一下",
+        "网页",
+        "链接",
+        "网址",
+    ];
+    cjk_hints.iter().any(|hint| trimmed.contains(hint))
+}
+
+fn looks_like_shell_task(user_message: &str) -> bool {
+    let trimmed = user_message.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let english_hints = [
+        "run ", "execute ", "terminal", "shell", "command", "build", "compile", "test", "cargo ",
+        "npm ", "pnpm ", "yarn ", "pip ", "python ", "pytest", "make ", "cmake", "docker ",
+        "kubectl ",
+    ];
+    if english_hints.iter().any(|hint| lower.contains(hint)) {
+        return true;
+    }
+
+    let cjk_hints = [
+        "运行命令",
+        "执行命令",
+        "终端",
+        "命令行",
+        "编译",
+        "构建",
+        "测试",
+        "跑一下",
+    ];
+    cjk_hints.iter().any(|hint| trimmed.contains(hint))
+}
+
+fn looks_like_file_read_task(user_message: &str) -> bool {
+    let trimmed = user_message.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let mentions_path = trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains(".md");
+    let english_hints = [
+        "read file",
+        "open file",
+        "show file",
+        "inspect file",
+        "cat ",
+    ];
+    if mentions_path && english_hints.iter().any(|hint| lower.contains(hint)) {
+        return true;
+    }
+
+    mentions_path
+        && ["读取文件", "打开文件", "查看文件", "看看文件"]
+            .iter()
+            .any(|hint| trimmed.contains(hint))
+}
+
+fn looks_like_file_write_task(user_message: &str) -> bool {
+    let trimmed = user_message.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let mentions_path = trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains(".rs");
+    let english_hints = [
+        "edit file",
+        "modify file",
+        "update file",
+        "change file",
+        "write file",
+        "create file",
+        "patch file",
+    ];
+    if mentions_path && english_hints.iter().any(|hint| lower.contains(hint)) {
+        return true;
+    }
+
+    mentions_path
+        && ["修改文件", "更新文件", "编辑文件", "创建文件", "写入文件"]
+            .iter()
+            .any(|hint| trimmed.contains(hint))
+}
+
+fn looks_like_skill_candidate_request(user_message: &str) -> bool {
+    let trimmed = user_message.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let english_hints = [
+        "create a skill",
+        "new skill",
+        "generate a skill",
+        "skill candidate",
+        "official skills",
+        "add to topclaw",
+        "upstream this",
+        "candidate pr",
+        "teach topclaw",
+        "new capability",
+        "extend topclaw",
+    ];
+    if english_hints.iter().any(|hint| lower.contains(hint)) {
+        return true;
+    }
+
+    let cjk_hints = [
+        "创建技能",
+        "新技能",
+        "生成技能",
+        "候选技能",
+        "官方技能",
+        "加入TopClaw",
+        "扩展TopClaw",
+        "新能力",
+        "提交PR",
+    ];
+    cjk_hints.iter().any(|hint| trimmed.contains(hint))
+}
+
+fn should_try_llm_capability_recovery(user_message: &str) -> bool {
+    let trimmed = user_message.trim();
+    if trimmed.is_empty() || trimmed.starts_with('/') {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let english_hints = [
+        "can't",
+        "cannot",
+        "unable",
+        "failed",
+        "failure",
+        "fix",
+        "solve",
+        "handle",
+        "recover",
+        "blocked",
+        "why",
+        "how",
+        "capability",
+        "skill",
+    ];
+    if english_hints.iter().any(|hint| lower.contains(hint)) {
+        return true;
+    }
+
+    let cjk_hints = [
+        "不能",
+        "无法",
+        "失败",
+        "修复",
+        "解决",
+        "处理",
+        "恢复",
+        "为什么",
+        "怎么",
+        "能力",
+        "技能",
+    ];
+    cjk_hints.iter().any(|hint| trimmed.contains(hint))
+}
+
+fn tool_is_registered(tools_registry: &[Box<dyn Tool>], tool_name: &str) -> bool {
+    tools_registry.iter().any(|tool| tool.name() == tool_name)
+}
+
+fn capability_tool_state(
+    tools_registry: &[Box<dyn Tool>],
+    excluded_tools: &[String],
+    approval_manager: &ApprovalManager,
+    tool_name: &str,
+) -> CapabilityState {
+    if !tool_is_registered(tools_registry, tool_name) {
+        return CapabilityState::Missing;
+    }
+
+    let excluded = excluded_tools
+        .iter()
+        .map(|tool| tool.trim().to_ascii_lowercase())
+        .collect::<std::collections::HashSet<_>>();
+
+    if excluded.contains(&tool_name.trim().to_ascii_lowercase()) {
+        CapabilityState::Excluded
+    } else if approval_manager.is_non_cli_session_granted(tool_name) {
+        CapabilityState::Available
+    } else if approval_manager.needs_approval(tool_name) {
+        CapabilityState::NeedsApproval
+    } else {
+        CapabilityState::Available
+    }
+}
+
+fn create_capability_recovery_plan(
+    ctx: &ChannelRuntimeContext,
+    msg: &traits::ChannelMessage,
+    excluded_tools: &[String],
+    kind: CapabilityRecoveryKind,
+    candidates: &[CapabilityToolCandidate],
+    reason: &'static str,
+) -> Option<CapabilityRecoveryPlan> {
+    let mut first_missing: Option<CapabilityToolCandidate> = None;
+    let mut first_excluded: Option<CapabilityToolCandidate> = None;
+
+    for candidate in candidates {
+        match capability_tool_state(
+            ctx.tools_registry.as_ref(),
+            excluded_tools,
+            ctx.approval_manager.as_ref(),
+            candidate.tool_name,
+        ) {
+            CapabilityState::Available => return None,
+            CapabilityState::NeedsApproval => {
+                let req = ctx.approval_manager.create_non_cli_pending_request(
+                    candidate.tool_name,
+                    &msg.sender,
+                    &msg.channel,
+                    &msg.reply_target,
+                    Some(reason.to_string()),
+                );
+                let message = format!(
+                    "I can finish this, but I need supervised access to `{}` first.\nRequest ID: `{}`\nConfirm with `/approve-confirm {}` from this same chat/channel, then send the request again.",
+                    candidate.tool_name, req.request_id, req.request_id
+                );
+                return Some(CapabilityRecoveryPlan {
+                    kind,
+                    tool_name: candidate.tool_name.to_string(),
+                    state: CapabilityState::NeedsApproval,
+                    reason: reason.to_string(),
+                    message,
+                });
+            }
+            CapabilityState::Excluded => {
+                if first_excluded.is_none() {
+                    first_excluded = Some(*candidate);
+                }
+            }
+            CapabilityState::Missing => {
+                if first_missing.is_none() {
+                    first_missing = Some(*candidate);
+                }
+            }
+        }
+    }
+
+    if let Some(candidate) = first_excluded {
+        return Some(CapabilityRecoveryPlan {
+            kind,
+            tool_name: candidate.tool_name.to_string(),
+            state: CapabilityState::Excluded,
+            reason: reason.to_string(),
+            message: format!(
+                "I can’t use `{}` in this chat because it is currently blocked by `autonomy.non_cli_excluded_tools`.\nRemove it from that config list, let the channel runtime reload, then retry.\n{}",
+                candidate.tool_name, candidate.setup_hint
+            ),
+        });
+    }
+
+    first_missing.map(|candidate| CapabilityRecoveryPlan {
+        kind,
+        tool_name: candidate.tool_name.to_string(),
+        state: CapabilityState::Missing,
+        reason: reason.to_string(),
+        message: candidate.setup_hint.to_string(),
+    })
+}
+
+fn infer_capability_recovery_plan(
+    ctx: &ChannelRuntimeContext,
+    msg: &traits::ChannelMessage,
+    excluded_tools: &[String],
+) -> Option<CapabilityRecoveryPlan> {
+    if looks_like_web_task(&msg.content) {
+        return create_capability_recovery_plan(
+            ctx,
+            msg,
+            excluded_tools,
+            CapabilityRecoveryKind::WebAccess,
+            &[
+                CapabilityToolCandidate {
+                    tool_name: "web_fetch",
+                    setup_hint: "I can’t inspect that link from this chat yet because channel web access is not enabled.\nEnable `web_fetch`, `web_search_tool`, `http_request`, or `browser` for channel use, or send me local files/workspace content instead.",
+                },
+                CapabilityToolCandidate {
+                    tool_name: "web_search_tool",
+                    setup_hint: "I can’t search the web for this from this chat yet because web-search tooling is not enabled.\nEnable `web_search_tool`, `web_fetch`, `http_request`, or `browser` for channel use, or give me the relevant local material.",
+                },
+                CapabilityToolCandidate {
+                    tool_name: "http_request",
+                    setup_hint: "I can’t retrieve that remote content from this chat yet because channel HTTP access is not enabled.\nEnable `http_request`, `web_fetch`, `web_search_tool`, or `browser` for channel use, or give me the relevant local material.",
+                },
+                CapabilityToolCandidate {
+                    tool_name: "browser",
+                    setup_hint: "I can’t open that remote page from this chat yet because channel browser access is not enabled.\nEnable `browser`, `web_fetch`, `web_search_tool`, or `http_request` for channel use, or give me the relevant local material.",
+                },
+            ],
+            "user request appears to require remote web access in a non-CLI channel",
+        );
+    }
+
+    if looks_like_shell_task(&msg.content) {
+        return create_capability_recovery_plan(
+            ctx,
+            msg,
+            excluded_tools,
+            CapabilityRecoveryKind::ShellAccess,
+            &[CapabilityToolCandidate {
+                tool_name: "shell",
+                setup_hint: "I can’t run terminal commands for this chat right now.\nEnable the `shell` tool for channel use, or run the command locally and send me the output to continue.",
+            }],
+            "user request appears to require shell or terminal execution in a non-CLI channel",
+        );
+    }
+
+    if looks_like_file_write_task(&msg.content) {
+        return create_capability_recovery_plan(
+            ctx,
+            msg,
+            excluded_tools,
+            CapabilityRecoveryKind::FileWriteAccess,
+            &[
+                CapabilityToolCandidate {
+                    tool_name: "file_edit",
+                    setup_hint: "I can’t edit files for this chat right now.\nEnable `file_edit` or `file_write` for channel use, or switch to the local workspace flow.",
+                },
+                CapabilityToolCandidate {
+                    tool_name: "file_write",
+                    setup_hint: "I can’t write files for this chat right now.\nEnable `file_write` or `file_edit` for channel use, or switch to the local workspace flow.",
+                },
+            ],
+            "user request appears to require file modification in a non-CLI channel",
+        );
+    }
+
+    if looks_like_file_read_task(&msg.content) {
+        return create_capability_recovery_plan(
+            ctx,
+            msg,
+            excluded_tools,
+            CapabilityRecoveryKind::FileReadAccess,
+            &[CapabilityToolCandidate {
+                tool_name: "file_read",
+                setup_hint: "I can’t read local files for this chat right now.\nEnable `file_read` for channel use, or paste the file contents directly.",
+            }],
+            "user request appears to require local file inspection in a non-CLI channel",
+        );
+    }
+
+    None
+}
+
+fn extract_json_object(text: &str) -> Option<&str> {
+    let trimmed = text.trim();
+    if let Some(stripped) = trimmed
+        .strip_prefix("```json")
+        .or_else(|| trimmed.strip_prefix("```"))
+    {
+        return stripped
+            .trim()
+            .strip_suffix("```")
+            .map(str::trim)
+            .filter(|inner| inner.starts_with('{') && inner.ends_with('}'));
+    }
+
+    if trimmed.starts_with('{') && trimmed.ends_with('}') {
+        Some(trimmed)
+    } else {
+        None
+    }
+}
+
+fn map_tool_to_capability_kind(tool_name: &str) -> Option<CapabilityRecoveryKind> {
+    match tool_name {
+        "web_fetch" | "web_search_tool" | "http_request" | "browser" => {
+            Some(CapabilityRecoveryKind::WebAccess)
+        }
+        "shell" => Some(CapabilityRecoveryKind::ShellAccess),
+        "file_read" => Some(CapabilityRecoveryKind::FileReadAccess),
+        "file_edit" | "file_write" => Some(CapabilityRecoveryKind::FileWriteAccess),
+        "self_improvement_task" => Some(CapabilityRecoveryKind::SkillCandidate),
+        _ => None,
+    }
+}
+
+async fn load_runtime_config(ctx: &ChannelRuntimeContext) -> Result<Config> {
+    let Some(config_path) = runtime_config_path(ctx) else {
+        anyhow::bail!("runtime config path is unavailable")
+    };
+
+    let contents = tokio::fs::read_to_string(&config_path)
+        .await
+        .with_context(|| format!("Failed to read {}", config_path.display()))?;
+    let mut parsed: Config = toml::from_str(&contents)
+        .with_context(|| format!("Failed to parse {}", config_path.display()))?;
+    parsed.config_path = config_path;
+    parsed.apply_env_overrides();
+    Ok(parsed)
+}
+
+async fn create_skill_candidate_recovery_plan(
+    ctx: &ChannelRuntimeContext,
+    msg: &traits::ChannelMessage,
+    excluded_tools: &[String],
+    reason: &str,
+    explicit_user_request: bool,
+) -> Option<CapabilityRecoveryPlan> {
+    let tool_name = "self_improvement_task";
+    let state = capability_tool_state(
+        ctx.tools_registry.as_ref(),
+        excluded_tools,
+        ctx.approval_manager.as_ref(),
+        tool_name,
+    );
+
+    if explicit_user_request
+        && matches!(
+            state,
+            CapabilityState::Available | CapabilityState::NeedsApproval
+        )
+    {
+        let config = match load_runtime_config(ctx).await {
+                Ok(config) => config,
+                Err(err) => {
+                    return Some(CapabilityRecoveryPlan {
+                        kind: CapabilityRecoveryKind::SkillCandidate,
+                        tool_name: tool_name.to_string(),
+                        state: CapabilityState::Missing,
+                        reason: "self-improvement runtime config could not be loaded".to_string(),
+                        message: format!(
+                            "I identified this as a TopClaw skill/capability candidate, but I couldn’t load the runtime config to queue it automatically.\nDetails: {err}"
+                        ),
+                    })
+                }
+            };
+
+        let manager = crate::self_improvement::SelfImprovementManager::new(&config.workspace_dir);
+        let title = truncate_with_ellipsis(
+            &format!("Skill candidate: {}", msg.content.replace('\n', " ")),
+            96,
+        );
+        let problem = format!(
+            "Channel request flagged for capability recovery.\n\nUser request:\n{}\n\nRecovery rationale:\n{}",
+            msg.content, reason
+        );
+        let evidence = Some(format!(
+            "channel={} sender={} reply_target={} message_id={}",
+            msg.channel, msg.sender, msg.reply_target, msg.id
+        ));
+        return match manager
+            .enqueue_task(
+                &config,
+                &title,
+                &problem,
+                evidence,
+                Some(msg.sender.clone()),
+                Some(msg.channel.clone()),
+            )
+            .await
+        {
+            Ok(task) => {
+                let sync = crate::self_improvement::sync_scheduled_job(&config)
+                    .await
+                    .unwrap_or(crate::self_improvement::SyncOutcome {
+                        action: "idle".to_string(),
+                        reason: Some("failed to sync self-improvement scheduler".to_string()),
+                        task_id: Some(task.id.clone()),
+                        job_id: None,
+                    });
+                let scheduler_status = match sync.reason {
+                    Some(reason) => format!("{} ({reason})", sync.action),
+                    None => sync.action,
+                };
+                Some(CapabilityRecoveryPlan {
+                    kind: CapabilityRecoveryKind::SkillCandidate,
+                    tool_name: tool_name.to_string(),
+                    state: CapabilityState::Available,
+                    reason:
+                        "queued a TopClaw self-improvement candidate for generated-skill flow"
+                            .to_string(),
+                    message: format!(
+                        "Queued this as a TopClaw skill/capability candidate.\nTask ID: `{}`\nNext path: research with web tools when available, draft the minimal skill candidate, run skill vetting, and prepare a candidate PR.\nScheduler: `{}`.",
+                        task.id, scheduler_status
+                    ),
+                })
+            }
+            Err(err) => Some(CapabilityRecoveryPlan {
+                kind: CapabilityRecoveryKind::SkillCandidate,
+                tool_name: tool_name.to_string(),
+                state: CapabilityState::Missing,
+                reason: "failed to queue TopClaw self-improvement candidate".to_string(),
+                message: format!(
+                    "I identified this as a TopClaw skill/capability candidate, but I couldn’t queue it automatically.\nDetails: {err}"
+                ),
+            }),
+        };
+    }
+
+    match state {
+        CapabilityState::Available => {
+            unreachable!("explicit-user-request capability queue path should have returned above")
+        }
+        CapabilityState::NeedsApproval => {
+            let req = ctx.approval_manager.create_non_cli_pending_request(
+                tool_name,
+                &msg.sender,
+                &msg.channel,
+                &msg.reply_target,
+                Some(reason.to_string()),
+            );
+            Some(CapabilityRecoveryPlan {
+                kind: CapabilityRecoveryKind::SkillCandidate,
+                tool_name: tool_name.to_string(),
+                state,
+                reason: "queueing this TopClaw skill candidate requires supervised approval".to_string(),
+                message: format!(
+                    "I can queue this as a TopClaw skill/capability candidate, but I need supervised access to `{}` first.\nRequest ID: `{}`\nConfirm with `/approve-confirm {}` from this same chat/channel, then resend the request.",
+                    tool_name, req.request_id, req.request_id
+                ),
+            })
+        }
+        CapabilityState::Excluded => Some(CapabilityRecoveryPlan {
+            kind: CapabilityRecoveryKind::SkillCandidate,
+            tool_name: tool_name.to_string(),
+            state,
+            reason: "self-improvement queue tool is excluded in this non-CLI runtime".to_string(),
+            message: "I identified this as a TopClaw skill/capability candidate, but `self_improvement_task` is blocked by `autonomy.non_cli_excluded_tools`.\nRemove it from that list, let the runtime reload, then retry.".to_string(),
+        }),
+        CapabilityState::Missing => Some(CapabilityRecoveryPlan {
+            kind: CapabilityRecoveryKind::SkillCandidate,
+            tool_name: tool_name.to_string(),
+            state,
+            reason: "self-improvement queue tool is not available in this runtime".to_string(),
+            message: "I identified this as a TopClaw skill/capability candidate, but the runtime does not currently expose `self_improvement_task`.\nEnable self-improvement support for this runtime if you want the bot to queue, vet, and prepare candidate PRs automatically.".to_string(),
+        }),
+    }
+}
+
+async fn try_llm_capability_recovery_plan(
+    provider: &dyn Provider,
+    ctx: &ChannelRuntimeContext,
+    msg: &traits::ChannelMessage,
+    model: &str,
+    temperature: f64,
+    excluded_tools: &[String],
+) -> Option<CapabilityRecoveryPlan> {
+    if !should_try_llm_capability_recovery(&msg.content) {
+        return None;
+    }
+
+    let available_tools = ctx
+        .tools_registry
+        .iter()
+        .map(|tool| tool.name().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let prompt = format!(
+        "Classify whether this non-CLI request is blocked by a missing or gated capability.\n\
+Return JSON only with keys: need_recovery (bool), tool_name (string), reason (string), queue_skill_candidate (bool).\n\
+Allowed tool_name values: web_fetch, web_search_tool, http_request, browser, shell, file_read, file_edit, file_write, self_improvement_task, none.\n\
+The user's current task takes priority over creating reusable skills.\n\
+Set queue_skill_candidate=true only when the primary user goal is to extend TopClaw itself with a reusable new capability/skill candidate, not merely to finish the current task.\n\
+Available runtime tools: {available_tools}\n\
+Excluded runtime tools: {}\n\
+User request:\n{}",
+        if excluded_tools.is_empty() {
+            "(none)".to_string()
+        } else {
+            excluded_tools.join(", ")
+        },
+        msg.content
+    );
+
+    let raw = provider
+        .chat_with_system(
+            Some(
+                "You are a strict capability-recovery classifier. Output valid JSON only. Do not explain.",
+            ),
+            &prompt,
+            model,
+            temperature,
+        )
+        .await
+        .ok()?;
+    let json = extract_json_object(&raw)?;
+    let suggestion: LlmCapabilityRecoverySuggestion = serde_json::from_str(json).ok()?;
+    if !suggestion.need_recovery {
+        return None;
+    }
+
+    if suggestion.queue_skill_candidate || looks_like_skill_candidate_request(&msg.content) {
+        let reason = suggestion
+            .reason
+            .as_deref()
+            .unwrap_or("LLM classifier recommended queueing a TopClaw skill candidate");
+        return create_skill_candidate_recovery_plan(ctx, msg, excluded_tools, reason, false).await;
+    }
+
+    let tool_name = suggestion.tool_name.as_deref()?.trim();
+    if tool_name.is_empty() || tool_name.eq_ignore_ascii_case("none") {
+        return None;
+    }
+    let kind = map_tool_to_capability_kind(tool_name)?;
+    let reason = suggestion
+        .reason
+        .unwrap_or_else(|| "LLM classifier identified a likely missing capability".to_string());
+    let state = capability_tool_state(
+        ctx.tools_registry.as_ref(),
+        excluded_tools,
+        ctx.approval_manager.as_ref(),
+        tool_name,
+    );
+    match state {
+        CapabilityState::Available => None,
+        CapabilityState::NeedsApproval => {
+            let req = ctx.approval_manager.create_non_cli_pending_request(
+                tool_name,
+                &msg.sender,
+                &msg.channel,
+                &msg.reply_target,
+                Some(reason.clone()),
+            );
+            Some(CapabilityRecoveryPlan {
+                kind,
+                tool_name: tool_name.to_string(),
+                state,
+                reason,
+                message: format!(
+                    "I can finish this, but I need supervised access to `{}` first.\nRequest ID: `{}`\nConfirm with `/approve-confirm {}` from this same chat/channel, then send the request again.",
+                    tool_name, req.request_id, req.request_id
+                ),
+            })
+        }
+        CapabilityState::Excluded => Some(CapabilityRecoveryPlan {
+            kind,
+            tool_name: tool_name.to_string(),
+            state,
+            reason,
+            message: format!(
+                "I identified `{}` as the missing capability for this request, but it is currently blocked by `autonomy.non_cli_excluded_tools`.\nRemove it from that config list, let the runtime reload, then retry.",
+                tool_name
+            ),
+        }),
+        CapabilityState::Missing => Some(CapabilityRecoveryPlan {
+            kind,
+            tool_name: tool_name.to_string(),
+            state,
+            reason,
+            message: format!(
+                "I identified `{}` as the missing capability for this request, but this runtime does not currently expose it.\nEnable that tool for channel use, or provide the needed material manually so I can continue.",
+                tool_name
+            ),
+        }),
+    }
+}
+
 fn build_channel_system_prompt(
     base_prompt: &str,
     channel_name: &str,
@@ -3212,6 +4021,119 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
     } else {
         snapshot_non_cli_excluded_tools(ctx.as_ref())
     };
+
+    if msg.channel != "cli" {
+        if let Some(plan) =
+            infer_capability_recovery_plan(ctx.as_ref(), &msg, &excluded_tools_snapshot)
+        {
+            runtime_trace::record_event(
+                "channel_message_capability_recovery",
+                Some(msg.channel.as_str()),
+                None,
+                None,
+                None,
+                Some(matches!(plan.state, CapabilityState::NeedsApproval)),
+                Some(plan.reason.as_str()),
+                serde_json::json!({
+                    "sender": msg.sender,
+                    "message_id": msg.id,
+                    "kind": format!("{:?}", plan.kind),
+                    "tool_name": plan.tool_name.as_str(),
+                    "state": format!("{:?}", plan.state),
+                }),
+            );
+
+            if let Some(channel) = target_channel.as_ref() {
+                let _ = channel
+                    .send(
+                        &SendMessage::new(plan.message, &msg.reply_target)
+                            .in_thread(msg.thread_ts.clone()),
+                    )
+                    .await;
+            }
+            return;
+        }
+
+        if let Some(plan) = try_llm_capability_recovery_plan(
+            active_provider.as_ref(),
+            ctx.as_ref(),
+            &msg,
+            route.model.as_str(),
+            runtime_defaults.temperature,
+            &excluded_tools_snapshot,
+        )
+        .await
+        {
+            runtime_trace::record_event(
+                "channel_message_capability_recovery",
+                Some(msg.channel.as_str()),
+                None,
+                None,
+                None,
+                Some(matches!(plan.state, CapabilityState::NeedsApproval)),
+                Some(plan.reason.as_str()),
+                serde_json::json!({
+                    "sender": msg.sender,
+                    "message_id": msg.id,
+                    "kind": format!("{:?}", plan.kind),
+                    "tool_name": plan.tool_name.as_str(),
+                    "state": format!("{:?}", plan.state),
+                    "source": "llm_classifier",
+                }),
+            );
+
+            if let Some(channel) = target_channel.as_ref() {
+                let _ = channel
+                    .send(
+                        &SendMessage::new(plan.message, &msg.reply_target)
+                            .in_thread(msg.thread_ts.clone()),
+                    )
+                    .await;
+            }
+            return;
+        }
+
+        if looks_like_skill_candidate_request(&msg.content) {
+            if let Some(plan) = create_skill_candidate_recovery_plan(
+                ctx.as_ref(),
+                &msg,
+                &excluded_tools_snapshot,
+                "user explicitly asked for a new TopClaw skill/capability candidate after direct task recovery paths were considered",
+                true,
+            )
+            .await
+            {
+                runtime_trace::record_event(
+                    "channel_message_capability_recovery",
+                    Some(msg.channel.as_str()),
+                    None,
+                    None,
+                    None,
+                    Some(matches!(plan.state, CapabilityState::NeedsApproval)),
+                    Some(plan.reason.as_str()),
+                    serde_json::json!({
+                        "sender": msg.sender,
+                        "message_id": msg.id,
+                        "kind": format!("{:?}", plan.kind),
+                        "tool_name": plan.tool_name.as_str(),
+                        "state": format!("{:?}", plan.state),
+                        "priority": "after_direct_task_recovery",
+                    }),
+                );
+
+                if let Some(channel) = target_channel.as_ref() {
+                    let _ = channel
+                        .send(
+                            &SendMessage::new(plan.message, &msg.reply_target)
+                                .in_thread(msg.thread_ts.clone()),
+                        )
+                        .await;
+                }
+                return;
+            }
+        }
+    }
+
     let mut system_prompt = build_channel_system_prompt(
         ctx.system_prompt.as_str(),
         &msg.channel,
@@ -6034,6 +6956,37 @@ mod tests {
 
     struct ToolCallingProvider;
 
+    struct NamedTestTool(&'static str);
+
+    #[async_trait::async_trait]
+    impl Tool for NamedTestTool {
+        fn name(&self) -> &str {
+            self.0
+        }
+
+        fn description(&self) -> &str {
+            "named test tool"
+        }
+
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": {}
+            })
+        }
+
+        async fn execute(
+            &self,
+            _args: serde_json::Value,
+        ) -> anyhow::Result<crate::tools::ToolResult> {
+            Ok(crate::tools::ToolResult {
+                success: true,
+                output: String::new(),
+                error: None,
+            })
+        }
+    }
+
     fn tool_call_payload() -> String {
         r#"<tool_call>
 {"name":"mock_price","arguments":{"symbol":"BTC"}}
@@ -6207,6 +7160,34 @@ BTC is currently around $65,000 based on latest tool output."#
             let mut calls = self.calls.lock().unwrap_or_else(|e| e.into_inner());
             calls.push(snapshot);
             Ok(format!("response-{}", calls.len()))
+        }
+    }
+
+    struct StructuredRecoveryProvider {
+        classifier_response: String,
+        history_calls: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl Provider for StructuredRecoveryProvider {
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            Ok(self.classifier_response.clone())
+        }
+
+        async fn chat_with_history(
+            &self,
+            _messages: &[ChatMessage],
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            self.history_calls.fetch_add(1, Ordering::SeqCst);
+            Ok("unexpected-main-history-call".to_string())
         }
     }
 
@@ -10201,6 +11182,396 @@ Done reminder set for 1:38 AM."#;
             Some("Retrying...\n")
         );
         assert_eq!(summarize_internal_progress_delta("plain text"), None);
+    }
+
+    #[test]
+    fn looks_like_remote_repo_review_request_matches_repo_audit_prompts() {
+        assert!(looks_like_remote_repo_review_request(
+            "review this repo https://github.com/topway-ai/topclaw"
+        ));
+        assert!(looks_like_remote_repo_review_request(
+            "你的所有代码都在这里，看看有啥明显缺陷么？https://github.com/topway-ai/topclaw"
+        ));
+        assert!(!looks_like_remote_repo_review_request(
+            "https://github.com/topway-ai/topclaw"
+        ));
+        assert!(!looks_like_remote_repo_review_request(
+            "show me local file /home/frank/claw_projects/topclaw/README.md"
+        ));
+    }
+
+    #[test]
+    fn capability_tool_state_accounts_for_presence_exclusion_and_approval() {
+        let tools: Vec<Box<dyn Tool>> = vec![Box::new(NamedTestTool("web_fetch"))];
+        let approval_manager =
+            ApprovalManager::from_config(&crate::config::AutonomyConfig::default());
+        assert_eq!(
+            capability_tool_state(&tools, &[], &approval_manager, "web_fetch"),
+            CapabilityState::Available
+        );
+        assert_eq!(
+            capability_tool_state(
+                &tools,
+                &["web_fetch".to_string()],
+                &approval_manager,
+                "web_fetch"
+            ),
+            CapabilityState::Excluded
+        );
+
+        let gated_approval = ApprovalManager::from_config(&crate::config::AutonomyConfig {
+            always_ask: vec!["web_fetch".to_string()],
+            ..crate::config::AutonomyConfig::default()
+        });
+        assert_eq!(
+            capability_tool_state(&tools, &[], &gated_approval, "web_fetch"),
+            CapabilityState::NeedsApproval
+        );
+        gated_approval.grant_non_cli_session("web_fetch");
+        assert_eq!(
+            capability_tool_state(&tools, &[], &gated_approval, "web_fetch"),
+            CapabilityState::Available
+        );
+        assert_eq!(
+            capability_tool_state(&[], &[], &approval_manager, "web_fetch"),
+            CapabilityState::Missing
+        );
+    }
+
+    #[tokio::test]
+    async fn process_channel_message_remote_repo_url_without_web_tools_sends_fallback() {
+        let temp = TempDir::new().unwrap();
+        let channel_impl = Arc::new(TelegramRecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let provider_impl = Arc::new(HistoryCaptureProvider::default());
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            channels_by_name: Arc::new(channels_by_name),
+            provider: provider_impl.clone(),
+            default_provider: Arc::new("test-provider".to_string()),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test-system-prompt".to_string()),
+            model: Arc::new("test-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            provider_cache: Arc::new(Mutex::new(HashMap::new())),
+            route_overrides: Arc::new(Mutex::new(HashMap::new())),
+            api_key: None,
+            api_url: None,
+            reliability: Arc::new(crate::config::ReliabilityConfig::default()),
+            provider_runtime_options: providers::ProviderRuntimeOptions::default(),
+            workspace_dir: Arc::new(temp.path().to_path_buf()),
+            message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
+            interrupt_on_new_message: false,
+            multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
+            non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
+            approval_manager: Arc::new(ApprovalManager::from_config(
+                &crate::config::AutonomyConfig::default(),
+            )),
+        });
+
+        Box::pin(process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "repo-link-1".to_string(),
+                sender: "alice".to_string(),
+                reply_target: "chat-telegram".to_string(),
+                content:
+                    "你的所有代码都在这里，看看有啥明显缺陷么？https://github.com/topway-ai/topclaw"
+                        .to_string(),
+                channel: "telegram".to_string(),
+                timestamp: 1,
+                thread_ts: None,
+            },
+            CancellationToken::new(),
+        ))
+        .await;
+
+        let sent = channel_impl.sent_messages.lock().await;
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].contains("channel web access is not enabled"));
+        assert!(sent[0].contains("Enable `web_fetch`"));
+
+        let calls = provider_impl
+            .calls
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        assert!(
+            calls.is_empty(),
+            "provider should not be called for this fallback"
+        );
+    }
+
+    #[tokio::test]
+    async fn process_channel_message_web_request_with_gated_tool_creates_approval_request() {
+        let temp = TempDir::new().unwrap();
+        let channel_impl = Arc::new(TelegramRecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let provider_impl = Arc::new(HistoryCaptureProvider::default());
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            channels_by_name: Arc::new(channels_by_name),
+            provider: provider_impl.clone(),
+            default_provider: Arc::new("test-provider".to_string()),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![Box::new(NamedTestTool("web_fetch"))]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test-system-prompt".to_string()),
+            model: Arc::new("test-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            provider_cache: Arc::new(Mutex::new(HashMap::new())),
+            route_overrides: Arc::new(Mutex::new(HashMap::new())),
+            api_key: None,
+            api_url: None,
+            reliability: Arc::new(crate::config::ReliabilityConfig::default()),
+            provider_runtime_options: providers::ProviderRuntimeOptions::default(),
+            workspace_dir: Arc::new(temp.path().to_path_buf()),
+            message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
+            interrupt_on_new_message: false,
+            multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
+            non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
+            approval_manager: Arc::new(ApprovalManager::from_config(
+                &crate::config::AutonomyConfig {
+                    always_ask: vec!["web_fetch".to_string()],
+                    ..crate::config::AutonomyConfig::default()
+                },
+            )),
+        });
+
+        Box::pin(process_channel_message(
+            runtime_ctx.clone(),
+            traits::ChannelMessage {
+                id: "web-link-approval-1".to_string(),
+                sender: "alice".to_string(),
+                reply_target: "chat-telegram".to_string(),
+                content: "please inspect https://example.com/docs".to_string(),
+                channel: "telegram".to_string(),
+                timestamp: 1,
+                thread_ts: None,
+            },
+            CancellationToken::new(),
+        ))
+        .await;
+
+        let sent = channel_impl.sent_messages.lock().await;
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0]
+            .contains("I can finish this, but I need supervised access to `web_fetch` first."));
+        assert!(sent[0].contains("/approve-confirm apr-"));
+
+        let calls = provider_impl
+            .calls
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        assert!(
+            calls.is_empty(),
+            "provider should not be called before approval"
+        );
+        assert_eq!(
+            runtime_ctx
+                .approval_manager
+                .list_non_cli_pending_requests(
+                    Some("alice"),
+                    Some("telegram"),
+                    Some("chat-telegram")
+                )
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn looks_like_skill_candidate_request_matches_explicit_extension_prompts() {
+        assert!(looks_like_skill_candidate_request(
+            "please create a new skill candidate and upstream this to TopClaw"
+        ));
+        assert!(looks_like_skill_candidate_request(
+            "把这个做成 TopClaw 官方技能候选"
+        ));
+        assert!(!looks_like_skill_candidate_request(
+            "please inspect https://example.com/docs"
+        ));
+    }
+
+    #[tokio::test]
+    async fn process_channel_message_skill_candidate_request_queues_self_improvement_task() {
+        let temp = TempDir::new().unwrap();
+        let workspace_dir = temp.path().join("workspace");
+        std::fs::create_dir_all(&workspace_dir).unwrap();
+
+        let mut persisted = Config::default();
+        persisted.config_path = temp.path().join("config.toml");
+        persisted.workspace_dir = workspace_dir.clone();
+        persisted.self_improvement.enabled = true;
+        persisted.save().await.unwrap();
+
+        let channel_impl = Arc::new(TelegramRecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let provider_impl = Arc::new(HistoryCaptureProvider::default());
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            channels_by_name: Arc::new(channels_by_name),
+            provider: provider_impl.clone(),
+            default_provider: Arc::new("test-provider".to_string()),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![Box::new(NamedTestTool("self_improvement_task"))]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test-system-prompt".to_string()),
+            model: Arc::new("test-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            provider_cache: Arc::new(Mutex::new(HashMap::new())),
+            route_overrides: Arc::new(Mutex::new(HashMap::new())),
+            api_key: None,
+            api_url: None,
+            reliability: Arc::new(crate::config::ReliabilityConfig::default()),
+            provider_runtime_options: providers::ProviderRuntimeOptions {
+                topclaw_dir: Some(temp.path().to_path_buf()),
+                ..providers::ProviderRuntimeOptions::default()
+            },
+            workspace_dir: Arc::new(workspace_dir.clone()),
+            message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
+            interrupt_on_new_message: false,
+            multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
+            non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
+            approval_manager: Arc::new(ApprovalManager::from_config(
+                &crate::config::AutonomyConfig {
+                    auto_approve: vec!["self_improvement_task".to_string()],
+                    ..crate::config::AutonomyConfig::default()
+                },
+            )),
+        });
+
+        Box::pin(process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "skill-candidate-1".to_string(),
+                sender: "alice".to_string(),
+                reply_target: "chat-telegram".to_string(),
+                content:
+                    "please create a new skill candidate for this workflow and add it to TopClaw"
+                        .to_string(),
+                channel: "telegram".to_string(),
+                timestamp: 1,
+                thread_ts: None,
+            },
+            CancellationToken::new(),
+        ))
+        .await;
+
+        let sent = channel_impl.sent_messages.lock().await;
+        assert_eq!(sent.len(), 1);
+        assert!(
+            sent[0].contains("Queued this as a TopClaw skill/capability candidate."),
+            "unexpected response: {}",
+            sent[0]
+        );
+        assert!(
+            sent[0].contains("Task ID: `"),
+            "unexpected response: {}",
+            sent[0]
+        );
+    }
+
+    #[tokio::test]
+    async fn process_channel_message_ambiguous_request_uses_llm_recovery_classifier() {
+        let temp = TempDir::new().unwrap();
+        let channel_impl = Arc::new(TelegramRecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let provider_impl = Arc::new(StructuredRecoveryProvider {
+            classifier_response: r#"{"need_recovery":true,"tool_name":"web_fetch","reason":"needs remote docs access","queue_skill_candidate":false}"#.to_string(),
+            history_calls: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            channels_by_name: Arc::new(channels_by_name),
+            provider: provider_impl.clone(),
+            default_provider: Arc::new("test-provider".to_string()),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![Box::new(NamedTestTool("web_fetch"))]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test-system-prompt".to_string()),
+            model: Arc::new("test-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            provider_cache: Arc::new(Mutex::new(HashMap::new())),
+            route_overrides: Arc::new(Mutex::new(HashMap::new())),
+            api_key: None,
+            api_url: None,
+            reliability: Arc::new(crate::config::ReliabilityConfig::default()),
+            provider_runtime_options: providers::ProviderRuntimeOptions::default(),
+            workspace_dir: Arc::new(temp.path().to_path_buf()),
+            message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
+            interrupt_on_new_message: false,
+            multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
+            non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
+            approval_manager: Arc::new(ApprovalManager::from_config(
+                &crate::config::AutonomyConfig {
+                    always_ask: vec!["web_fetch".to_string()],
+                    ..crate::config::AutonomyConfig::default()
+                },
+            )),
+        });
+
+        Box::pin(process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "ambiguous-recovery-1".to_string(),
+                sender: "alice".to_string(),
+                reply_target: "chat-telegram".to_string(),
+                content: "I can't solve this upstream docs problem from chat; figure out what capability you need"
+                    .to_string(),
+                channel: "telegram".to_string(),
+                timestamp: 1,
+                thread_ts: None,
+            },
+            CancellationToken::new(),
+        ))
+        .await;
+
+        let sent = channel_impl.sent_messages.lock().await;
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].contains("supervised access to `web_fetch`"));
+        assert_eq!(provider_impl.history_calls.load(Ordering::SeqCst), 0);
     }
 
     #[test]
