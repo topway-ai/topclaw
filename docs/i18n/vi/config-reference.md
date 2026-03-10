@@ -348,6 +348,26 @@ Lưu ý:
 | `port` | `3000` | Cổng lắng nghe gateway |
 | `require_pairing` | `true` | Yêu cầu ghép nối trước khi xác thực bearer |
 | `allow_public_bind` | `false` | Chặn lộ public do vô ý |
+| `trust_forwarded_headers` | `false` | Chỉ tin `X-Forwarded-For` / `X-Real-IP` khi bật rõ ràng |
+| `trusted_proxy_cidrs` | `[]` | CIDR nguồn reverse proxy được phép cung cấp IP client qua forwarded headers |
+
+Lưu ý:
+
+- Giữ `trust_forwarded_headers = false` trừ khi gateway nằm sau reverse proxy đáng tin cậy.
+- Peer loopback vẫn được coi là proxy đáng tin khi `trust_forwarded_headers = true`.
+- `trusted_proxy_cidrs` chỉ nên chứa các dải IP của proxy được phép ghi đè việc nhận diện client IP cho auth, rate limit và kiểm soát truy cập `/metrics`.
+
+Ví dụ:
+
+```toml
+[gateway]
+host = "127.0.0.1"
+port = 3000
+require_pairing = true
+allow_public_bind = false
+trust_forwarded_headers = true
+trusted_proxy_cidrs = ["10.0.0.0/8", "192.168.0.0/16"]
+```
 
 ## `[gateway.node_control]` (thử nghiệm)
 

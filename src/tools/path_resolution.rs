@@ -68,3 +68,57 @@ pub(super) async fn resolve_allowed_parent_and_target(
 
     Ok(candidate)
 }
+
+pub(super) async fn verify_write_target_still_allowed(
+    security: &SecurityPolicy,
+    target: &Path,
+) -> Result<(), String> {
+    let parent = target
+        .parent()
+        .ok_or_else(|| "Invalid path: missing parent directory".to_string())?;
+    let resolved_parent = tokio::fs::canonicalize(parent)
+        .await
+        .map_err(|e| format!("Failed to resolve file path: {e}"))?;
+
+    if !security.is_resolved_path_allowed(&resolved_parent) {
+        return Err(security.resolved_path_violation_message(&resolved_parent));
+    }
+
+    if let Ok(meta) = tokio::fs::symlink_metadata(target).await {
+        if meta.file_type().is_symlink() {
+            return Err(format!(
+                "Refusing to write through symlink: {}",
+                target.display()
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::security::{AutonomyLevel, SecurityPolicy};
+
+    #[tokio::test]
+    async fn verify_write_target_rejects_symlinked_parent_outside_allowed_roots() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let outside = tempfile::tempdir().expect("outside");
+        let link_parent = workspace.path().join("nested");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(outside.path(), &link_parent).expect("symlink");
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(outside.path(), &link_parent).expect("symlink");
+
+        let security = SecurityPolicy {
+            autonomy: AutonomyLevel::Supervised,
+            workspace_dir: workspace.path().to_path_buf(),
+            ..SecurityPolicy::default()
+        };
+
+        let result =
+            verify_write_target_still_allowed(&security, &link_parent.join("file.txt")).await;
+        assert!(result.is_err());
+    }
+}

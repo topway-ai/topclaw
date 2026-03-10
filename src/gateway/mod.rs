@@ -38,6 +38,7 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
+use ipnet::IpNet;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
@@ -261,20 +262,38 @@ fn forwarded_client_ip(headers: &HeaderMap) -> Option<IpAddr> {
         .and_then(parse_client_ip)
 }
 
+fn client_ip_from_request(
+    peer_addr: Option<SocketAddr>,
+    headers: &HeaderMap,
+    trust_forwarded_headers: bool,
+    trusted_proxy_cidrs: &[IpNet],
+) -> Option<IpAddr> {
+    let peer_ip = peer_addr.map(|addr| addr.ip());
+    let trusted_proxy = peer_ip.is_some_and(|ip| {
+        ip.is_loopback() || trusted_proxy_cidrs.iter().any(|cidr| cidr.contains(&ip))
+    });
+
+    if trust_forwarded_headers && trusted_proxy {
+        forwarded_client_ip(headers).or_else(|| peer_addr.map(|addr| addr.ip()))
+    } else {
+        peer_ip
+    }
+}
+
 pub(crate) fn client_key_from_request(
     peer_addr: Option<SocketAddr>,
     headers: &HeaderMap,
     trust_forwarded_headers: bool,
+    trusted_proxy_cidrs: &[IpNet],
 ) -> String {
-    if trust_forwarded_headers {
-        if let Some(ip) = forwarded_client_ip(headers) {
-            return ip.to_string();
-        }
-    }
-
-    peer_addr
-        .map(|addr| addr.ip().to_string())
-        .unwrap_or_else(|| "unknown".to_string())
+    client_ip_from_request(
+        peer_addr,
+        headers,
+        trust_forwarded_headers,
+        trusted_proxy_cidrs,
+    )
+    .map(|ip| ip.to_string())
+    .unwrap_or_else(|| "unknown".to_string())
 }
 
 pub(crate) fn gateway_auth_required_for_peer(
@@ -286,11 +305,12 @@ pub(crate) fn gateway_auth_required_for_peer(
         return true;
     }
 
-    let client_ip = if state.trust_forwarded_headers {
-        forwarded_client_ip(headers).or_else(|| peer_addr.map(|addr| addr.ip()))
-    } else {
-        peer_addr.map(|addr| addr.ip())
-    };
+    let client_ip = client_ip_from_request(
+        peer_addr,
+        headers,
+        state.trust_forwarded_headers,
+        &state.trusted_proxy_cidrs,
+    );
 
     !client_ip.is_some_and(|ip| ip.is_loopback())
 }
@@ -368,6 +388,7 @@ pub struct AppState {
     pub webhook_secret_hash: Option<Arc<str>>,
     pub pairing: Arc<PairingGuard>,
     pub trust_forwarded_headers: bool,
+    pub trusted_proxy_cidrs: Arc<Vec<IpNet>>,
     pub rate_limiter: Arc<GatewayRateLimiter>,
     pub idempotency_store: Arc<IdempotencyStore>,
     pub whatsapp: Option<Arc<WhatsAppChannel>>,
@@ -396,6 +417,17 @@ pub struct AppState {
     pub cost_tracker: Option<Arc<CostTracker>>,
     /// SSE broadcast channel for real-time events
     pub event_tx: tokio::sync::broadcast::Sender<serde_json::Value>,
+}
+
+fn parse_trusted_proxy_cidrs(raw_cidrs: &[String]) -> Result<Vec<IpNet>> {
+    raw_cidrs
+        .iter()
+        .map(|raw| {
+            raw.trim()
+                .parse::<IpNet>()
+                .with_context(|| format!("Invalid [gateway].trusted_proxy_cidrs entry: {raw}"))
+        })
+        .collect()
 }
 
 /// Run the HTTP gateway using axum with proper HTTP/1.1 compliance.
@@ -744,6 +776,9 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         webhook_secret_hash,
         pairing,
         trust_forwarded_headers: config.gateway.trust_forwarded_headers,
+        trusted_proxy_cidrs: Arc::new(parse_trusted_proxy_cidrs(
+            &config.gateway.trusted_proxy_cidrs,
+        )?),
         rate_limiter,
         idempotency_store,
         whatsapp: whatsapp_channel,
@@ -895,7 +930,14 @@ async fn handle_metrics(
                 ),
             );
         }
-    } else if !peer_addr.ip().is_loopback() {
+    } else if !client_ip_from_request(
+        Some(peer_addr),
+        &headers,
+        state.trust_forwarded_headers,
+        &state.trusted_proxy_cidrs,
+    )
+    .is_some_and(|ip| ip.is_loopback())
+    {
         return (
             StatusCode::FORBIDDEN,
             [(header::CONTENT_TYPE, PROMETHEUS_CONTENT_TYPE)],
@@ -930,8 +972,12 @@ async fn handle_pair(
     ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let rate_key =
-        client_key_from_request(Some(peer_addr), &headers, state.trust_forwarded_headers);
+    let rate_key = client_key_from_request(
+        Some(peer_addr),
+        &headers,
+        state.trust_forwarded_headers,
+        &state.trusted_proxy_cidrs,
+    );
     if !state.rate_limiter.allow_pair(&rate_key) {
         tracing::warn!("/pair rate limit exceeded");
         let err = serde_json::json!({
@@ -1255,8 +1301,12 @@ async fn handle_agent(
     headers: HeaderMap,
     body: Result<Json<AgentBody>, axum::extract::rejection::JsonRejection>,
 ) -> impl IntoResponse {
-    let rate_key =
-        client_key_from_request(Some(peer_addr), &headers, state.trust_forwarded_headers);
+    let rate_key = client_key_from_request(
+        Some(peer_addr),
+        &headers,
+        state.trust_forwarded_headers,
+        &state.trusted_proxy_cidrs,
+    );
     if !state.rate_limiter.allow_webhook(&rate_key) {
         tracing::warn!("/agent rate limit exceeded");
         let err = serde_json::json!({
@@ -2004,6 +2054,7 @@ mod tests {
             webhook_secret_hash: None,
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
+            trusted_proxy_cidrs: Arc::new(Vec::new()),
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
@@ -2099,6 +2150,7 @@ mod tests {
             webhook_secret_hash: None,
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
+            trusted_proxy_cidrs: Arc::new(Vec::new()),
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
@@ -2155,6 +2207,7 @@ mod tests {
             webhook_secret_hash: None,
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
+            trusted_proxy_cidrs: Arc::new(Vec::new()),
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
@@ -2197,6 +2250,7 @@ mod tests {
             webhook_secret_hash: None,
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
+            trusted_proxy_cidrs: Arc::new(Vec::new()),
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
@@ -2228,6 +2282,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn metrics_endpoint_rejects_forwarded_public_clients_when_proxy_headers_trusted() {
+        let state = AppState {
+            trust_forwarded_headers: true,
+            ..test_state()
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Forwarded-For", HeaderValue::from_static("198.51.100.7"));
+
+        let response = handle_metrics(State(state), test_connect_info(), headers)
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
     async fn metrics_endpoint_requires_bearer_token_when_pairing_is_enabled() {
         let paired_token = "zc_test_token".to_string();
         let state = AppState {
@@ -2240,6 +2309,7 @@ mod tests {
             webhook_secret_hash: None,
             pairing: Arc::new(PairingGuard::new(true, std::slice::from_ref(&paired_token))),
             trust_forwarded_headers: false,
+            trusted_proxy_cidrs: Arc::new(Vec::new()),
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
@@ -2368,11 +2438,26 @@ mod tests {
         let state = AppState {
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: true,
+            trusted_proxy_cidrs: Arc::new(vec!["127.0.0.0/8".parse().expect("cidr should parse")]),
             ..test_state()
         };
         let mut headers = HeaderMap::new();
         headers.insert("X-Forwarded-For", HeaderValue::from_static("198.51.100.7"));
         let peer = SocketAddr::from(([127, 0, 0, 1], 30_300));
+        assert!(gateway_auth_required_for_peer(&state, Some(peer), &headers));
+    }
+
+    #[test]
+    fn gateway_auth_ignores_forwarded_ip_from_untrusted_proxy_peer() {
+        let state = AppState {
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: true,
+            trusted_proxy_cidrs: Arc::new(vec!["10.0.0.0/8".parse().expect("cidr should parse")]),
+            ..test_state()
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Forwarded-For", HeaderValue::from_static("127.0.0.1"));
+        let peer = SocketAddr::from(([203, 0, 113, 10], 30_300));
         assert!(gateway_auth_required_for_peer(&state, Some(peer), &headers));
     }
 
@@ -2437,7 +2522,7 @@ mod tests {
             HeaderValue::from_static("198.51.100.10, 203.0.113.11"),
         );
 
-        let key = client_key_from_request(Some(peer), &headers, false);
+        let key = client_key_from_request(Some(peer), &headers, false, &[]);
         assert_eq!(key, "10.0.0.5");
     }
 
@@ -2450,7 +2535,8 @@ mod tests {
             HeaderValue::from_static("198.51.100.10, 203.0.113.11"),
         );
 
-        let key = client_key_from_request(Some(peer), &headers, true);
+        let trusted = vec!["10.0.0.0/8".parse().expect("cidr should parse")];
+        let key = client_key_from_request(Some(peer), &headers, true, &trusted);
         assert_eq!(key, "198.51.100.10");
     }
 
@@ -2460,8 +2546,23 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("X-Forwarded-For", HeaderValue::from_static("garbage-value"));
 
-        let key = client_key_from_request(Some(peer), &headers, true);
+        let trusted = vec!["10.0.0.0/8".parse().expect("cidr should parse")];
+        let key = client_key_from_request(Some(peer), &headers, true, &trusted);
         assert_eq!(key, "10.0.0.5");
+    }
+
+    #[test]
+    fn client_key_ignores_forwarded_ip_when_peer_is_not_trusted_proxy() {
+        let peer = SocketAddr::from(([203, 0, 113, 5], 42617));
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "X-Forwarded-For",
+            HeaderValue::from_static("198.51.100.10, 203.0.113.11"),
+        );
+
+        let trusted = vec!["10.0.0.0/8".parse().expect("cidr should parse")];
+        let key = client_key_from_request(Some(peer), &headers, true, &trusted);
+        assert_eq!(key, "203.0.113.5");
     }
 
     #[test]
@@ -2773,6 +2874,7 @@ Reminder set successfully."#;
             webhook_secret_hash: None,
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
+            trusted_proxy_cidrs: Arc::new(Vec::new()),
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
@@ -2841,6 +2943,7 @@ Reminder set successfully."#;
             webhook_secret_hash: None,
             pairing: Arc::new(PairingGuard::new(true, std::slice::from_ref(&paired_token))),
             trust_forwarded_headers: false,
+            trusted_proxy_cidrs: Arc::new(Vec::new()),
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
@@ -2890,6 +2993,7 @@ Reminder set successfully."#;
             webhook_secret_hash: None,
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
+            trusted_proxy_cidrs: Arc::new(Vec::new()),
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
@@ -2939,6 +3043,7 @@ Reminder set successfully."#;
             webhook_secret_hash: None,
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
+            trusted_proxy_cidrs: Arc::new(Vec::new()),
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
@@ -2993,6 +3098,7 @@ Reminder set successfully."#;
             webhook_secret_hash: None,
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
+            trusted_proxy_cidrs: Arc::new(Vec::new()),
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
@@ -3052,6 +3158,7 @@ Reminder set successfully."#;
             webhook_secret_hash: None,
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
+            trusted_proxy_cidrs: Arc::new(Vec::new()),
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
@@ -3133,6 +3240,7 @@ Reminder set successfully."#;
             webhook_secret_hash: Some(Arc::from(hash_webhook_secret(&secret))),
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
+            trusted_proxy_cidrs: Arc::new(Vec::new()),
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
@@ -3186,6 +3294,7 @@ Reminder set successfully."#;
             webhook_secret_hash: Some(Arc::from(hash_webhook_secret(&valid_secret))),
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
+            trusted_proxy_cidrs: Arc::new(Vec::new()),
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
@@ -3244,6 +3353,7 @@ Reminder set successfully."#;
             webhook_secret_hash: Some(Arc::from(hash_webhook_secret(&secret))),
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
+            trusted_proxy_cidrs: Arc::new(Vec::new()),
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
@@ -3307,6 +3417,7 @@ Reminder set successfully."#;
             webhook_secret_hash: None,
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
+            trusted_proxy_cidrs: Arc::new(Vec::new()),
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
@@ -3366,6 +3477,7 @@ Reminder set successfully."#;
             webhook_secret_hash: None,
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
+            trusted_proxy_cidrs: Arc::new(Vec::new()),
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
@@ -3422,6 +3534,7 @@ Reminder set successfully."#;
             webhook_secret_hash: None,
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
+            trusted_proxy_cidrs: Arc::new(Vec::new()),
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
@@ -3473,6 +3586,7 @@ Reminder set successfully."#;
             webhook_secret_hash: None,
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
+            trusted_proxy_cidrs: Arc::new(Vec::new()),
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,

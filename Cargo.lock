@@ -7006,6 +7006,7 @@ dependencies = [
  "hostname",
  "http-body-util",
  "image",
+ "ipnet",
  "landlock",
  "lettre",
  "mail-parser",

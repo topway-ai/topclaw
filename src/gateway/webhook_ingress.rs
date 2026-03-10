@@ -168,7 +168,12 @@ fn enforce_rate_limit(
     peer_addr: SocketAddr,
     headers: &HeaderMap,
 ) -> Option<(StatusCode, Json<Value>)> {
-    let rate_key = client_key_from_request(Some(peer_addr), headers, state.trust_forwarded_headers);
+    let rate_key = client_key_from_request(
+        Some(peer_addr),
+        headers,
+        state.trust_forwarded_headers,
+        &state.trusted_proxy_cidrs,
+    );
     if state.rate_limiter.allow_webhook(&rate_key) {
         return None;
     }

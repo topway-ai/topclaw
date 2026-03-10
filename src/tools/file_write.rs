@@ -1,4 +1,6 @@
-use super::path_resolution::resolve_allowed_parent_and_target;
+use super::path_resolution::{
+    resolve_allowed_parent_and_target, verify_write_target_still_allowed,
+};
 use super::traits::{Tool, ToolResult};
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
@@ -28,6 +30,12 @@ async fn write_text_atomically(target: &std::path::Path, content: &str) -> anyho
     );
     let tmp_path = target.with_file_name(tmp_name);
     tokio::fs::write(&tmp_path, content).await?;
+    if let Ok(meta) = tokio::fs::symlink_metadata(target).await {
+        if meta.file_type().is_symlink() {
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+            anyhow::bail!("Refusing to write through symlink: {}", target.display());
+        }
+    }
     tokio::fs::rename(&tmp_path, target).await?;
     Ok(())
 }
@@ -102,18 +110,14 @@ impl Tool for FileWriteTool {
             tokio::fs::create_dir_all(parent).await?;
         }
 
-        // If the target already exists and is a symlink, refuse to follow it
-        if let Ok(meta) = tokio::fs::symlink_metadata(&resolved_target).await {
-            if meta.file_type().is_symlink() {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(format!(
-                        "Refusing to write through symlink: {}",
-                        resolved_target.display()
-                    )),
-                });
-            }
+        if let Err(error) =
+            verify_write_target_still_allowed(&self.security, &resolved_target).await
+        {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(error),
+            });
         }
 
         match write_text_atomically(&resolved_target, content).await {

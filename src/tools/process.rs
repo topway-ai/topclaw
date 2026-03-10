@@ -77,9 +77,21 @@ impl ProcessTool {
             .get("approved")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        let otp_code = args.get("otp_code").and_then(|v| v.as_str());
 
         if let Some(result) = self.prepare_spawn_failure_result() {
             return Ok(result);
+        }
+
+        if let Err(error) =
+            self.security
+                .enforce_sensitive_tool_operation("process", ToolOperation::Act, otp_code)
+        {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(error),
+            });
         }
 
         if let Err(reason) = self.security.validate_command_execution(program, approved) {
@@ -129,6 +141,7 @@ impl ProcessTool {
             .get("approved")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        let otp_code = args.get("otp_code").and_then(|v| v.as_str());
 
         if !approved {
             return Ok(ToolResult {
@@ -142,6 +155,17 @@ impl ProcessTool {
 
         if let Some(result) = self.prepare_spawn_failure_result() {
             return Ok(result);
+        }
+
+        if let Err(error) =
+            self.security
+                .enforce_sensitive_tool_operation("process", ToolOperation::Act, otp_code)
+        {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(error),
+            });
         }
 
         if let Err(reason) = self.security.validate_command_execution(command, approved) {
@@ -424,6 +448,8 @@ impl ProcessTool {
     }
 
     async fn handle_kill(&self, args: &serde_json::Value) -> anyhow::Result<ToolResult> {
+        let otp_code = args.get("otp_code").and_then(|v| v.as_str());
+
         if let Err(e) = self
             .security
             .enforce_tool_operation(ToolOperation::Act, "process")
@@ -432,6 +458,17 @@ impl ProcessTool {
                 success: false,
                 output: String::new(),
                 error: Some(e),
+            });
+        }
+
+        if let Err(error) =
+            self.security
+                .enforce_sensitive_tool_operation("process", ToolOperation::Act, otp_code)
+        {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(error),
             });
         }
 
@@ -671,6 +708,10 @@ impl Tool for ProcessTool {
                     "type": "boolean",
                     "description": "Approve medium/high-risk execution. Required for 'spawn_shell'",
                     "default": false
+                },
+                "otp_code": {
+                    "type": "string",
+                    "description": "One-time password required when process actions are OTP-gated by security policy"
                 }
             },
             "required": ["action"]
@@ -726,10 +767,15 @@ impl Drop for ProcessTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{AuditConfig, SyscallAnomalyConfig};
+    use crate::config::{AuditConfig, OtpConfig, SyscallAnomalyConfig};
     use crate::runtime::NativeRuntime;
-    use crate::security::{AutonomyLevel, SecurityPolicy, SyscallAnomalyDetector};
+    use crate::security::{
+        AutonomyLevel, DomainMatcher, OtpValidator, SecretStore, SecurityPolicy,
+        SyscallAnomalyDetector,
+    };
+    use std::collections::HashSet;
     use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
     use tempfile::TempDir;
 
     fn test_allowed_commands() -> Vec<String> {
@@ -750,6 +796,37 @@ mod tests {
 
     fn test_runtime() -> Arc<dyn RuntimeAdapter> {
         Arc::new(NativeRuntime::new())
+    }
+
+    fn test_security_with_otp() -> (TempDir, Arc<SecurityPolicy>, String) {
+        let tmp = tempfile::tempdir().expect("temp dir should be created");
+        let otp_config = OtpConfig {
+            enabled: true,
+            token_ttl_secs: 3600,
+            cache_valid_secs: 7200,
+            gated_actions: vec!["process".into()],
+            ..OtpConfig::default()
+        };
+        let store = SecretStore::new(tmp.path(), false);
+        let (validator, _) = OtpValidator::from_config(&otp_config, tmp.path(), &store)
+            .expect("validator should be created");
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after epoch")
+            .as_secs();
+        let code = validator.code_for_timestamp(now);
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Full,
+            workspace_dir: std::env::temp_dir(),
+            allowed_commands: test_allowed_commands(),
+            otp_gated_actions: HashSet::from([String::from("process")]),
+            otp_gated_domains: DomainMatcher::new(&otp_config.gated_domains, &[])
+                .expect("domain matcher should compile"),
+            otp_validator: Some(Arc::new(validator)),
+            ..SecurityPolicy::default()
+        });
+
+        (tmp, security, code)
     }
 
     fn test_syscall_detector(tmp: &TempDir) -> Arc<SyscallAnomalyDetector> {
@@ -786,6 +863,7 @@ mod tests {
     fn process_tool_schema_has_action() {
         let schema = make_tool().parameters_schema();
         assert!(schema["properties"]["action"].is_object());
+        assert!(schema["properties"]["otp_code"].is_object());
         assert!(schema["required"]
             .as_array()
             .unwrap()
@@ -1045,6 +1123,46 @@ mod tests {
             .unwrap();
         assert!(!result.success);
         assert!(result.error.as_deref().unwrap().contains("read-only"));
+    }
+
+    #[tokio::test]
+    async fn spawn_requires_otp_when_process_action_is_gated() {
+        let (_tmp, security, _code) = test_security_with_otp();
+        let tool = ProcessTool::new(security, test_runtime());
+        let result = tool
+            .execute(json!({
+                "action": "spawn",
+                "program": "echo",
+                "args": ["otp gated"]
+            }))
+            .await
+            .unwrap();
+        assert!(!result.success);
+        let error = result
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        assert!(
+            error.contains("otp") || error.contains("password") || error.contains("required"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn spawn_accepts_valid_otp_when_process_action_is_gated() {
+        let (_tmp, security, code) = test_security_with_otp();
+        let tool = ProcessTool::new(security, test_runtime());
+        let result = tool
+            .execute(json!({
+                "action": "spawn",
+                "program": "echo",
+                "args": ["otp gated"],
+                "otp_code": code
+            }))
+            .await
+            .unwrap();
+        assert!(result.success, "{result:?}");
     }
 
     #[tokio::test]

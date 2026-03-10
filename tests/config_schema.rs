@@ -81,6 +81,7 @@ fn gateway_config_defaults_are_secure() {
         !gw.trust_forwarded_headers,
         "forwarded headers should be untrusted by default"
     );
+    assert!(gw.trusted_proxy_cidrs.is_empty());
 }
 
 #[test]

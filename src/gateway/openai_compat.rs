@@ -128,8 +128,12 @@ pub async fn handle_v1_chat_completions(
     body: axum::body::Bytes,
 ) -> impl IntoResponse {
     // ── Rate limit ──
-    let rate_key =
-        super::client_key_from_request(Some(peer_addr), &headers, state.trust_forwarded_headers);
+    let rate_key = super::client_key_from_request(
+        Some(peer_addr),
+        &headers,
+        state.trust_forwarded_headers,
+        &state.trusted_proxy_cidrs,
+    );
     if !state.rate_limiter.allow_webhook(&rate_key) {
         tracing::warn!("/v1/chat/completions rate limit exceeded");
         let err = serde_json::json!({

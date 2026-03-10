@@ -57,6 +57,7 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png"]
 
 # URL encoding for web search
 urlencoding = "2.1"
+ipnet = "2.11"
 
 # HTML conversion providers (web_fetch tool)
 fast_html2md = { version = "0.0.58", optional = true }

@@ -1078,6 +1078,11 @@ pub struct GatewayConfig {
     #[serde(default)]
     pub trust_forwarded_headers: bool,
 
+    /// Trusted reverse proxy CIDRs allowed to supply forwarded client IP headers.
+    /// Loopback proxies remain trusted when forwarded headers are enabled.
+    #[serde(default)]
+    pub trusted_proxy_cidrs: Vec<String>,
+
     /// Maximum distinct client keys tracked by gateway rate limiter maps.
     #[serde(default = "default_gateway_rate_limit_max_keys")]
     pub rate_limit_max_keys: usize,
@@ -1156,6 +1161,7 @@ impl Default for GatewayConfig {
             pair_rate_limit_per_minute: default_pair_rate_limit(),
             webhook_rate_limit_per_minute: default_webhook_rate_limit(),
             trust_forwarded_headers: false,
+            trusted_proxy_cidrs: Vec::new(),
             rate_limit_max_keys: default_gateway_rate_limit_max_keys(),
             idempotency_ttl_secs: default_idempotency_ttl_secs(),
             idempotency_max_keys: default_gateway_idempotency_max_keys(),
@@ -8767,6 +8773,7 @@ channel_id = "C123"
         assert_eq!(g.pair_rate_limit_per_minute, 10);
         assert_eq!(g.webhook_rate_limit_per_minute, 60);
         assert!(!g.trust_forwarded_headers);
+        assert!(g.trusted_proxy_cidrs.is_empty());
         assert_eq!(g.rate_limit_max_keys, 10_000);
         assert_eq!(g.idempotency_ttl_secs, 300);
         assert_eq!(g.idempotency_max_keys, 10_000);
@@ -8801,6 +8808,7 @@ channel_id = "C123"
             pair_rate_limit_per_minute: 12,
             webhook_rate_limit_per_minute: 80,
             trust_forwarded_headers: true,
+            trusted_proxy_cidrs: vec!["10.0.0.0/8".into(), "192.168.0.0/16".into()],
             rate_limit_max_keys: 2048,
             idempotency_ttl_secs: 600,
             idempotency_max_keys: 4096,
@@ -8818,6 +8826,10 @@ channel_id = "C123"
         assert_eq!(parsed.pair_rate_limit_per_minute, 12);
         assert_eq!(parsed.webhook_rate_limit_per_minute, 80);
         assert!(parsed.trust_forwarded_headers);
+        assert_eq!(
+            parsed.trusted_proxy_cidrs,
+            vec!["10.0.0.0/8", "192.168.0.0/16"]
+        );
         assert_eq!(parsed.rate_limit_max_keys, 2048);
         assert_eq!(parsed.idempotency_ttl_secs, 600);
         assert_eq!(parsed.idempotency_max_keys, 4096);

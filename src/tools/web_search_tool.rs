@@ -73,6 +73,14 @@ impl WebSearchTool {
         Some(self.api_keys[idx].clone())
     }
 
+    fn build_http_client(&self) -> anyhow::Result<reqwest::Client> {
+        let builder = reqwest::Client::builder()
+            .timeout(Duration::from_secs(self.timeout_secs))
+            .user_agent(self.user_agent.as_str());
+        let builder = crate::config::apply_runtime_proxy_to_builder(builder, "tool.web_search");
+        Ok(builder.build()?)
+    }
+
     /// Perform web search using DuckDuckGo HTML interface (free, no API key required).
     ///
     /// # Arguments
@@ -84,10 +92,7 @@ impl WebSearchTool {
         let encoded_query = urlencoding::encode(query);
         let search_url = format!("https://html.duckduckgo.com/html/?q={}", encoded_query);
 
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(self.timeout_secs))
-            .user_agent(self.user_agent.as_str())
-            .build()?;
+        let client = self.build_http_client()?;
 
         let response = client.get(&search_url).send().await?;
 
@@ -171,10 +176,7 @@ impl WebSearchTool {
             })?;
         let endpoint = format!("{}/search", base_url.trim_end_matches('/'));
 
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(self.timeout_secs))
-            .user_agent(self.user_agent.as_str())
-            .build()?;
+        let client = self.build_http_client()?;
 
         let response = client
             .get(&endpoint)
@@ -247,10 +249,7 @@ impl WebSearchTool {
             encoded_query, self.max_results
         );
 
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(self.timeout_secs))
-            .user_agent(self.user_agent.as_str())
-            .build()?;
+        let client = self.build_http_client()?;
 
         let response = client
             .get(&search_url)
@@ -316,10 +315,7 @@ impl WebSearchTool {
             .filter(|s| !s.is_empty())
             .unwrap_or("https://api.firecrawl.dev");
         let endpoint = format!("{}/v1/search", api_url.trim_end_matches('/'));
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(self.timeout_secs))
-            .user_agent(self.user_agent.as_str())
-            .build()?;
+        let client = self.build_http_client()?;
 
         let response = client
             .post(endpoint)
@@ -423,10 +419,7 @@ impl WebSearchTool {
             .unwrap_or("https://api.tavily.com");
 
         let endpoint = format!("{}/search", api_url.trim_end_matches('/'));
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(self.timeout_secs))
-            .user_agent(self.user_agent.as_str())
-            .build()?;
+        let client = self.build_http_client()?;
 
         let response = client
             .post(&endpoint)

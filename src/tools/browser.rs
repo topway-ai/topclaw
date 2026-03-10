@@ -5,7 +5,9 @@
 //! `--features browser-native` and selected through config.
 //! Computer-use (OS-level) actions are supported via an optional sidecar endpoint.
 
-use super::path_resolution::resolve_allowed_parent_and_target;
+use super::path_resolution::{
+    resolve_allowed_parent_and_target, verify_write_target_still_allowed,
+};
 use super::traits::{Tool, ToolResult};
 use crate::security::SecurityPolicy;
 use anyhow::Context;
@@ -737,14 +739,12 @@ impl BrowserTool {
             .ok_or_else(|| anyhow::anyhow!("'{key}' path has no parent directory"))?;
         tokio::fs::create_dir_all(parent).await?;
 
+        if let Err(error) = verify_write_target_still_allowed(&self.security, &output_path).await {
+            anyhow::bail!(error);
+        }
+
         match tokio::fs::symlink_metadata(&output_path).await {
             Ok(meta) => {
-                if meta.file_type().is_symlink() {
-                    anyhow::bail!(
-                        "Refusing to write browser output through symlink: {}",
-                        output_path.display()
-                    );
-                }
                 if !meta.is_file() {
                     anyhow::bail!(
                         "Browser output path is not a regular file: {}",

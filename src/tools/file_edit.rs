@@ -1,4 +1,6 @@
-use super::path_resolution::resolve_allowed_parent_and_target;
+use super::path_resolution::{
+    resolve_allowed_parent_and_target, verify_write_target_still_allowed,
+};
 use super::traits::{Tool, ToolResult};
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
@@ -33,6 +35,12 @@ async fn write_text_atomically(target: &std::path::Path, content: &str) -> anyho
     );
     let tmp_path = target.with_file_name(tmp_name);
     tokio::fs::write(&tmp_path, content).await?;
+    if let Ok(meta) = tokio::fs::symlink_metadata(target).await {
+        if meta.file_type().is_symlink() {
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+            anyhow::bail!("Refusing to edit through symlink: {}", target.display());
+        }
+    }
     tokio::fs::rename(&tmp_path, target).await?;
     Ok(())
 }
@@ -123,18 +131,14 @@ impl Tool for FileEditTool {
             }
         };
 
-        // ── 6. Symlink check ───────────────────────────────────────
-        if let Ok(meta) = tokio::fs::symlink_metadata(&resolved_target).await {
-            if meta.file_type().is_symlink() {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(format!(
-                        "Refusing to edit through symlink: {}",
-                        resolved_target.display()
-                    )),
-                });
-            }
+        if let Err(error) =
+            verify_write_target_still_allowed(&self.security, &resolved_target).await
+        {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(error),
+            });
         }
 
         // ── 7. Read → match → replace → write ─────────────────────

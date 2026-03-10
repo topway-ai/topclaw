@@ -558,6 +558,26 @@ Notes:
 | `port` | `42617` | gateway listen port |
 | `require_pairing` | `true` | require pairing before bearer auth |
 | `allow_public_bind` | `false` | block accidental public exposure |
+| `trust_forwarded_headers` | `false` | honor `X-Forwarded-For` / `X-Real-IP` only when explicitly enabled |
+| `trusted_proxy_cidrs` | `[]` | reverse-proxy source CIDRs allowed to supply forwarded client IP headers |
+
+Notes:
+
+- Keep `trust_forwarded_headers = false` unless the gateway is behind a trusted reverse proxy.
+- Loopback peers remain trusted for forwarded headers when `trust_forwarded_headers = true`.
+- `trusted_proxy_cidrs` should contain only the proxy source ranges that are allowed to overwrite client IP detection for auth, rate limiting, and `/metrics` access control.
+
+Example:
+
+```toml
+[gateway]
+host = "127.0.0.1"
+port = 42617
+require_pairing = true
+allow_public_bind = false
+trust_forwarded_headers = true
+trusted_proxy_cidrs = ["10.0.0.0/8", "192.168.0.0/16"]
+```
 
 ## `[gateway.node_control]` (experimental)
 

@@ -227,7 +227,7 @@ impl WebFetchTool {
                 .unwrap_or("")
                 .to_lowercase();
 
-            let body = response.text().await?;
+            let body = read_response_text_limited(response, self.max_response_size).await?;
 
             if content_type.contains("text/plain")
                 || content_type.contains("text/markdown")
@@ -280,7 +280,7 @@ impl WebFetchTool {
             .send()
             .await?;
         let status = response.status();
-        let body = response.text().await?;
+        let body = read_response_text_limited(response, self.max_response_size).await?;
 
         if !status.is_success() {
             anyhow::bail!(
@@ -362,7 +362,7 @@ impl WebFetchTool {
             .await?;
 
         let status = response.status();
-        let body = response.text().await?;
+        let body = read_response_text_limited(response, self.max_response_size).await?;
 
         if !status.is_success() {
             anyhow::bail!(
@@ -403,6 +403,30 @@ impl WebFetchTool {
 
         Ok(output.to_string())
     }
+}
+
+async fn read_response_text_limited(
+    mut response: reqwest::Response,
+    max_response_size: usize,
+) -> anyhow::Result<String> {
+    let mut body = Vec::new();
+    let mut truncated = false;
+
+    while let Some(chunk) = response.chunk().await? {
+        if body.len().saturating_add(chunk.len()) > max_response_size {
+            let remaining = max_response_size.saturating_sub(body.len());
+            body.extend_from_slice(&chunk[..remaining]);
+            truncated = true;
+            break;
+        }
+        body.extend_from_slice(&chunk);
+    }
+
+    let mut text = String::from_utf8_lossy(&body).into_owned();
+    if truncated {
+        text.push_str("\n\n... [Response truncated due to size limit] ...");
+    }
+    Ok(text)
 }
 
 #[async_trait]
