@@ -621,6 +621,25 @@ fn split_internal_progress_delta(delta: &str) -> (bool, &str) {
     }
 }
 
+fn summarize_internal_progress_delta(delta: &str) -> Option<&'static str> {
+    let trimmed = delta.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if trimmed.contains("Thinking") {
+        Some("Thinking...\n")
+    } else if trimmed.starts_with('↻') || trimmed.contains("Retrying:") {
+        Some("Retrying...\n")
+    } else if trimmed.starts_with('⏳') || trimmed.contains("tool call") {
+        Some("Working...\n")
+    } else if trimmed.starts_with('✅') || trimmed.starts_with('❌') {
+        Some("Step complete...\n")
+    } else {
+        None
+    }
+}
+
 fn build_channel_system_prompt(
     base_prompt: &str,
     channel_name: &str,
@@ -3304,17 +3323,27 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
         let suppress_internal_progress = !expose_internal_tool_details;
         Some(tokio::spawn(async move {
             let mut accumulated = String::new();
+            let mut last_sanitized_progress: Option<&'static str> = None;
             while let Some(delta) = rx.recv().await {
                 if delta == crate::agent::loop_::DRAFT_CLEAR_SENTINEL {
                     accumulated.clear();
+                    last_sanitized_progress = None;
                     continue;
                 }
                 let (is_internal_progress, visible_delta) = split_internal_progress_delta(&delta);
                 if suppress_internal_progress && is_internal_progress {
-                    continue;
+                    let Some(summary) = summarize_internal_progress_delta(visible_delta) else {
+                        continue;
+                    };
+                    if last_sanitized_progress == Some(summary) {
+                        continue;
+                    }
+                    accumulated.push_str(summary);
+                    last_sanitized_progress = Some(summary);
+                } else {
+                    accumulated.push_str(visible_delta);
+                    last_sanitized_progress = None;
                 }
-
-                accumulated.push_str(visible_delta);
                 if let Err(e) = channel
                     .update_draft(&reply_target, &draft_id, &accumulated)
                     .await
@@ -6637,13 +6666,20 @@ BTC is currently around $65,000 based on latest tool output."#
             "draft updates should still include streamed final answer"
         );
         assert!(
+            updates.iter().any(|entry| {
+                entry.contains("Thinking...")
+                    || entry.contains("Working...")
+                    || entry.contains("Step complete...")
+            }),
+            "default channel streaming should surface sanitized progress, got updates: {updates:?}"
+        );
+        assert!(
             !updates.iter().any(|entry| {
-                entry.contains("Thinking")
-                    || entry.contains("Got 1 tool call(s)")
+                entry.contains("Got 1 tool call(s)")
                     || entry.contains("mock_price")
                     || entry.contains("⏳")
             }),
-            "internal tool progress should stay hidden by default, got updates: {updates:?}"
+            "raw internal tool progress should stay hidden by default, got updates: {updates:?}"
         );
         drop(updates);
 
@@ -10140,6 +10176,31 @@ Done reminder set for 1:38 AM."#;
         let (is_internal_plain, plain) = split_internal_progress_delta("final answer");
         assert!(!is_internal_plain);
         assert_eq!(plain, "final answer");
+    }
+
+    #[test]
+    fn summarize_internal_progress_delta_sanitizes_internal_updates() {
+        assert_eq!(
+            summarize_internal_progress_delta("🤔 Thinking...\n"),
+            Some("Thinking...\n")
+        );
+        assert_eq!(
+            summarize_internal_progress_delta("⏳ shell: ls -la\n"),
+            Some("Working...\n")
+        );
+        assert_eq!(
+            summarize_internal_progress_delta("💬 Got 1 tool call(s) (2s)\n"),
+            Some("Working...\n")
+        );
+        assert_eq!(
+            summarize_internal_progress_delta("✅ shell (1s)\n"),
+            Some("Step complete...\n")
+        );
+        assert_eq!(
+            summarize_internal_progress_delta("↻ Retrying: response implied action\n"),
+            Some("Retrying...\n")
+        );
+        assert_eq!(summarize_internal_progress_delta("plain text"), None);
     }
 
     #[test]

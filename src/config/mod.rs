@@ -46,7 +46,7 @@ mod tests {
             bot_token: "token".into(),
             allowed_users: vec!["alice".into()],
             stream_mode: StreamMode::default(),
-            draft_update_interval_ms: 1000,
+            draft_update_interval_ms: 500,
             interrupt_on_new_message: false,
             mention_only: false,
             group_reply: None,

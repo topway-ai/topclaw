@@ -198,7 +198,7 @@ allowed_sender_ids = ["123456789", "987"] # optional; "*" allowed
 bot_token = "123456:telegram-token"
 allowed_users = ["*"]
 stream_mode = "off"               # optional: off | partial
-draft_update_interval_ms = 1000   # optional: edit throttle for partial streaming
+draft_update_interval_ms = 500    # optional: edit throttle for partial streaming
 mention_only = false              # legacy fallback; used when group_reply.mode is not set
 interrupt_on_new_message = false  # optional: cancel in-flight same-sender same-chat request
 

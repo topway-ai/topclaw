@@ -492,7 +492,7 @@ impl TelegramChannel {
             pairing,
             client: reqwest::Client::new(),
             stream_mode: StreamMode::Off,
-            draft_update_interval_ms: 1000,
+            draft_update_interval_ms: 500,
             last_draft_edit: Mutex::new(std::collections::HashMap::new()),
             next_draft_id: AtomicU64::new(1),
             typing_handle: Mutex::new(None),

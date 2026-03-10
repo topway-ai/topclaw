@@ -3546,7 +3546,7 @@ pub enum StreamMode {
 }
 
 fn default_draft_update_interval_ms() -> u64 {
-    1000
+    500
 }
 
 fn default_telegram_stream_mode() -> StreamMode {
@@ -7019,7 +7019,7 @@ mod tests {
             bot_token: "telegram-credential".into(),
             allowed_users: Vec::new(),
             stream_mode: StreamMode::Off,
-            draft_update_interval_ms: 1000,
+            draft_update_interval_ms: 500,
             interrupt_on_new_message: false,
             mention_only: false,
             group_reply: None,
@@ -7847,7 +7847,7 @@ tool_dispatcher = "xml"
             bot_token: "telegram-credential".into(),
             allowed_users: Vec::new(),
             stream_mode: StreamMode::Off,
-            draft_update_interval_ms: 1000,
+            draft_update_interval_ms: 500,
             interrupt_on_new_message: false,
             mention_only: false,
             group_reply: None,
@@ -8042,7 +8042,7 @@ tool_dispatcher = "xml"
             bot_token: "123:XYZ".into(),
             allowed_users: vec![format!("${{env:{env_name}}}")],
             stream_mode: StreamMode::Off,
-            draft_update_interval_ms: 1000,
+            draft_update_interval_ms: 500,
             interrupt_on_new_message: false,
             mention_only: false,
             group_reply: None,
@@ -8067,7 +8067,7 @@ tool_dispatcher = "xml"
             bot_token: "123:XYZ".into(),
             allowed_users: vec![format!("${{env:{env_name}}}")],
             stream_mode: StreamMode::Off,
-            draft_update_interval_ms: 1000,
+            draft_update_interval_ms: 500,
             interrupt_on_new_message: false,
             mention_only: false,
             group_reply: None,
@@ -8092,7 +8092,7 @@ tool_dispatcher = "xml"
             bot_token: "123:XYZ".into(),
             allowed_users: vec![format!("${{env:{env_name}}}")],
             stream_mode: StreamMode::Off,
-            draft_update_interval_ms: 1000,
+            draft_update_interval_ms: 500,
             interrupt_on_new_message: false,
             mention_only: false,
             group_reply: None,
@@ -8113,7 +8113,7 @@ tool_dispatcher = "xml"
             bot_token: "123:XYZ".into(),
             allowed_users: vec!["${env:NOT VALID}".to_string()],
             stream_mode: StreamMode::Off,
-            draft_update_interval_ms: 1000,
+            draft_update_interval_ms: 500,
             interrupt_on_new_message: false,
             mention_only: false,
             group_reply: None,
@@ -8130,7 +8130,7 @@ tool_dispatcher = "xml"
         let json = r#"{"bot_token":"tok","allowed_users":[]}"#;
         let parsed: TelegramConfig = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.stream_mode, StreamMode::Partial);
-        assert_eq!(parsed.draft_update_interval_ms, 1000);
+        assert_eq!(parsed.draft_update_interval_ms, 500);
         assert!(!parsed.interrupt_on_new_message);
         assert!(parsed.base_url.is_none());
         assert_eq!(

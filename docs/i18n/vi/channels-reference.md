@@ -145,7 +145,7 @@ Tên trường khác nhau theo channel:
 bot_token = "123456:telegram-token"
 allowed_users = ["*"]
 stream_mode = "off"               # tùy chọn: off | partial
-draft_update_interval_ms = 1000   # tùy chọn: giới hạn tần suất chỉnh sửa khi streaming một phần
+draft_update_interval_ms = 500    # tùy chọn: giới hạn tần suất chỉnh sửa khi streaming một phần
 mention_only = false              # tùy chọn: yêu cầu @mention trong nhóm
 interrupt_on_new_message = false  # tùy chọn: hủy yêu cầu đang xử lý cùng người gửi cùng chat
 ```
