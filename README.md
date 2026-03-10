@@ -13,7 +13,7 @@ xcode-select --install
 Then use the same quick-start path on Linux or macOS:
 
 ```bash
-git clone https://github.com/jackfly8/TopClaw.git
+git clone https://github.com/topway-ai/TopClaw.git
 cd TopClaw
 ./bootstrap.sh --install-system-deps --install-rust --prefer-prebuilt
 topclaw status

@@ -305,7 +305,7 @@ fn show_integration_info(config: &Config, name: &str) -> Result<()> {
         _ => {
             if status == IntegrationStatus::ComingSoon {
                 println!("  This integration is planned. Stay tuned!");
-                println!("  Track progress: https://github.com/jackfly8/TopClaw");
+                println!("  Track progress: https://github.com/topway-ai/TopClaw");
             }
         }
     }

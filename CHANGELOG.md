@@ -64,4 +64,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Workspace escape prevention
 - Forbidden system path protection (`/etc`, `/root`, `~/.ssh`)
 
-[0.1.0]: https://github.com/jackfly8/TopClaw/releases/tag/v0.1.0
+[0.1.0]: https://github.com/topway-ai/TopClaw/releases/tag/v0.1.0

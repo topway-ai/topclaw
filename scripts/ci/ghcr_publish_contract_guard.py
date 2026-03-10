@@ -268,7 +268,7 @@ def build_markdown(report: dict[str, object]) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate GHCR publish tag contract and rollback mapping.")
-    parser.add_argument("--repository", required=True, help="Repository path for GHCR API, e.g. jackfly8/TopClaw")
+    parser.add_argument("--repository", required=True, help="Repository path for GHCR API, e.g. topway-ai/TopClaw")
     parser.add_argument("--release-tag", required=True)
     parser.add_argument("--sha", required=True)
     parser.add_argument("--policy-file", required=True)

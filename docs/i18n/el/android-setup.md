@@ -28,11 +28,11 @@ uname -m
 
 # Λήψη του κατάλληλου binary
 # Για 64-bit (aarch64):
-curl -LO https://github.com/jackfly8/TopClaw/releases/latest/download/topclaw-aarch64-linux-android.tar.gz
+curl -LO https://github.com/topway-ai/TopClaw/releases/latest/download/topclaw-aarch64-linux-android.tar.gz
 tar xzf topclaw-aarch64-linux-android.tar.gz
 
 # Για 32-bit (armv7):
-curl -LO https://github.com/jackfly8/TopClaw/releases/latest/download/topclaw-armv7-linux-androideabi.tar.gz
+curl -LO https://github.com/topway-ai/TopClaw/releases/latest/download/topclaw-armv7-linux-androideabi.tar.gz
 tar xzf topclaw-armv7-linux-androideabi.tar.gz
 ```
 

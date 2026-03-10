@@ -1,6 +1,6 @@
 # topclaw-tools
 
-Python companion package for [TopClaw](https://github.com/jackfly8/TopClaw) — LangGraph-based tool calling for consistent LLM agent execution.
+Python companion package for [TopClaw](https://github.com/topway-ai/TopClaw) — LangGraph-based tool calling for consistent LLM agent execution.
 
 ## Why This Package?
 

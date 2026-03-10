@@ -99,7 +99,7 @@ Ghi chú:
 - Nếu vị trí binary không cho phép ghi, TopClaw sẽ in ra hướng dẫn khôi phục thay vì chỉ báo lỗi chung chung. Trên Linux, phương án khuyến nghị là dùng trình cài đặt phát hành chính thức:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jackfly8/TopClaw/main/scripts/install-release.sh | bash
+curl -fsSL https://raw.githubusercontent.com/topway-ai/TopClaw/main/scripts/install-release.sh | bash
 ```
 
 ### `backup`

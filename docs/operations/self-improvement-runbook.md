@@ -40,7 +40,7 @@ Meaning:
 ### 1. Seed the stable checkout
 
 ```bash
-git clone https://github.com/jackfly8/TopClaw.git ~/topclaw-self/stable
+git clone https://github.com/topway-ai/TopClaw.git ~/topclaw-self/stable
 ```
 
 ### 2. Prepare a fresh candidate

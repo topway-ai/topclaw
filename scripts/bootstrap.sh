@@ -64,7 +64,7 @@ Examples:
   ./bootstrap.sh --docker
 
   # Remote one-liner
-  curl -fsSL https://raw.githubusercontent.com/jackfly8/TopClaw/main/scripts/bootstrap.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/topway-ai/TopClaw/main/scripts/bootstrap.sh | bash
 
 Environment:
   TOPCLAW_CONTAINER_CLI     Container CLI command (default: docker; auto-fallback: podman)
@@ -279,7 +279,7 @@ install_prebuilt_binary() {
     return 1
   fi
 
-  archive_url="https://github.com/jackfly8/TopClaw/releases/latest/download/topclaw-${target}.tar.gz"
+  archive_url="https://github.com/topway-ai/TopClaw/releases/latest/download/topclaw-${target}.tar.gz"
   temp_dir="$(mktemp -d -t topclaw-prebuilt-XXXXXX)"
   archive_path="$temp_dir/topclaw-${target}.tar.gz"
   curl_stderr="$temp_dir/curl.stderr"
@@ -1045,7 +1045,7 @@ run_docker_bootstrap() {
   local -a container_run_user_args container_run_namespace_args
   local -a container_extra_run_args container_extra_env_args docker_build_args daemon_cmd
   docker_image="${TOPCLAW_DOCKER_IMAGE:-topclaw-bootstrap:local}"
-  fallback_image="ghcr.io/jackfly8/TopClaw:latest"
+  fallback_image="ghcr.io/topway-ai/TopClaw:latest"
   docker_build_features="${TOPCLAW_DOCKER_CARGO_FEATURES:-}"
   docker_browser_runtime_mode="${TOPCLAW_DOCKER_BROWSER_RUNTIME:-auto}"
   docker_browser_sidecar_name="${TOPCLAW_DOCKER_BROWSER_SIDECAR_NAME:-topclaw-browser-webdriver}"
@@ -1297,7 +1297,7 @@ MSG
 SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" >/dev/null 2>&1 && pwd || pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." >/dev/null 2>&1 && pwd || pwd)"
-REPO_URL="https://github.com/jackfly8/TopClaw.git"
+REPO_URL="https://github.com/topway-ai/TopClaw.git"
 ORIGINAL_ARG_COUNT=$#
 GUIDED_MODE="auto"
 

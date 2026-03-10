@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// GitHub repository for releases
-const GITHUB_REPO: &str = "jackfly8/TopClaw";
-const GITHUB_API_RELEASES: &str = "https://api.github.com/repos/jackfly8/TopClaw/releases/latest";
+const GITHUB_REPO: &str = "topway-ai/TopClaw";
+const GITHUB_API_RELEASES: &str = "https://api.github.com/repos/topway-ai/TopClaw/releases/latest";
 const RELEASE_CHECKSUMS_ASSET: &str = "SHA256SUMS";
 
 /// Release information from GitHub API

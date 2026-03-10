@@ -71,7 +71,7 @@ function Ensure-RustToolchain {
 
 function Install-PrebuiltBinary {
     $target = "x86_64-pc-windows-msvc"
-    $url = "https://github.com/jackfly8/TopClaw/releases/latest/download/topclaw-$target.zip"
+    $url = "https://github.com/topway-ai/TopClaw/releases/latest/download/topclaw-$target.zip"
     $tempDir = Join-Path $env:TEMP ("topclaw-prebuilt-" + [guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
     $archivePath = Join-Path $tempDir "topclaw-$target.zip"

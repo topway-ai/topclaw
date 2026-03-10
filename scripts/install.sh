@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" >/dev/null 2>&1 && pwd || pwd)"
 INSTALLER_LOCAL="$(cd "$SCRIPT_DIR/.." >/dev/null 2>&1 && pwd || pwd)/topclaw_install.sh"
 BOOTSTRAP_LOCAL="$SCRIPT_DIR/bootstrap.sh"
-REPO_URL="https://github.com/jackfly8/TopClaw.git"
+REPO_URL="https://github.com/topway-ai/TopClaw.git"
 
 echo "[deprecated] scripts/install.sh -> ./topclaw_install.sh" >&2
 

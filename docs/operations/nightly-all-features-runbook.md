@@ -37,10 +37,10 @@ Lane owners are configured in `.github/release/nightly-owner-routing.json`.
 
 Owner routing source: `.github/release/nightly-owner-routing.json`
 
-- `default` -> `@jackfly8`
-- `whatsapp-web` -> `@jackfly8`
-- `browser-native` -> `@jackfly8`
-- `nightly-all-features` -> `@jackfly8`
+- `default` -> `@topway-ai`
+- `whatsapp-web` -> `@topway-ai`
+- `browser-native` -> `@topway-ai`
+- `nightly-all-features` -> `@topway-ai`
 
 Escalation thresholds:
 
@@ -59,13 +59,13 @@ SLA targets:
 
 Use:
 
-- `gh run list --repo jackfly8/TopClaw --workflow feature-matrix.yml --limit 10`
-- `gh run view <run_id> --repo jackfly8/TopClaw --json jobs,headSha,event,createdAt,url`
+- `gh run list --repo topway-ai/TopClaw --workflow feature-matrix.yml --limit 10`
+- `gh run view <run_id> --repo topway-ai/TopClaw --json jobs,headSha,event,createdAt,url`
 - inspect `nightly-history.json` in `nightly-all-features-summary` artifact
 
 Manual trigger (nightly profile):
 
-- `gh workflow run feature-matrix.yml --repo jackfly8/TopClaw --ref dev -f profile=nightly -f fail_on_failure=true`
+- `gh workflow run feature-matrix.yml --repo topway-ai/TopClaw --ref dev -f profile=nightly -f fail_on_failure=true`
 
 Project update expectation:
 

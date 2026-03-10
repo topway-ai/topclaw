@@ -286,8 +286,8 @@ journalctl --user -u topclaw.service -f
 Cả hai cách vẫn hoạt động:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jackfly8/TopClaw/main/scripts/bootstrap.sh | bash
-curl -fsSL https://raw.githubusercontent.com/jackfly8/TopClaw/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/topway-ai/TopClaw/main/scripts/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/topway-ai/TopClaw/main/scripts/install.sh | bash
 ```
 
 `install.sh` là điểm vào tương thích, chuyển tiếp/dự phòng về hành vi bootstrap.

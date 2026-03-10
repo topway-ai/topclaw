@@ -40,7 +40,7 @@ brew install topclaw
 ## Option A (Recommended): Clone + local script
 
 ```bash
-git clone https://github.com/jackfly8/TopClaw.git
+git clone https://github.com/topway-ai/TopClaw.git
 cd TopClaw
 ./bootstrap.sh --install-system-deps --install-rust --prefer-prebuilt
 ```
@@ -48,7 +48,7 @@ cd TopClaw
 Windows PowerShell equivalent:
 
 ```powershell
-git clone https://github.com/jackfly8/TopClaw.git
+git clone https://github.com/topway-ai/TopClaw.git
 cd TopClaw
 .\bootstrap.ps1 -InstallRust -PreferPrebuilt
 ```
@@ -112,7 +112,7 @@ Notes:
 ## Option B: Remote one-liner
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jackfly8/TopClaw/main/scripts/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/topway-ai/TopClaw/main/scripts/bootstrap.sh | bash
 ```
 
 For high-security environments, prefer Option A so you can review the script before execution.
@@ -120,7 +120,7 @@ For high-security environments, prefer Option A so you can review the script bef
 Legacy compatibility:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jackfly8/TopClaw/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/topway-ai/TopClaw/main/scripts/install.sh | bash
 ```
 
 This legacy endpoint prefers forwarding to `scripts/bootstrap.sh` and falls back to legacy source install if unavailable in that revision.
@@ -147,7 +147,7 @@ workspace/config mounts remain writable inside the container.
 
 If you add `--skip-build`, bootstrap skips local image build. It first tries the local
 Docker tag (`TOPCLAW_DOCKER_IMAGE`, default: `topclaw-bootstrap:local`); if missing,
-it pulls `ghcr.io/jackfly8/TopClaw:latest` and tags it locally before running.
+it pulls `ghcr.io/topway-ai/TopClaw:latest` and tags it locally before running.
 
 ### Quick onboarding (non-interactive)
 
@@ -171,7 +171,7 @@ TOPCLAW_API_KEY="sk-..." TOPCLAW_PROVIDER="openrouter" ./bootstrap.sh --onboard
 
 - `--install-system-deps`
 - `--install-rust`
-- `--skip-build` (in `--docker` mode: use local image if present, otherwise pull `ghcr.io/jackfly8/TopClaw:latest`)
+- `--skip-build` (in `--docker` mode: use local image if present, otherwise pull `ghcr.io/topway-ai/TopClaw:latest`)
 - `--skip-install`
 - `--provider <id>`
 

@@ -40,7 +40,7 @@ brew install topclaw
 ## Cách A (Khuyến nghị): Clone + chạy script cục bộ
 
 ```bash
-git clone https://github.com/jackfly8/TopClaw.git
+git clone https://github.com/topway-ai/TopClaw.git
 cd TopClaw
 ./bootstrap.sh
 ```
@@ -97,7 +97,7 @@ Lưu ý:
 ## Cách B: Lệnh từ xa một dòng
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jackfly8/TopClaw/main/scripts/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/topway-ai/TopClaw/main/scripts/bootstrap.sh | bash
 ```
 
 Với môi trường yêu cầu bảo mật cao, nên dùng Cách A để kiểm tra script trước khi chạy.
@@ -105,7 +105,7 @@ Với môi trường yêu cầu bảo mật cao, nên dùng Cách A để kiểm
 Tương thích ngược:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jackfly8/TopClaw/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/topway-ai/TopClaw/main/scripts/install.sh | bash
 ```
 
 Endpoint cũ này ưu tiên chuyển tiếp đến `scripts/bootstrap.sh`, nếu không có thì dùng cài đặt từ nguồn kiểu cũ.

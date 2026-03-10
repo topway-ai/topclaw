@@ -27,7 +27,7 @@ mkdir -p "$STABLE" "$CANDIDATE" "$RELEASES" "$LOGS"
 if [[ ! -d "$STABLE/.git" ]]; then
   echo "Stable checkout not found at $STABLE" >&2
   echo "Clone TopClaw there first, for example:" >&2
-  echo "  git clone https://github.com/jackfly8/TopClaw.git \"$STABLE\"" >&2
+  echo "  git clone https://github.com/topway-ai/TopClaw.git \"$STABLE\"" >&2
   exit 1
 fi
 

@@ -51,10 +51,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/jackfly8/TopClaw"
-Documentation = "https://github.com/jackfly8/TopClaw/tree/main/python"
-Repository = "https://github.com/jackfly8/TopClaw"
-Issues = "https://github.com/jackfly8/TopClaw/issues"
+Homepage = "https://github.com/topway-ai/TopClaw"
+Documentation = "https://github.com/topway-ai/TopClaw/tree/main/python"
+Repository = "https://github.com/topway-ai/TopClaw"
+Issues = "https://github.com/topway-ai/TopClaw/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["topclaw_tools"]

@@ -7,7 +7,7 @@
 //!
 //! Run: `cargo bench`
 //!
-//! Ref: https://github.com/jackfly8/TopClaw/issues/618 (item 7)
+//! Ref: https://github.com/topway-ai/TopClaw/issues/618 (item 7)
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;

@@ -300,8 +300,8 @@ If onboarding just finished and you are unsure which command to use next, read [
 Both still work:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jackfly8/TopClaw/main/scripts/bootstrap.sh | bash
-curl -fsSL https://raw.githubusercontent.com/jackfly8/TopClaw/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/topway-ai/TopClaw/main/scripts/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/topway-ai/TopClaw/main/scripts/install.sh | bash
 ```
 
 `install.sh` is a compatibility entry and forwards/falls back to bootstrap behavior.

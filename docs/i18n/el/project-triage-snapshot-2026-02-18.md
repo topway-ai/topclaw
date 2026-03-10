@@ -6,7 +6,7 @@
 
 ## Μεθοδολογία Συλλογής Δεδομένων
 
-Η άντληση των στοιχείων πραγματοποιήθηκε μέσω του GitHub CLI για το αποθετήριο `jackfly8/TopClaw`:
+Η άντληση των στοιχείων πραγματοποιήθηκε μέσω του GitHub CLI για το αποθετήριο `topway-ai/TopClaw`:
 
 - `gh repo view`: Γενική εικόνα αποθετηρίου.
 - `gh pr list --state open --limit 500`: Ανάλυση ανοιχτών PR.
@@ -50,11 +50,11 @@
 
 ## PR με Άμεσο Αντίκτυπο στην Τεκμηρίωση
 
-- [#716](https://github.com/jackfly8/TopClaw/pull/716): Υποστήριξη OpenRC (διαχείριση υπηρεσιών).
-- [#725](https://github.com/jackfly8/TopClaw/pull/725): Shell completion commands (τεκμηρίωση CLI).
-- [#732](https://github.com/jackfly8/TopClaw/pull/732): Αναβάθμιση ενεργειών CI (ροές εργασίας συνεισφερόντων).
-- [#759](https://github.com/jackfly8/TopClaw/pull/759): Διόρθωση απόκρισης daemon/καναλιού (troubleshooting).
-- [#679](https://github.com/jackfly8/TopClaw/pull/679): Αλλαγή στη λογική αποκλεισμού (πολιτική ασφαλείας).
+- [#716](https://github.com/topway-ai/TopClaw/pull/716): Υποστήριξη OpenRC (διαχείριση υπηρεσιών).
+- [#725](https://github.com/topway-ai/TopClaw/pull/725): Shell completion commands (τεκμηρίωση CLI).
+- [#732](https://github.com/topway-ai/TopClaw/pull/732): Αναβάθμιση ενεργειών CI (ροές εργασίας συνεισφερόντων).
+- [#759](https://github.com/topway-ai/TopClaw/pull/759): Διόρθωση απόκρισης daemon/καναλιού (troubleshooting).
+- [#679](https://github.com/topway-ai/TopClaw/pull/679): Αλλαγή στη λογική αποκλεισμού (πολιτική ασφαλείας).
 
 ## Εκκρεμότητες Τεκμηρίωσης (Προτεραιοποίηση)
 

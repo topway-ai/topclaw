@@ -66,7 +66,7 @@ sudo apt-get update
 sudo apt-get install -y pkg-config libssl-dev
 
 # Clone topclaw (hoặc scp project của bạn)
-git clone https://github.com/jackfly8/TopClaw.git
+git clone https://github.com/topway-ai/TopClaw.git
 cd TopClaw
 
 # Build (~15–30 phút trên Uno Q)
@@ -199,7 +199,7 @@ Giờ khi bạn nhắn tin cho Telegram bot *"Turn on the LED"* hoặc *"Set pin
 | 2 | `ssh arduino@<IP>` |
 | 3 | `curl -sSf https://sh.rustup.rs \| sh -s -- -y && source ~/.cargo/env` |
 | 4 | `sudo apt-get install -y pkg-config libssl-dev` |
-| 5 | `git clone https://github.com/jackfly8/TopClaw.git && cd TopClaw` |
+| 5 | `git clone https://github.com/topway-ai/TopClaw.git && cd TopClaw` |
 | 6 | `cargo build --release --no-default-features` |
 | 7 | `topclaw onboard --api-key KEY --provider openrouter` |
 | 8 | Chỉnh sửa `~/.topclaw/config.toml` (thêm Telegram bot_token) |

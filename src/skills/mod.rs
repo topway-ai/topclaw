@@ -27,23 +27,23 @@ const DEFAULT_PRELOADED_SKILL_SOURCES: [(&str, &str); 7] = [
     ("skill-creator", "https://clawhub.ai/chindden/skill-creator"),
     (
         "local-file-analyzer",
-        "https://github.com/jackfly8/TopClaw/tree/main/skills/local-file-analyzer",
+        "https://github.com/topway-ai/TopClaw/tree/main/skills/local-file-analyzer",
     ),
     (
         "workspace-search",
-        "https://github.com/jackfly8/TopClaw/tree/main/skills/workspace-search",
+        "https://github.com/topway-ai/TopClaw/tree/main/skills/workspace-search",
     ),
     (
         "code-explainer",
-        "https://github.com/jackfly8/TopClaw/tree/main/skills/code-explainer",
+        "https://github.com/topway-ai/TopClaw/tree/main/skills/code-explainer",
     ),
     (
         "change-summary",
-        "https://github.com/jackfly8/TopClaw/tree/main/skills/change-summary",
+        "https://github.com/topway-ai/TopClaw/tree/main/skills/change-summary",
     ),
     (
         "safe-web-search",
-        "https://github.com/jackfly8/TopClaw/tree/main/skills/safe-web-search",
+        "https://github.com/topway-ai/TopClaw/tree/main/skills/safe-web-search",
     ),
 ];
 
@@ -150,7 +150,7 @@ const BUILTIN_PRELOADED_SKILLS: [BuiltinPreloadedSkill; 7] = [
     },
     BuiltinPreloadedSkill {
         dir_name: "local-file-analyzer",
-        source_url: "https://github.com/jackfly8/TopClaw/tree/main/skills/local-file-analyzer",
+        source_url: "https://github.com/topway-ai/TopClaw/tree/main/skills/local-file-analyzer",
         files: &[BuiltinPreloadedSkillFile {
             relative_path: "SKILL.md",
             contents: include_str!(concat!(
@@ -162,7 +162,7 @@ const BUILTIN_PRELOADED_SKILLS: [BuiltinPreloadedSkill; 7] = [
     },
     BuiltinPreloadedSkill {
         dir_name: "workspace-search",
-        source_url: "https://github.com/jackfly8/TopClaw/tree/main/skills/workspace-search",
+        source_url: "https://github.com/topway-ai/TopClaw/tree/main/skills/workspace-search",
         files: &[BuiltinPreloadedSkillFile {
             relative_path: "SKILL.md",
             contents: include_str!(concat!(
@@ -174,7 +174,7 @@ const BUILTIN_PRELOADED_SKILLS: [BuiltinPreloadedSkill; 7] = [
     },
     BuiltinPreloadedSkill {
         dir_name: "code-explainer",
-        source_url: "https://github.com/jackfly8/TopClaw/tree/main/skills/code-explainer",
+        source_url: "https://github.com/topway-ai/TopClaw/tree/main/skills/code-explainer",
         files: &[BuiltinPreloadedSkillFile {
             relative_path: "SKILL.md",
             contents: include_str!(concat!(
@@ -186,7 +186,7 @@ const BUILTIN_PRELOADED_SKILLS: [BuiltinPreloadedSkill; 7] = [
     },
     BuiltinPreloadedSkill {
         dir_name: "change-summary",
-        source_url: "https://github.com/jackfly8/TopClaw/tree/main/skills/change-summary",
+        source_url: "https://github.com/topway-ai/TopClaw/tree/main/skills/change-summary",
         files: &[BuiltinPreloadedSkillFile {
             relative_path: "SKILL.md",
             contents: include_str!(concat!(
@@ -198,7 +198,7 @@ const BUILTIN_PRELOADED_SKILLS: [BuiltinPreloadedSkill; 7] = [
     },
     BuiltinPreloadedSkill {
         dir_name: "safe-web-search",
-        source_url: "https://github.com/jackfly8/TopClaw/tree/main/skills/safe-web-search",
+        source_url: "https://github.com/topway-ai/TopClaw/tree/main/skills/safe-web-search",
         files: &[BuiltinPreloadedSkillFile {
             relative_path: "SKILL.md",
             contents: include_str!(concat!(
@@ -2629,33 +2629,33 @@ description = "Bare minimum"
         assert_eq!(
             policy.aliases.get("local-file-analyzer"),
             Some(
-                &"https://github.com/jackfly8/TopClaw/tree/main/skills/local-file-analyzer"
+                &"https://github.com/topway-ai/TopClaw/tree/main/skills/local-file-analyzer"
                     .to_string()
             )
         );
         assert_eq!(
             policy.aliases.get("workspace-search"),
             Some(
-                &"https://github.com/jackfly8/TopClaw/tree/main/skills/workspace-search"
+                &"https://github.com/topway-ai/TopClaw/tree/main/skills/workspace-search"
                     .to_string()
             )
         );
         assert_eq!(
             policy.aliases.get("code-explainer"),
             Some(
-                &"https://github.com/jackfly8/TopClaw/tree/main/skills/code-explainer".to_string()
+                &"https://github.com/topway-ai/TopClaw/tree/main/skills/code-explainer".to_string()
             )
         );
         assert_eq!(
             policy.aliases.get("change-summary"),
             Some(
-                &"https://github.com/jackfly8/TopClaw/tree/main/skills/change-summary".to_string()
+                &"https://github.com/topway-ai/TopClaw/tree/main/skills/change-summary".to_string()
             )
         );
         assert_eq!(
             policy.aliases.get("safe-web-search"),
             Some(
-                &"https://github.com/jackfly8/TopClaw/tree/main/skills/safe-web-search".to_string()
+                &"https://github.com/topway-ai/TopClaw/tree/main/skills/safe-web-search".to_string()
             )
         );
     }

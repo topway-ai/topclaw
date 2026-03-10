@@ -22,7 +22,7 @@ unauthorized forks, derivatives, or impersonators.
 
 The **only** official TopClaw repository is:
 
-> https://github.com/jackfly8/TopClaw
+> https://github.com/topway-ai/TopClaw
 
 Any other repository, organization, domain, or product claiming to be
 "TopClaw" or implying affiliation with TopClaw Labs is unauthorized and
@@ -32,7 +32,7 @@ may constitute trademark infringement.
 - `openagen/topclaw` — not affiliated with TopClaw Labs
 
 If you encounter an unauthorized use, please report it by opening an issue
-at https://github.com/jackfly8/TopClaw/issues.
+at https://github.com/topway-ai/TopClaw/issues.
 
 ---
 
@@ -108,7 +108,7 @@ dual MIT + Apache 2.0 license model:
 
 If you believe someone is infringing TopClaw trademarks:
 
-1. Open an issue at https://github.com/jackfly8/TopClaw/issues
+1. Open an issue at https://github.com/topway-ai/TopClaw/issues
 2. Include the URL of the infringing content
 3. Describe how it violates this policy
 

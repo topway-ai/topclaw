@@ -111,7 +111,7 @@
 - Αν η θέση του binary δεν είναι εγγράψιμη, το TopClaw εμφανίζει προτεινόμενη διαδρομή ανάκτησης. Σε Linux, η προτεινόμενη λύση είναι:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jackfly8/TopClaw/main/scripts/install-release.sh | bash
+curl -fsSL https://raw.githubusercontent.com/topway-ai/TopClaw/main/scripts/install-release.sh | bash
 ```
 
 ### 5.1 `backup` (Αντίγραφο Ασφαλείας / Επαναφορά)

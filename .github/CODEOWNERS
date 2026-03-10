@@ -1,32 +1,32 @@
 # Default owner for all files
-* @jackfly8
+* @topway-ai
 
 # Important functional modules
-/src/agent/** @jackfly8
-/src/providers/** @jackfly8
-/src/channels/** @jackfly8
-/src/tools/** @jackfly8
-/src/gateway/** @jackfly8
-/src/runtime/** @jackfly8
-/src/memory/** @jackfly8
-/Cargo.toml @jackfly8
-/Cargo.lock @jackfly8
+/src/agent/** @topway-ai
+/src/providers/** @topway-ai
+/src/channels/** @topway-ai
+/src/tools/** @topway-ai
+/src/gateway/** @topway-ai
+/src/runtime/** @topway-ai
+/src/memory/** @topway-ai
+/Cargo.toml @topway-ai
+/Cargo.lock @topway-ai
 
 # Security / tests / CI-CD ownership
-/src/security/** @jackfly8
-/tests/** @jackfly8
-/.github/** @jackfly8
-/.github/workflows/** @jackfly8
-/.github/codeql/** @jackfly8
-/.github/dependabot.yml @jackfly8
-/SECURITY.md @jackfly8
-/docs/actions-source-policy.md @jackfly8
-/docs/ci-map.md @jackfly8
+/src/security/** @topway-ai
+/tests/** @topway-ai
+/.github/** @topway-ai
+/.github/workflows/** @topway-ai
+/.github/codeql/** @topway-ai
+/.github/dependabot.yml @topway-ai
+/SECURITY.md @topway-ai
+/docs/actions-source-policy.md @topway-ai
+/docs/ci-map.md @topway-ai
 
 # Docs & governance
-/docs/** @jackfly8
-/AGENTS.md @jackfly8
-/CLAUDE.md @jackfly8
-/CONTRIBUTING.md @jackfly8
-/docs/pr-workflow.md @jackfly8
-/docs/reviewer-playbook.md @jackfly8
+/docs/** @topway-ai
+/AGENTS.md @topway-ai
+/CLAUDE.md @topway-ai
+/CONTRIBUTING.md @topway-ai
+/docs/pr-workflow.md @topway-ai
+/docs/reviewer-playbook.md @topway-ai

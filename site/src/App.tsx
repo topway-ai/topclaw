@@ -79,8 +79,8 @@ type PaletteEntry = {
   run: () => void;
 };
 
-const repoBase = "https://github.com/jackfly8/TopClaw/blob/main";
-const rawBase = "https://raw.githubusercontent.com/jackfly8/TopClaw/main";
+const repoBase = "https://github.com/topway-ai/TopClaw/blob/main";
+const rawBase = "https://raw.githubusercontent.com/topway-ai/TopClaw/main";
 
 const languageNames: Record<string, Localized> = {
   en: { en: "English", zh: "英文" },
@@ -1270,7 +1270,7 @@ export default function App(): JSX.Element {
 
           <nav className="top-nav" aria-label="Primary">
             <a href="#docs-workspace">{text.navDocs}</a>
-            <a href="https://github.com/jackfly8/TopClaw" target="_blank" rel="noreferrer">
+            <a href="https://github.com/topway-ai/TopClaw" target="_blank" rel="noreferrer">
               {text.navGitHub}
             </a>
             <a href="https://topclawlabs.ai" target="_blank" rel="noreferrer">

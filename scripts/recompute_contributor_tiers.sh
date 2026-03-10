@@ -23,8 +23,8 @@ Options:
   -h, --help              Show this help
 
 Examples:
-  ./$SCRIPT_NAME --repo jackfly8/TopClaw --limit 50
-  ./$SCRIPT_NAME --repo jackfly8/TopClaw --kind prs --state open --apply
+  ./$SCRIPT_NAME --repo topway-ai/TopClaw --limit 50
+  ./$SCRIPT_NAME --repo topway-ai/TopClaw --kind prs --state open --apply
 USAGE
 }
 

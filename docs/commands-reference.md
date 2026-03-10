@@ -136,7 +136,7 @@ Notes:
 - If the binary location is not writable, TopClaw now prints a recovery path instead of failing silently. On Linux, the recommended fallback is the official release installer:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jackfly8/TopClaw/main/scripts/install-release.sh | bash
+curl -fsSL https://raw.githubusercontent.com/topway-ai/TopClaw/main/scripts/install-release.sh | bash
 ```
 
 ### `backup`

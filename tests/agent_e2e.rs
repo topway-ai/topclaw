@@ -5,7 +5,7 @@
 //! external service dependencies. They complement the unit tests in
 //! `src/agent/tests.rs` by running at the integration test boundary.
 //!
-//! Ref: https://github.com/jackfly8/TopClaw/issues/618 (item 6)
+//! Ref: https://github.com/topway-ai/TopClaw/issues/618 (item 6)
 
 use anyhow::Result;
 use async_trait::async_trait;

@@ -88,7 +88,7 @@ pip install piper-tts
 
 ```bash
 # Clone and build
-git clone https://github.com/jackfly8/TopClaw
+git clone https://github.com/topway-ai/TopClaw
 cd TopClaw
 cargo build -p topclaw-robot-kit --release
 ```

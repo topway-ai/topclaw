@@ -21,7 +21,7 @@ Preferred reporting paths:
      - English: [`docs/security/private-vulnerability-report-template.md`](docs/security/private-vulnerability-report-template.md)
      - 中文: [`docs/security/private-vulnerability-report-template.zh-CN.md`](docs/security/private-vulnerability-report-template.zh-CN.md)
 2. If you are a maintainer/admin opening a draft directly:
-   - <https://github.com/jackfly8/TopClaw/security/advisories/new>
+   - <https://github.com/topway-ai/TopClaw/security/advisories/new>
 
 ### What to Include in a Report
 
