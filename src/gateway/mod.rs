@@ -38,7 +38,6 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
-use ipnet::IpNet;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
@@ -262,15 +261,78 @@ fn forwarded_client_ip(headers: &HeaderMap) -> Option<IpAddr> {
         .and_then(parse_client_ip)
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct TrustedProxyCidr {
+    network: IpAddr,
+    prefix_len: u8,
+}
+
+impl TrustedProxyCidr {
+    fn parse(raw: &str) -> Result<Self> {
+        let (addr, prefix) = raw
+            .trim()
+            .split_once('/')
+            .ok_or_else(|| anyhow::anyhow!("CIDR must include '/' prefix length"))?;
+        let ip: IpAddr = addr.parse()?;
+        let max_prefix = match ip {
+            IpAddr::V4(_) => 32,
+            IpAddr::V6(_) => 128,
+        };
+        let prefix_len: u8 = prefix.parse()?;
+        if prefix_len > max_prefix {
+            anyhow::bail!("CIDR prefix length {prefix_len} exceeds maximum {max_prefix}");
+        }
+        let network = match ip {
+            IpAddr::V4(ipv4) => IpAddr::V4(mask_ipv4(ipv4, prefix_len)),
+            IpAddr::V6(ipv6) => IpAddr::V6(mask_ipv6(ipv6, prefix_len)),
+        };
+
+        Ok(Self {
+            network,
+            prefix_len,
+        })
+    }
+
+    fn contains(&self, ip: IpAddr) -> bool {
+        match (self.network, ip) {
+            (IpAddr::V4(network), IpAddr::V4(candidate)) => {
+                mask_ipv4(candidate, self.prefix_len) == network
+            }
+            (IpAddr::V6(network), IpAddr::V6(candidate)) => {
+                mask_ipv6(candidate, self.prefix_len) == network
+            }
+            _ => false,
+        }
+    }
+}
+
+fn mask_ipv4(ip: std::net::Ipv4Addr, prefix_len: u8) -> std::net::Ipv4Addr {
+    let mask = if prefix_len == 0 {
+        0
+    } else {
+        u32::MAX << (32 - u32::from(prefix_len))
+    };
+    std::net::Ipv4Addr::from(u32::from(ip) & mask)
+}
+
+fn mask_ipv6(ip: std::net::Ipv6Addr, prefix_len: u8) -> std::net::Ipv6Addr {
+    let mask = if prefix_len == 0 {
+        0
+    } else {
+        u128::MAX << (128 - u32::from(prefix_len))
+    };
+    std::net::Ipv6Addr::from(u128::from(ip) & mask)
+}
+
 fn client_ip_from_request(
     peer_addr: Option<SocketAddr>,
     headers: &HeaderMap,
     trust_forwarded_headers: bool,
-    trusted_proxy_cidrs: &[IpNet],
+    trusted_proxy_cidrs: &[TrustedProxyCidr],
 ) -> Option<IpAddr> {
     let peer_ip = peer_addr.map(|addr| addr.ip());
     let trusted_proxy = peer_ip.is_some_and(|ip| {
-        ip.is_loopback() || trusted_proxy_cidrs.iter().any(|cidr| cidr.contains(&ip))
+        ip.is_loopback() || trusted_proxy_cidrs.iter().any(|cidr| cidr.contains(ip))
     });
 
     if trust_forwarded_headers && trusted_proxy {
@@ -284,7 +346,7 @@ pub(crate) fn client_key_from_request(
     peer_addr: Option<SocketAddr>,
     headers: &HeaderMap,
     trust_forwarded_headers: bool,
-    trusted_proxy_cidrs: &[IpNet],
+    trusted_proxy_cidrs: &[TrustedProxyCidr],
 ) -> String {
     client_ip_from_request(
         peer_addr,
@@ -388,7 +450,7 @@ pub struct AppState {
     pub webhook_secret_hash: Option<Arc<str>>,
     pub pairing: Arc<PairingGuard>,
     pub trust_forwarded_headers: bool,
-    pub trusted_proxy_cidrs: Arc<Vec<IpNet>>,
+    pub(crate) trusted_proxy_cidrs: Arc<Vec<TrustedProxyCidr>>,
     pub rate_limiter: Arc<GatewayRateLimiter>,
     pub idempotency_store: Arc<IdempotencyStore>,
     pub whatsapp: Option<Arc<WhatsAppChannel>>,
@@ -419,12 +481,11 @@ pub struct AppState {
     pub event_tx: tokio::sync::broadcast::Sender<serde_json::Value>,
 }
 
-fn parse_trusted_proxy_cidrs(raw_cidrs: &[String]) -> Result<Vec<IpNet>> {
+fn parse_trusted_proxy_cidrs(raw_cidrs: &[String]) -> Result<Vec<TrustedProxyCidr>> {
     raw_cidrs
         .iter()
         .map(|raw| {
-            raw.trim()
-                .parse::<IpNet>()
+            TrustedProxyCidr::parse(raw)
                 .with_context(|| format!("Invalid [gateway].trusted_proxy_cidrs entry: {raw}"))
         })
         .collect()
@@ -2438,7 +2499,9 @@ mod tests {
         let state = AppState {
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: true,
-            trusted_proxy_cidrs: Arc::new(vec!["127.0.0.0/8".parse().expect("cidr should parse")]),
+            trusted_proxy_cidrs: Arc::new(vec![
+                TrustedProxyCidr::parse("127.0.0.0/8").expect("cidr should parse")
+            ]),
             ..test_state()
         };
         let mut headers = HeaderMap::new();
@@ -2452,7 +2515,9 @@ mod tests {
         let state = AppState {
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: true,
-            trusted_proxy_cidrs: Arc::new(vec!["10.0.0.0/8".parse().expect("cidr should parse")]),
+            trusted_proxy_cidrs: Arc::new(vec![
+                TrustedProxyCidr::parse("10.0.0.0/8").expect("cidr should parse")
+            ]),
             ..test_state()
         };
         let mut headers = HeaderMap::new();
@@ -2535,7 +2600,7 @@ mod tests {
             HeaderValue::from_static("198.51.100.10, 203.0.113.11"),
         );
 
-        let trusted = vec!["10.0.0.0/8".parse().expect("cidr should parse")];
+        let trusted = vec![TrustedProxyCidr::parse("10.0.0.0/8").expect("cidr should parse")];
         let key = client_key_from_request(Some(peer), &headers, true, &trusted);
         assert_eq!(key, "198.51.100.10");
     }
@@ -2546,7 +2611,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("X-Forwarded-For", HeaderValue::from_static("garbage-value"));
 
-        let trusted = vec!["10.0.0.0/8".parse().expect("cidr should parse")];
+        let trusted = vec![TrustedProxyCidr::parse("10.0.0.0/8").expect("cidr should parse")];
         let key = client_key_from_request(Some(peer), &headers, true, &trusted);
         assert_eq!(key, "10.0.0.5");
     }
@@ -2560,7 +2625,7 @@ mod tests {
             HeaderValue::from_static("198.51.100.10, 203.0.113.11"),
         );
 
-        let trusted = vec!["10.0.0.0/8".parse().expect("cidr should parse")];
+        let trusted = vec![TrustedProxyCidr::parse("10.0.0.0/8").expect("cidr should parse")];
         let key = client_key_from_request(Some(peer), &headers, true, &trusted);
         assert_eq!(key, "203.0.113.5");
     }

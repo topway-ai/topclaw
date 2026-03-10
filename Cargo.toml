@@ -57,7 +57,6 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png"]
 
 # URL encoding for web search
 urlencoding = "2.1"
-ipnet = "2.11"
 
 # HTML conversion providers (web_fetch tool)
 fast_html2md = { version = "0.0.58", optional = true }
@@ -193,7 +192,8 @@ rppal = { version = "0.22", optional = true }
 landlock = { version = "0.4", optional = true }
 
 [features]
-default = ["channel-lark", "web-fetch-html2md"]
+default = ["channel-lark", "web-fetch-html2md", "builtin-preloaded-skills"]
+builtin-preloaded-skills = []
 hardware = ["nusb", "tokio-serial"]
 channel-matrix = ["dep:matrix-sdk"]
 channel-lark = ["dep:prost"]

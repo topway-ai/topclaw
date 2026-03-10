@@ -6,7 +6,7 @@ use std::io::{BufRead, IsTerminal};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime};
-#[cfg(unix)]
+#[cfg(all(unix, feature = "builtin-preloaded-skills"))]
 use std::{fs, os::unix::fs::PermissionsExt};
 
 mod audit;
@@ -47,12 +47,14 @@ const DEFAULT_PRELOADED_SKILL_SOURCES: [(&str, &str); 7] = [
     ),
 ];
 
+#[cfg(feature = "builtin-preloaded-skills")]
 struct BuiltinPreloadedSkill {
     dir_name: &'static str,
     source_url: &'static str,
     files: &'static [BuiltinPreloadedSkillFile],
 }
 
+#[cfg(feature = "builtin-preloaded-skills")]
 struct BuiltinPreloadedSkillFile {
     relative_path: &'static str,
     contents: &'static str,
@@ -60,7 +62,7 @@ struct BuiltinPreloadedSkillFile {
 }
 
 fn is_builtin_preloaded_skill(name: &str) -> bool {
-    BUILTIN_PRELOADED_SKILLS
+    builtin_preloaded_skills()
         .iter()
         .any(|builtin| builtin.dir_name.eq_ignore_ascii_case(name))
 }
@@ -73,6 +75,7 @@ fn configured_builtin_skill_blocklist(entries: &[String]) -> HashSet<String> {
         .collect()
 }
 
+#[cfg(feature = "builtin-preloaded-skills")]
 const BUILTIN_PRELOADED_SKILLS: [BuiltinPreloadedSkill; 7] = [
     BuiltinPreloadedSkill {
         dir_name: "find-skills",
@@ -209,6 +212,16 @@ const BUILTIN_PRELOADED_SKILLS: [BuiltinPreloadedSkill; 7] = [
         }],
     },
 ];
+
+#[cfg(feature = "builtin-preloaded-skills")]
+fn builtin_preloaded_skills() -> &'static [BuiltinPreloadedSkill] {
+    &BUILTIN_PRELOADED_SKILLS
+}
+
+#[cfg(not(feature = "builtin-preloaded-skills"))]
+fn builtin_preloaded_skills() -> &'static [()] {
+    &[]
+}
 
 fn default_policy_version() -> u32 {
     1
@@ -1239,7 +1252,14 @@ fn ensure_source_domain_trust(
 }
 
 fn ensure_builtin_preloaded_skills(skills_path: &Path) -> Result<()> {
-    for builtin in BUILTIN_PRELOADED_SKILLS {
+    #[cfg(not(feature = "builtin-preloaded-skills"))]
+    {
+        let _ = skills_path;
+        return Ok(());
+    }
+
+    #[cfg(feature = "builtin-preloaded-skills")]
+    for builtin in builtin_preloaded_skills() {
         let skill_dir = skills_path.join(builtin.dir_name);
         if skill_dir.exists() {
             continue;
