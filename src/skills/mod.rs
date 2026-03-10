@@ -61,10 +61,16 @@ struct BuiltinPreloadedSkillFile {
     executable: bool,
 }
 
+#[cfg(feature = "builtin-preloaded-skills")]
 fn is_builtin_preloaded_skill(name: &str) -> bool {
     builtin_preloaded_skills()
         .iter()
         .any(|builtin| builtin.dir_name.eq_ignore_ascii_case(name))
+}
+
+#[cfg(not(feature = "builtin-preloaded-skills"))]
+fn is_builtin_preloaded_skill(_name: &str) -> bool {
+    false
 }
 
 fn configured_builtin_skill_blocklist(entries: &[String]) -> HashSet<String> {
@@ -1251,14 +1257,8 @@ fn ensure_source_domain_trust(
     Ok(())
 }
 
+#[cfg(feature = "builtin-preloaded-skills")]
 fn ensure_builtin_preloaded_skills(skills_path: &Path) -> Result<()> {
-    #[cfg(not(feature = "builtin-preloaded-skills"))]
-    {
-        let _ = skills_path;
-        return Ok(());
-    }
-
-    #[cfg(feature = "builtin-preloaded-skills")]
     for builtin in builtin_preloaded_skills() {
         let skill_dir = skills_path.join(builtin.dir_name);
         if skill_dir.exists() {
@@ -1297,6 +1297,11 @@ fn ensure_builtin_preloaded_skills(skills_path: &Path) -> Result<()> {
         )
         .with_context(|| format!("failed to write {}", skill_dir.join("_meta.json").display()))?;
     }
+    Ok(())
+}
+
+#[cfg(not(feature = "builtin-preloaded-skills"))]
+fn ensure_builtin_preloaded_skills(_skills_path: &Path) -> Result<()> {
     Ok(())
 }
 
