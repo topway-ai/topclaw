@@ -2655,7 +2655,8 @@ description = "Bare minimum"
         assert_eq!(
             policy.aliases.get("safe-web-search"),
             Some(
-                &"https://github.com/topway-ai/topclaw/tree/main/skills/safe-web-search".to_string()
+                &"https://github.com/topway-ai/topclaw/tree/main/skills/safe-web-search"
+                    .to_string()
             )
         );
     }
