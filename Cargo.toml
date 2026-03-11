@@ -122,7 +122,7 @@ glob = "0.3"
 which = "8.0"
 
 # Temporary directory creation (for self-update)
-tempfile = "3.14"
+tempfile = "3.27"
 
 # WebSocket client channels (Discord/Lark/DingTalk/Nostr)
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
@@ -172,7 +172,7 @@ probe-rs = { version = "0.31", optional = true }
 
 # PDF extraction for datasheet RAG (optional, enable with --features rag-pdf)
 pdf-extract = { version = "0.10", optional = true }
-tempfile = "3.14"
+tempfile = "3.27"
 
 # Terminal QR rendering for WhatsApp Web pairing flow.
 qrcode = { version = "0.14", optional = true }
@@ -244,7 +244,7 @@ strip = true
 panic = "abort"
 
 [dev-dependencies]
-tempfile = "3.26"
+tempfile = "3.27"
 criterion = { version = "0.8", features = ["async_tokio"] }
 wiremock = "0.6"
 scopeguard = "1.2"
