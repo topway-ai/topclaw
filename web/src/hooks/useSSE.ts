@@ -1,3 +1,6 @@
+/**
+ * React hook for subscribing to the gateway's SSE event stream.
+ */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { SSEClient, type SSEClientOptions } from '../lib/sse';
 import type { SSEEvent } from '../types/api';

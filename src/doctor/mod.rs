@@ -1,3 +1,9 @@
+//! Diagnostic checks for provider readiness, service health, channel state, and
+//! workspace integrity.
+//!
+//! The doctor output is used by both human-facing CLI commands and structured
+//! API responses. Keep messages concrete and action-oriented because users often
+//! see them during first-run setup and incident triage.
 use crate::config::Config;
 use anyhow::Result;
 use chrono::{DateTime, Utc};

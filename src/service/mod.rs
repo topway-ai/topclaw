@@ -1,3 +1,10 @@
+//! Service-management helpers for installing and controlling background TopClaw
+//! runtimes.
+//!
+//! This module abstracts the platform-specific wrapper used by `topclaw service`
+//! commands. On Linux it detects supported init systems and renders the correct
+//! unit/service files; on other platforms it uses the runtime-specific path
+//! implemented in this module.
 use crate::config::Config;
 use anyhow::{bail, Context, Result};
 use std::fs;

@@ -1,3 +1,7 @@
+/**
+ * Memory browser page for querying, creating, and deleting stored memory
+ * entries through the gateway API.
+ */
 import { useState, useEffect } from 'react';
 import {
   Brain,

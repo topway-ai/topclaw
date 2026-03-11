@@ -1,3 +1,11 @@
+//! Reusable in-process agent type and builder.
+//!
+//! [`Agent`] is the highest-level library entry point for driving the standard
+//! TopClaw LLM loop from Rust. It owns a provider, tool registry, memory
+//! backend, observer, prompt builder, and conversation history.
+//!
+//! For most applications, [`Agent::from_config`] is the easiest constructor.
+//! Use [`AgentBuilder`] when you need custom provider, tool, or memory wiring.
 use crate::agent::dispatcher::{
     NativeToolDispatcher, ParsedToolCall, ToolDispatcher, ToolExecutionResult, XmlToolDispatcher,
 };
@@ -17,6 +25,7 @@ use std::io::Write as IoWrite;
 use std::sync::Arc;
 use std::time::Instant;
 
+/// Reusable agent instance that preserves conversation history across turns.
 pub struct Agent {
     provider: Box<dyn Provider>,
     tools: Vec<Box<dyn Tool>>,
@@ -41,6 +50,10 @@ pub struct Agent {
     research_config: ResearchPhaseConfig,
 }
 
+/// Builder for constructing an [`Agent`] from explicit dependencies.
+///
+/// Use this when embedding TopClaw into another Rust application and you want
+/// to supply custom provider, tool, memory, or observer implementations.
 pub struct AgentBuilder {
     provider: Option<Box<dyn Provider>>,
     tools: Option<Vec<Box<dyn Tool>>>,
@@ -64,6 +77,7 @@ pub struct AgentBuilder {
 }
 
 impl AgentBuilder {
+    /// Create an empty builder.
     pub fn new() -> Self {
         Self {
             provider: None,
@@ -189,6 +203,12 @@ impl AgentBuilder {
         self
     }
 
+    /// Finish constructing the agent.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when required dependencies such as the provider, tools,
+    /// memory backend, or tool dispatcher were not supplied.
     pub fn build(self) -> Result<Agent> {
         let tools = self
             .tools
@@ -238,14 +258,17 @@ impl AgentBuilder {
 }
 
 impl Agent {
+    /// Create a builder for explicit dependency injection.
     pub fn builder() -> AgentBuilder {
         AgentBuilder::new()
     }
 
+    /// Return the in-memory conversation history tracked by this instance.
     pub fn history(&self) -> &[ConversationMessage] {
         &self.history
     }
 
+    /// Remove all retained conversation history from this instance.
     pub fn clear_history(&mut self) {
         self.history.clear();
     }
@@ -362,6 +385,11 @@ impl Agent {
         crate::skills::load_skills_with_config(&config.workspace_dir, config)
     }
 
+    /// Construct a fully wired agent from the standard TopClaw config.
+    ///
+    /// This performs the same high-level dependency wiring used by the CLI:
+    /// runtime creation, security policy setup, memory backend selection,
+    /// provider routing, tool registration, and skill loading.
     pub fn from_config(config: &Config) -> Result<Self> {
         let observer = Self::build_observer_from_config(config);
         let runtime = Self::build_runtime_from_config(config)?;
@@ -521,6 +549,8 @@ impl Agent {
         self.model_name.clone()
     }
 
+    /// Execute one user turn, including provider inference, optional research,
+    /// tool execution, memory writes, and history updates.
     pub async fn turn(&mut self, user_message: &str) -> Result<String> {
         if self.history.is_empty() {
             let system_prompt = self.build_system_prompt()?;
@@ -701,6 +731,8 @@ impl Agent {
     }
 }
 
+/// Convenience helper used by the CLI to load an agent from config and either
+/// run a single-shot message or enter the interactive loop.
 pub async fn run(
     config: Config,
     message: Option<String>,

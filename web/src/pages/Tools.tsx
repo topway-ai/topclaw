@@ -1,3 +1,6 @@
+/**
+ * Tool catalog page showing the currently registered agent and CLI tools.
+ */
 import { useState, useEffect } from 'react';
 import {
   Wrench,

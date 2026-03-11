@@ -1,3 +1,9 @@
+//! Skill loading, installation, and vetting.
+//!
+//! Skills are workspace-local capability bundles rooted under the active
+//! TopClaw workspace. A skill may contribute prompt instructions, scripts, or
+//! metadata consumed by the runtime. This module handles discovery, install
+//! sources, built-in preload behavior, and audit/vetting helpers.
 use anyhow::{Context, Result};
 use directories::UserDirs;
 use serde::{Deserialize, Serialize};

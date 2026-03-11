@@ -2,6 +2,20 @@
 
 TopClaw is a Rust-based AI agent runtime for local and remote AI workflows.
 
+## What TopClaw Is
+
+TopClaw combines several runtime surfaces in one Rust codebase:
+
+- a CLI for onboarding, diagnostics, and direct chat
+- an agent loop that can call tools and persist memory
+- provider adapters for multiple model APIs
+- channel adapters for chat platforms such as Telegram, Discord, Slack, and others
+- a gateway for HTTP, WebSocket, and OpenAI-compatible access
+- optional hardware and peripheral integrations
+
+The implementation is trait-driven. Most extensions are added by implementing an
+existing trait and registering the implementation in the matching factory module.
+
 ## Quick Start
 
 If you are on macOS, install Apple developer tools first:
@@ -94,6 +108,59 @@ TopClaw has a few different runtime commands:
 - `topclaw gateway`: run only the HTTP/webhook gateway
 
 For the full explanation, see [`docs/runtime-model.md`](docs/runtime-model.md).
+
+## Architecture At A Glance
+
+TopClaw's main execution flow is:
+
+1. load and normalize `config.toml`
+2. build the runtime adapter, security policy, memory backend, observer, provider, and tool registry
+3. accept input from the CLI, a channel listener, or the gateway
+4. construct the system prompt and conversation history
+5. ask the configured provider for a response
+6. if the response contains tool calls, validate and execute them, then continue the loop
+7. persist memory, emit observability events, and deliver the final response back to the caller
+
+Important code-level constraints:
+
+- security is policy-driven and deny-first for tool execution, shell access, and network exposure
+- config and CLI behavior are public contracts, not internal details
+- most extension points are narrow traits: `Provider`, `Channel`, `Tool`, `Memory`, `Observer`, `RuntimeAdapter`, and `Peripheral`
+- several capabilities are feature-gated at compile time, including Matrix, WhatsApp Web, OpenTelemetry, hardware discovery, and the WASM runtime
+
+## Repository Structure
+
+High-signal paths:
+
+- `src/main.rs`: CLI entrypoint and command routing
+- `src/lib.rs`: crate exports and public command enums
+- `src/agent/`: orchestration loop, prompt construction, dispatch, and research
+- `src/config/`: config schema, defaults, loading, and validation
+- `src/providers/`: model provider implementations and factories
+- `src/channels/`: chat platform integrations
+- `src/tools/`: agent-callable tools
+- `src/memory/`: memory traits and backends
+- `src/security/`: policy, sandboxing, pairing, and secrets
+- `src/gateway/`: HTTP, SSE, WebSocket, and OpenAI-compatible endpoints
+- `src/runtime/`: native, Docker, and WASM runtime adapters
+- `src/peripherals/` and `src/hardware/`: hardware-facing integrations
+- `examples/`: custom provider, tool, channel, and memory examples
+- `tests/`: integration and regression coverage
+- `docs/`: user-facing reference, operations, security, and architecture docs
+
+## Extension Surfaces
+
+If you are extending TopClaw, start with these contracts:
+
+- providers: [`src/providers/traits.rs`](src/providers/traits.rs)
+- channels: [`src/channels/traits.rs`](src/channels/traits.rs)
+- tools: [`src/tools/traits.rs`](src/tools/traits.rs)
+- memory backends: [`src/memory/traits.rs`](src/memory/traits.rs)
+- observability backends: [`src/observability/traits.rs`](src/observability/traits.rs)
+- runtimes: [`src/runtime/traits.rs`](src/runtime/traits.rs)
+- peripherals: [`src/peripherals/traits.rs`](src/peripherals/traits.rs)
+
+Examples of these extension points are available under [`examples/`](examples/).
 
 ## Run In Background
 

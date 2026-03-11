@@ -1,23 +1,36 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-/// Result of a tool execution
+/// Result of a tool execution.
+///
+/// `success = false` means the tool ran and produced a structured failure for
+/// the model to inspect. A transport or framework-level failure should instead
+/// be returned as `Err(...)` from [`Tool::execute`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolResult {
+    /// Whether the tool achieved the requested operation.
     pub success: bool,
+    /// Primary human-readable output forwarded to the model.
     pub output: String,
+    /// Optional structured failure message.
     pub error: Option<String>,
 }
 
-/// Description of a tool for the LLM
+/// LLM-facing description of a tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolSpec {
+    /// Stable canonical tool name used in prompts and tool calls.
     pub name: String,
+    /// Human-readable description exposed to the model.
     pub description: String,
+    /// JSON Schema object describing accepted arguments.
     pub parameters: serde_json::Value,
 }
 
-/// Core tool trait — implement for any capability
+/// Core tool trait.
+///
+/// Tool implementations should validate all inputs, keep side effects explicit,
+/// and return structured output that is safe to feed back into the LLM.
 #[async_trait]
 pub trait Tool: Send + Sync {
     /// Tool name (used in LLM function calling)
@@ -29,7 +42,11 @@ pub trait Tool: Send + Sync {
     /// JSON schema for parameters
     fn parameters_schema(&self) -> serde_json::Value;
 
-    /// Execute the tool with given arguments
+    /// Execute the tool with the provided JSON arguments.
+    ///
+    /// Return `Ok(ToolResult { success: false, .. })` for user- or
+    /// model-recoverable failures. Return `Err(...)` for transport/runtime
+    /// failures that should short-circuit normal tool handling.
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult>;
 
     /// Get the full spec for LLM registration

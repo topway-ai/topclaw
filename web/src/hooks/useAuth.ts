@@ -1,3 +1,9 @@
+/**
+ * Authentication context for the dashboard.
+ *
+ * Coordinates public health checks, pairing, logout, and the shared
+ * authenticated state consumed by `App.tsx`.
+ */
 import {
   createContext,
   useContext,

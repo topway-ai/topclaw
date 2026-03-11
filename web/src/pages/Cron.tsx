@@ -1,3 +1,6 @@
+/**
+ * Scheduled-job management page for the gateway cron API.
+ */
 import { useState, useEffect } from 'react';
 import {
   Clock,

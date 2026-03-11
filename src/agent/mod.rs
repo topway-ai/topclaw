@@ -1,3 +1,12 @@
+//! Agent orchestration surfaces.
+//!
+//! This module contains the main LLM-to-tool loop plus supporting pieces for
+//! prompt construction, tool-call parsing, routing, memory loading, and the
+//! optional research phase.
+//!
+//! Use [`Agent`] when you want a reusable in-process agent instance. Use
+//! [`run`] or [`process_message`] when you want the standard config-driven
+//! runtime path used by the CLI and channels.
 #[allow(clippy::module_inception)]
 pub mod agent;
 pub mod classifier;

@@ -1,3 +1,7 @@
+/**
+ * Configuration editor page for the raw `config.toml` payload exposed by the
+ * gateway.
+ */
 import { useState, useEffect } from 'react';
 import {
   Settings,

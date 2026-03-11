@@ -1,3 +1,8 @@
+/**
+ * Primary dashboard navigation.
+ *
+ * Keep this route list aligned with the route table in `App.tsx`.
+ */
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,

@@ -2,9 +2,27 @@
 
 Αυτή η σελίδα αποτελεί το κεντρικό σημείο πρόσβασης για το σύστημα τεκμηρίωσης του TopClaw.
 
-Τελευταία ενημέρωση: **21 Φεβρουαρίου 2026**.
+Τελευταία ενημέρωση: **11 Μαρτίου 2026**.
 
 Τοπικοποιημένα κέντρα: [简体中文](../zh-CN/README.md) · [日本語](../ja/README.md) · [Русский](../ru/README.md) · [Français](../fr/README.md) · [Tiếng Việt](../vi/README.md) · [Ελληνικά](README.md).
+
+## Επισκόπηση έργου
+
+Το TopClaw είναι ένα Rust-first agent runtime που συνδυάζει:
+
+- CLI για onboarding, διαγνωστικούς ελέγχους και άμεσο chat
+- agent loop με κλήση εργαλείων, μνήμη και δρομολόγηση provider
+- προσαρμογείς channel συνομιλίας και gateway HTTP/WebSocket
+- προαιρετικές ενσωματώσεις hardware και peripheral
+
+Βασικές δημόσιες αρχιτεκτονικές επιφάνειες:
+
+- providers: `src/providers/traits.rs`
+- channels: `src/channels/traits.rs`
+- tools: `src/tools/traits.rs`
+- memory backends: `src/memory/traits.rs`
+- runtime adapters: `src/runtime/traits.rs`
+- peripherals: `src/peripherals/traits.rs`
 
 ## Γρήγορη Εκκίνηση
 

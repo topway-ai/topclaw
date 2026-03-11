@@ -1,3 +1,8 @@
+/**
+ * Shared TypeScript types for gateway responses consumed by the dashboard.
+ *
+ * Keep this file aligned with the Rust API contracts under `src/gateway/`.
+ */
 export interface StatusResponse {
   provider: string | null;
   model: string;

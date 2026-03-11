@@ -1,3 +1,57 @@
+//! TopClaw is a trait-driven Rust runtime for agentic CLI, channel, gateway,
+//! and hardware workflows.
+//!
+//! The crate is organized around a small set of extension traits:
+//!
+//! - [`providers::traits::Provider`] for model backends
+//! - [`channels::traits::Channel`] for messaging transports
+//! - [`tools::traits::Tool`] for agent-callable capabilities
+//! - [`memory::traits::Memory`] for persistence and recall
+//! - [`observability::traits::Observer`] for telemetry sinks
+//! - [`runtime::traits::RuntimeAdapter`] for execution environments
+//! - [`peripherals::traits::Peripheral`] for hardware boards that expose tools
+//!
+//! # Execution Flow
+//!
+//! A typical TopClaw request goes through these stages:
+//!
+//! 1. load and normalize [`Config`]
+//! 2. build runtime, security, memory, provider, observer, and tool instances
+//! 3. receive input from the CLI, a channel, or the gateway
+//! 4. construct the system prompt and conversation history
+//! 5. call the active provider
+//! 6. execute any requested tool calls, subject to runtime and security policy
+//! 7. return the final response and record memory and telemetry side effects
+//!
+//! # Top-Level Modules
+//!
+//! The most commonly used modules are:
+//!
+//! - [`agent`] for the orchestration loop
+//! - [`config`] for config loading, defaults, and schema-backed types
+//! - [`providers`] for model backends and routing
+//! - [`channels`] for external message transports
+//! - [`tools`] for agent-callable capabilities
+//! - [`memory`] for memory backends and retrieval
+//! - [`security`] for policy, pairing, secrets, and sandboxing
+//! - [`gateway`] for HTTP and OpenAI-compatible endpoints
+//!
+//! # Example
+//!
+//! ```no_run
+//! use topclaw::{agent::Agent, Config};
+//!
+//! # async fn demo() -> anyhow::Result<()> {
+//! let config = Config::load_or_init().await?;
+//! let mut agent = Agent::from_config(&config)?;
+//! let reply = agent.turn("Summarize the current workspace state").await?;
+//! println!("{reply}");
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! `Config::load_or_init` may create first-run state on disk. Use the CLI if
+//! you want the guided onboarding flow instead of direct library wiring.
 #![warn(clippy::all, clippy::pedantic)]
 #![forbid(unsafe_code)]
 #![allow(
@@ -81,7 +135,8 @@ pub mod workspace;
 
 pub use config::Config;
 
-/// Backup management subcommands
+/// Backup-management subcommands used by the CLI and any embedding wrapper
+/// that wants to delegate archive lifecycle operations to TopClaw.
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum BackupCommands {
     /// Create a portable backup bundle of the current TopClaw state
@@ -107,7 +162,8 @@ pub enum BackupCommands {
     },
 }
 
-/// Service management subcommands
+/// Service-management subcommands for installing and controlling the
+/// long-running background runtime.
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ServiceCommands {
     /// Install daemon service unit for auto-start and restart
@@ -124,7 +180,8 @@ pub enum ServiceCommands {
     Uninstall,
 }
 
-/// Channel management subcommands
+/// Channel-management subcommands for configuring, diagnosing, and starting
+/// external messaging transports.
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ChannelCommands {
     /// List all configured channels
@@ -176,7 +233,8 @@ Examples:
     },
 }
 
-/// Skills management subcommands
+/// Skill-management subcommands for installing, vetting, auditing, and
+/// removing reusable capability bundles.
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SkillCommands {
     /// List all installed skills
@@ -209,7 +267,7 @@ pub enum SkillCommands {
     },
 }
 
-/// Migration subcommands
+/// Migration subcommands for importing state from older or external layouts.
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum MigrateCommands {
     /// Import memory from an `OpenClaw` workspace into this `TopClaw` workspace
@@ -224,7 +282,8 @@ pub enum MigrateCommands {
     },
 }
 
-/// Cron subcommands
+/// Scheduler subcommands for recurring and one-shot tasks backed by the cron
+/// subsystem.
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum CronCommands {
     /// List all scheduled tasks

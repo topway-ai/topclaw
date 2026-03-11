@@ -1,3 +1,9 @@
+/**
+ * Minimal client-side i18n layer for the dashboard.
+ *
+ * The dashboard currently uses fixed in-memory dictionaries rather than a
+ * remote translation service.
+ */
 import { useState, useEffect } from 'react';
 import { getStatus } from './api';
 

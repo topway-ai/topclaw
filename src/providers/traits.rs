@@ -1,3 +1,7 @@
+//! Public provider contract and shared provider-facing message types.
+//!
+//! Providers translate TopClaw's normalized chat and tool model into concrete
+//! upstream APIs while preserving enough metadata for multi-turn tool loops.
 use crate::tools::ToolSpec;
 use async_trait::async_trait;
 use futures_util::{stream, StreamExt};
@@ -7,7 +11,9 @@ use std::fmt::Write;
 /// A single message in a conversation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
+    /// Message role expected by the provider.
     pub role: String,
+    /// Provider-facing message body.
     pub content: String,
 }
 
@@ -44,8 +50,11 @@ impl ChatMessage {
 /// A tool call requested by the LLM.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCall {
+    /// Provider- or runtime-generated identifier used to match tool results.
     pub id: String,
+    /// Canonical TopClaw tool name.
     pub name: String,
+    /// Serialized JSON argument object.
     pub arguments: String,
 }
 
@@ -87,7 +96,9 @@ impl ChatResponse {
 /// Request payload for provider chat calls.
 #[derive(Debug, Clone, Copy)]
 pub struct ChatRequest<'a> {
+    /// Conversation transcript in normalized TopClaw format.
     pub messages: &'a [ChatMessage],
+    /// Tool definitions to expose for this turn, when tool use is enabled.
     pub tools: Option<&'a [ToolSpec]>,
 }
 
@@ -278,6 +289,11 @@ pub enum ToolsPayload {
     PromptGuided { instructions: String },
 }
 
+/// Core provider trait.
+///
+/// Implement this trait to connect TopClaw to a model backend. Implementations
+/// are expected to be stateless or internally synchronized because they may be
+/// shared across concurrent tasks.
 #[async_trait]
 pub trait Provider: Send + Sync {
     /// Query provider capabilities.

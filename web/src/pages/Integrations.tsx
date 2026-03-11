@@ -1,3 +1,9 @@
+/**
+ * Integration-management page.
+ *
+ * Combines static integration metadata with gateway-provided runtime settings
+ * so operators can inspect integrations and update stored credentials.
+ */
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Puzzle, Check, Zap, Clock, KeyRound, X } from 'lucide-react';

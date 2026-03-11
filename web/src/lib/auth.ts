@@ -1,3 +1,9 @@
+/**
+ * Browser-session auth token storage.
+ *
+ * Tokens are kept in memory plus `sessionStorage`, with a one-time migration
+ * path from the older `localStorage` behavior.
+ */
 export const TOKEN_STORAGE_KEY = 'topclaw_token';
 let inMemoryToken: string | null = null;
 

@@ -1,3 +1,6 @@
+/**
+ * Cost and token-usage summary page.
+ */
 import { useState, useEffect } from 'react';
 import {
   DollarSign,

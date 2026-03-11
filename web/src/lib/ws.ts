@@ -1,3 +1,6 @@
+/**
+ * WebSocket helpers for the dashboard's live agent chat surface.
+ */
 import type { WsMessage } from '../types/api';
 import { getToken } from './auth';
 

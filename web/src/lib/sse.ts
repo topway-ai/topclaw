@@ -1,3 +1,9 @@
+/**
+ * SSE client for the gateway event stream.
+ *
+ * A fetch-based implementation is used instead of `EventSource` so the client
+ * can attach the dashboard's bearer token.
+ */
 import type { SSEEvent } from '../types/api';
 import { getToken } from './auth';
 

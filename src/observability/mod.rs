@@ -1,3 +1,9 @@
+//! Observability backends and factory wiring.
+//!
+//! Observers receive structured runtime events from the agent loop and related
+//! subsystems. The active backend is selected from config and can be a no-op,
+//! log-based, Prometheus-based, or, when compiled with the feature enabled,
+//! OpenTelemetry-based sink.
 pub mod log;
 pub mod multi;
 pub mod noop;

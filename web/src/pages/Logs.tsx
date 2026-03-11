@@ -1,3 +1,6 @@
+/**
+ * Live event/log viewer backed by the gateway SSE stream.
+ */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Activity,

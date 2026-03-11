@@ -1,3 +1,10 @@
+//! Authentication helpers for provider API keys, OAuth profiles, and token
+//! persistence.
+//!
+//! This module owns the on-disk auth profile store used by onboarding, status
+//! checks, and provider construction. It currently supports both static API-key
+//! providers and refreshable OAuth token sets for providers such as OpenAI
+//! Codex and Gemini.
 pub mod anthropic_token;
 pub mod gemini_oauth;
 pub mod oauth_common;
@@ -33,11 +40,14 @@ pub struct AuthService {
 }
 
 impl AuthService {
+    /// Create an auth service rooted at the state directory derived from
+    /// `config`.
     pub fn from_config(config: &Config) -> Self {
         let state_dir = state_dir_from_config(config);
         Self::new(&state_dir, config.secrets.encrypt)
     }
 
+    /// Create an auth service for an explicit state directory.
     pub fn new(state_dir: &Path, encrypt_secrets: bool) -> Self {
         Self {
             store: AuthProfilesStore::new(state_dir, encrypt_secrets),
@@ -45,6 +55,7 @@ impl AuthService {
         }
     }
 
+    /// Load the full profile store from disk.
     pub async fn load_profiles(&self) -> Result<AuthProfilesData> {
         self.store.load().await
     }

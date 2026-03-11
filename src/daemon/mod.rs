@@ -1,3 +1,9 @@
+//! Foreground daemon runtime.
+//!
+//! The daemon is the long-lived orchestration process behind `topclaw daemon`
+//! and the installed background service. It starts the configured channel
+//! listeners, scheduler, gateway, and health/heartbeat writers, then waits for
+//! an OS shutdown signal.
 use crate::config::Config;
 use anyhow::Result;
 use chrono::Utc;

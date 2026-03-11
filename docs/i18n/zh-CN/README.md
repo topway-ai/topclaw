@@ -2,9 +2,27 @@
 
 这是中文文档在 `docs/i18n/<locale>/` 结构下的标准入口。
 
-最后对齐：**2026-02-24**。
+最后对齐：**2026-03-11**。
 
 > 说明：命令、配置键、API 路径保持英文；实现细节以英文文档为准。
+
+## 项目概览
+
+TopClaw 是一个 Rust-first agent runtime，组合了：
+
+- 用于 onboarding、诊断和直接对话的 CLI
+- 带工具调用、记忆和 provider 路由的 agent loop
+- 聊天 channel 适配器与 HTTP/WebSocket gateway
+- 可选的硬件与外设集成
+
+核心公开架构入口：
+
+- providers：`src/providers/traits.rs`
+- channels：`src/channels/traits.rs`
+- tools：`src/tools/traits.rs`
+- memory backends：`src/memory/traits.rs`
+- runtime adapters：`src/runtime/traits.rs`
+- peripherals：`src/peripherals/traits.rs`
 
 ## 快速入口
 

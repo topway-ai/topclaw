@@ -1,3 +1,6 @@
+/**
+ * Diagnostics page for running and inspecting doctor checks from the gateway.
+ */
 import { useState } from 'react';
 import {
   Stethoscope,

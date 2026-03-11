@@ -1,3 +1,12 @@
+//! Configuration surface for TopClaw.
+//!
+//! The config subsystem is both an internal wiring layer and a user-facing API:
+//! `config.toml`, environment-variable overrides, and generated schemas all map
+//! back to the types re-exported from this module.
+//!
+//! Most callers interact with [`Config`](schema::Config). The smaller config
+//! structs re-exported here model specific runtime areas such as providers,
+//! channels, sandboxing, memory, and observability.
 pub mod agent;
 pub mod agents_ipc;
 pub mod audit;

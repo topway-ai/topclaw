@@ -2,9 +2,27 @@
 
 Đây là trang chủ tiếng Việt của hệ thống tài liệu.
 
-Đồng bộ lần cuối: **2026-02-21**.
+Đồng bộ lần cuối: **2026-03-11**.
 
 > Lưu ý: Tên lệnh, khóa cấu hình và đường dẫn API giữ nguyên tiếng Anh. Khi có sai khác, tài liệu tiếng Anh là bản gốc.
+
+## Tổng quan dự án
+
+TopClaw là một agent runtime Rust-first kết hợp:
+
+- CLI cho onboarding, chẩn đoán và chat trực tiếp
+- agent loop có tool calling, memory và định tuyến provider
+- bộ điều hợp channel chat và gateway HTTP/WebSocket
+- tích hợp phần cứng và peripheral tùy chọn
+
+Bề mặt kiến trúc công khai quan trọng:
+
+- providers: `src/providers/traits.rs`
+- channels: `src/channels/traits.rs`
+- tools: `src/tools/traits.rs`
+- memory backends: `src/memory/traits.rs`
+- runtime adapters: `src/runtime/traits.rs`
+- peripherals: `src/peripherals/traits.rs`
 
 ## Tra cứu nhanh
 

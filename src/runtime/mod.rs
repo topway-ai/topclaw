@@ -1,3 +1,12 @@
+//! Runtime adapters for executing tools and commands in different environments.
+//!
+//! TopClaw currently ships with:
+//!
+//! - `native`: direct execution on the host
+//! - `docker`: command execution through a lightweight container boundary
+//! - `wasm`: in-process capability-limited execution for WASM modules
+//!
+//! [`create_runtime`] is the config-driven factory used by the agent builder.
 pub mod docker;
 pub mod native;
 pub mod traits;

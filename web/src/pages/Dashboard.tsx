@@ -1,3 +1,9 @@
+/**
+ * Runtime overview page.
+ *
+ * Displays the high-level runtime snapshot returned by the gateway and acts as
+ * the operator landing page after pairing.
+ */
 import { useState, useEffect } from 'react';
 import {
   Cpu,

@@ -1,3 +1,6 @@
+/**
+ * Interactive agent chat page backed by the gateway WebSocket endpoint.
+ */
 import { useState, useEffect, useRef } from 'react';
 import { Send, Bot, User, AlertCircle } from 'lucide-react';
 import type { WsMessage } from '@/types/api';

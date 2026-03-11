@@ -1,3 +1,6 @@
+/**
+ * Shared route shell for authenticated dashboard pages.
+ */
 import { Outlet } from 'react-router-dom';
 import Sidebar from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';

@@ -1,3 +1,9 @@
+/**
+ * Gateway API client helpers used by the dashboard.
+ *
+ * This module centralizes auth headers, JSON-shape normalization, and the
+ * endpoint-specific wrappers consumed by the route components.
+ */
 import type {
   StatusResponse,
   ToolSpec,

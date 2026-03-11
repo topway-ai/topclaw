@@ -1,3 +1,6 @@
+/**
+ * React hooks wrapping the dashboard's HTTP API client.
+ */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   getStatus,

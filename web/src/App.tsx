@@ -1,3 +1,11 @@
+/**
+ * Top-level dashboard application shell.
+ *
+ * Responsibilities:
+ * - gate the SPA behind TopClaw pairing/auth
+ * - own the active locale state for client-side translations
+ * - register route-level pages inside the shared layout
+ */
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect, createContext, useContext } from 'react';
 import Layout from './components/layout/Layout';
@@ -14,7 +22,7 @@ import Doctor from './pages/Doctor';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { setLocale, type Locale } from './lib/i18n';
 
-// Locale context
+// Locale context shared by the layout and individual pages.
 interface LocaleContextType {
   locale: Locale;
   setAppLocale: (locale: Locale) => void;
@@ -27,7 +35,7 @@ export const LocaleContext = createContext<LocaleContextType>({
 
 export const useLocaleContext = () => useContext(LocaleContext);
 
-// Pairing dialog component
+// Pairing flow shown when the gateway requires browser authorization.
 function PairingDialog({ onPair }: { onPair: (code: string) => Promise<void> }) {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
@@ -88,7 +96,7 @@ function AppContent() {
     setLocale(newLocale);
   };
 
-  // Listen for 401 events to force logout
+  // Force the SPA back to the pairing screen when the gateway invalidates the token.
   useEffect(() => {
     const handler = () => {
       logout();

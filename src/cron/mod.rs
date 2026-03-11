@@ -1,3 +1,9 @@
+//! Persistent scheduler and cron utilities.
+//!
+//! TopClaw stores scheduled jobs in workspace state and executes them through
+//! the same security policy used for interactive tool execution. That keeps
+//! background automation subject to the same command validation and approval
+//! rules as foreground agent work.
 use crate::config::Config;
 use crate::security::SecurityPolicy;
 use anyhow::{anyhow, bail, Result};

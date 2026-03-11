@@ -1,24 +1,36 @@
 use async_trait::async_trait;
 
-/// A message received from or sent to a channel
+/// Normalized inbound channel message.
+///
+/// Channel implementations translate platform-specific payloads into this shape
+/// before handing them to the agent loop.
 #[derive(Debug, Clone)]
 pub struct ChannelMessage {
+    /// Platform-scoped message identifier.
     pub id: String,
+    /// Sender identity as reported by the channel.
     pub sender: String,
+    /// Destination to use when replying on the same platform.
     pub reply_target: String,
+    /// Plain-text message body made available to the agent.
     pub content: String,
+    /// Canonical channel name.
     pub channel: String,
+    /// Message timestamp as a Unix epoch in seconds.
     pub timestamp: u64,
     /// Platform thread identifier (e.g. Slack `ts`, Discord thread ID).
     /// When set, replies should be posted as threaded responses.
     pub thread_ts: Option<String>,
 }
 
-/// Message to send through a channel
+/// Outbound message in channel-neutral format.
 #[derive(Debug, Clone)]
 pub struct SendMessage {
+    /// Message body to deliver.
     pub content: String,
+    /// Recipient or reply target in the channel's expected format.
     pub recipient: String,
+    /// Optional subject line for subject-aware transports such as email.
     pub subject: Option<String>,
     /// Platform thread identifier for threaded replies (e.g. Slack `thread_ts`).
     pub thread_ts: Option<String>,
@@ -56,7 +68,10 @@ impl SendMessage {
     }
 }
 
-/// Core channel trait — implement for any messaging platform
+/// Core channel trait.
+///
+/// Implementations bridge a concrete messaging platform into TopClaw's common
+/// send/listen/typing/draft-update contract.
 #[async_trait]
 pub trait Channel: Send + Sync {
     /// Human-readable channel name

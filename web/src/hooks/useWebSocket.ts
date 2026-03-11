@@ -1,3 +1,6 @@
+/**
+ * React hook for the live agent chat WebSocket connection.
+ */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { WebSocketClient, type WebSocketClientOptions } from '../lib/ws';
 import type { WsMessage } from '../types/api';

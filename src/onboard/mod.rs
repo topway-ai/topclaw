@@ -1,3 +1,8 @@
+//! Guided onboarding and repair flows.
+//!
+//! The wizard module writes first-run config, helps users authenticate with a
+//! provider, optionally repairs channel setup, and exposes model catalog
+//! refresh/list/set helpers used by the CLI.
 pub mod wizard;
 
 // Re-exported for CLI and external use

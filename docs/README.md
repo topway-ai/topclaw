@@ -4,6 +4,26 @@ Start here if you want the shortest path to the right page.
 
 Localized hubs: [简体中文](i18n/zh-CN/README.md) · [日本語](i18n/ja/README.md) · [Русский](i18n/ru/README.md) · [Français](i18n/fr/README.md) · [Tiếng Việt](i18n/vi/README.md) · [Ελληνικά](i18n/el/README.md)
 
+Last verified: **March 11, 2026**.
+
+## Project Overview
+
+TopClaw is a Rust-first agent runtime that combines:
+
+- a CLI for onboarding, diagnostics, and direct chat
+- an agent loop with tool calling, memory, and provider routing
+- chat channel adapters and an HTTP/WebSocket gateway
+- optional hardware and peripheral integrations
+
+Core public architecture surfaces:
+
+- providers: `src/providers/traits.rs`
+- channels: `src/channels/traits.rs`
+- tools: `src/tools/traits.rs`
+- memory backends: `src/memory/traits.rs`
+- runtime adapters: `src/runtime/traits.rs`
+- peripherals: `src/peripherals/traits.rs`
+
 ## Start Here
 
 1. Install and first run: [../README.md](../README.md)

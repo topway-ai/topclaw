@@ -2,9 +2,27 @@
 
 Этот файл — русскоязычный хаб в канонической структуре `docs/i18n/<locale>/`.
 
-Последняя синхронизация: **2026-02-24**.
+Последняя синхронизация: **2026-03-11**.
 
 > Примечание: команды, ключи конфигурации и API-пути сохраняются на английском.
+
+## Обзор проекта
+
+TopClaw — это Rust-first agent runtime, который объединяет:
+
+- CLI для onboarding, диагностики и прямого чата
+- agent loop с вызовом инструментов, памятью и маршрутизацией provider
+- адаптеры chat channel и HTTP/WebSocket gateway
+- опциональные интеграции с оборудованием и периферией
+
+Ключевые публичные архитектурные поверхности:
+
+- providers: `src/providers/traits.rs`
+- channels: `src/channels/traits.rs`
+- tools: `src/tools/traits.rs`
+- memory backends: `src/memory/traits.rs`
+- runtime adapters: `src/runtime/traits.rs`
+- peripherals: `src/peripherals/traits.rs`
 
 ## Быстрые ссылки
 

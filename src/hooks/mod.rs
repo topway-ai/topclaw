@@ -1,3 +1,7 @@
+//! Runtime hook system.
+//!
+//! Hooks let TopClaw run side logic around command handling and other runtime
+//! events without hard-coding those concerns into the core execution path.
 pub mod builtin;
 mod runner;
 mod traits;

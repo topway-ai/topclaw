@@ -1,3 +1,6 @@
+/**
+ * Top navigation bar for authenticated dashboard routes.
+ */
 import { useLocation } from 'react-router-dom';
 import { LogOut } from 'lucide-react';
 import { t } from '@/lib/i18n';
