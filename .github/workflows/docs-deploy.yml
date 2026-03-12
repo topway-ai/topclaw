@@ -142,9 +142,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          rm -rf .docs-built-site
           python3 ./scripts/docs/build_site.py \
             --repo-root .docs-source \
-            --output-dir site \
+            --output-dir "$GITHUB_WORKSPACE/.docs-built-site" \
             --github-source-base "https://github.com/topway-ai/topclaw/blob/${{ needs.deploy-guard.outputs.source_ref }}"
       - name: Upload preview artifact
         if: needs.deploy-guard.outputs.deploy_target == 'preview'
@@ -152,12 +153,12 @@ jobs:
         with:
           name: docs-preview
           retention-days: ${{ needs.deploy-guard.outputs.preview_retention_days }}
-          path: site
+          path: .docs-built-site
       - name: Upload Pages artifact
         if: needs.deploy-guard.outputs.deploy_target == 'production' && needs.deploy-guard.outputs.ready_to_deploy == 'true'
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: .docs-built-site
 
   deploy-pages:
     name: Deploy Docs to GitHub Pages
