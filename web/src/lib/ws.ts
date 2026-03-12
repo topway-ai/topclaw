@@ -3,6 +3,7 @@
  */
 import type { WsMessage } from '../types/api';
 import { getToken } from './auth';
+import { getWebSocketTicket } from './api';
 
 export type WsMessageHandler = (msg: WsMessage) => void;
 export type WsOpenHandler = () => void;
@@ -50,16 +51,17 @@ export class WebSocketClient {
   }
 
   /** Open the WebSocket connection. */
-  connect(): void {
+  async connect(): Promise<void> {
     this.intentionallyClosed = false;
     this.clearReconnectTimer();
 
     const token = getToken();
-    const url = `${this.baseUrl}/ws/chat`;
-    const protocols = ['topclaw.v1'];
+    let url = `${this.baseUrl}/ws/chat`;
     if (token) {
-      protocols.push(`bearer.${token}`);
+      const ticket = await getWebSocketTicket();
+      url = `${url}?ticket=${encodeURIComponent(ticket)}`;
     }
+    const protocols = ['topclaw.v1'];
 
     this.ws = new WebSocket(url, protocols);
 
@@ -119,7 +121,7 @@ export class WebSocketClient {
 
     this.reconnectTimer = setTimeout(() => {
       this.currentDelay = Math.min(this.currentDelay * 2, this.maxReconnectDelay);
-      this.connect();
+      void this.connect();
     }, this.currentDelay);
   }
 

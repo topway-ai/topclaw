@@ -24,6 +24,10 @@ const MAX_TRACKED_CLIENTS: usize = 10_000;
 const FAILED_ATTEMPT_RETENTION_SECS: u64 = 900; // 15 min
 /// Minimum interval between full sweeps of the failed-attempt map.
 const FAILED_ATTEMPT_SWEEP_INTERVAL_SECS: u64 = 300; // 5 min
+/// Lifetime of a one-time WebSocket ticket.
+const WS_TICKET_TTL_SECS: u64 = 30;
+/// Maximum number of outstanding WebSocket tickets tracked in memory.
+const MAX_WS_TICKETS: usize = 4_096;
 
 /// Per-client failed attempt state with optional absolute lockout deadline.
 #[derive(Debug, Clone, Copy)]
@@ -38,7 +42,6 @@ struct FailedAttemptState {
 /// Bearer tokens are stored as SHA-256 hashes to prevent plaintext exposure
 /// in config files. When a new token is generated, the plaintext is returned
 /// to the client once, and only the hash is retained.
-// TODO: I've just made this work with parking_lot but it should use either flume or tokio's async mutexes
 #[derive(Debug, Clone)]
 pub struct PairingGuard {
     /// Whether pairing is required at all.
@@ -49,6 +52,8 @@ pub struct PairingGuard {
     paired_tokens: Arc<Mutex<HashSet<String>>>,
     /// Brute-force protection: per-client failed attempt state + last sweep timestamp.
     failed_attempts: Arc<Mutex<(HashMap<String, FailedAttemptState>, Instant)>>,
+    /// Short-lived one-time WebSocket tickets stored as hashed tokens.
+    ws_tickets: Arc<Mutex<HashMap<String, Instant>>>,
 }
 
 impl PairingGuard {
@@ -81,6 +86,7 @@ impl PairingGuard {
             pairing_code: Arc::new(Mutex::new(code)),
             paired_tokens: Arc::new(Mutex::new(tokens)),
             failed_attempts: Arc::new(Mutex::new((HashMap::new(), Instant::now()))),
+            ws_tickets: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -184,19 +190,7 @@ impl PairingGuard {
     /// Returns `Err(lockout_seconds)` if locked out due to brute force.
     /// `client_id` identifies the client for per-client lockout accounting.
     pub async fn try_pair(&self, code: &str, client_id: &str) -> Result<Option<String>, u64> {
-        let this = self.clone();
-        let code = code.to_string();
-        let client_id = client_id.to_string();
-        // TODO: make this function the main one without spawning a task
-        let handle = tokio::task::spawn_blocking(move || this.try_pair_blocking(&code, &client_id));
-
-        match handle.await {
-            Ok(result) => result,
-            Err(err) => {
-                tracing::error!("pairing worker task failed: {err}");
-                Ok(None)
-            }
-        }
+        self.try_pair_blocking(code, client_id)
     }
 
     /// Check if a bearer token is valid (compares against stored hashes).
@@ -220,6 +214,45 @@ impl PairingGuard {
         let tokens = self.paired_tokens.lock();
         tokens.iter().cloned().collect()
     }
+
+    /// Issue a short-lived one-time WebSocket ticket for browser clients.
+    pub fn issue_ws_ticket(&self) -> String {
+        let ticket = format!("ws_{}", hex::encode(rand::random::<[u8; 32]>()));
+        let ticket_hash = hash_token(&ticket);
+        let now = Instant::now();
+        let expires_at = now + std::time::Duration::from_secs(WS_TICKET_TTL_SECS);
+        let mut tickets = self.ws_tickets.lock();
+        prune_ws_tickets(&mut tickets, now);
+
+        if tickets.len() >= MAX_WS_TICKETS {
+            let evict_key = tickets
+                .iter()
+                .min_by_key(|(_, expiry)| *expiry)
+                .map(|(key, _)| key.clone());
+            if let Some(evict_key) = evict_key {
+                tickets.remove(&evict_key);
+            }
+        }
+
+        tickets.insert(ticket_hash, expires_at);
+        ticket
+    }
+
+    /// Consume a short-lived WebSocket ticket.
+    pub fn consume_ws_ticket(&self, ticket: &str) -> bool {
+        let trimmed = ticket.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+
+        let now = Instant::now();
+        let mut tickets = self.ws_tickets.lock();
+        prune_ws_tickets(&mut tickets, now);
+        let ticket_hash = hash_token(trimmed);
+        tickets
+            .remove(&ticket_hash)
+            .is_some_and(|expiry| expiry > now)
+    }
 }
 
 /// Normalize a client identifier: trim whitespace, map empty to `"unknown"`.
@@ -237,6 +270,10 @@ fn prune_failed_attempts(map: &mut HashMap<String, FailedAttemptState>, now: Ins
     map.retain(|_, state| {
         now.duration_since(state.last_attempt).as_secs() < FAILED_ATTEMPT_RETENTION_SECS
     });
+}
+
+fn prune_ws_tickets(map: &mut HashMap<String, Instant>, now: Instant) {
+    map.retain(|_, expiry| *expiry > now);
 }
 
 /// Generate a 6-digit numeric pairing code using cryptographically secure randomness.
@@ -708,5 +745,21 @@ mod tests {
             result.is_ok(),
             "Legitimate client should not be locked out by attacker"
         );
+    }
+
+    #[test]
+    async fn ws_ticket_is_single_use() {
+        let guard = PairingGuard::new(true, &["zc_valid".into()]);
+        let ticket = guard.issue_ws_ticket();
+
+        assert!(guard.consume_ws_ticket(&ticket));
+        assert!(!guard.consume_ws_ticket(&ticket));
+    }
+
+    #[test]
+    async fn ws_ticket_rejects_empty_value() {
+        let guard = PairingGuard::new(true, &["zc_valid".into()]);
+        assert!(!guard.consume_ws_ticket(""));
+        assert!(!guard.consume_ws_ticket("   "));
     }
 }

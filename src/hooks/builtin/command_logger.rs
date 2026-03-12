@@ -1,5 +1,6 @@
 use async_trait::async_trait;
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::hooks::traits::HookHandler;
@@ -19,7 +20,7 @@ impl CommandLoggerHook {
 
     #[cfg(test)]
     pub fn entries(&self) -> Vec<String> {
-        self.log.lock().unwrap().clone()
+        self.log.lock().clone()
     }
 }
 
@@ -42,7 +43,7 @@ impl HookHandler for CommandLoggerHook {
             result.success,
         );
         tracing::info!(hook = "command-logger", "{}", entry);
-        self.log.lock().unwrap().push(entry);
+        self.log.lock().push(entry);
     }
 }
 

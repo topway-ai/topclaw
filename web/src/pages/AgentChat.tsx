@@ -197,7 +197,7 @@ export default function AgentChat() {
       }
     };
 
-    ws.connect();
+    void ws.connect();
     wsRef.current = ws;
 
     return () => {

@@ -34,6 +34,10 @@ pub fn validate_url(raw_url: &str, policy: &DomainPolicy<'_>) -> Result<String> 
 
     let host = extract_host(url, policy.scheme_policy, policy.ipv6_error_context)?;
 
+    if is_ambiguous_numeric_host(&host) {
+        anyhow::bail!("Blocked ambiguous numeric host: {host}");
+    }
+
     if is_private_or_local_host(&host) {
         anyhow::bail!("Blocked local/private host: {host}");
     }
@@ -174,6 +178,39 @@ pub fn is_private_or_local_host(host: &str) -> bool {
     }
 
     false
+}
+
+fn is_ambiguous_numeric_host(host: &str) -> bool {
+    if host.is_empty() || host.parse::<std::net::IpAddr>().is_ok() {
+        return false;
+    }
+
+    if host.chars().all(|ch| ch.is_ascii_digit()) {
+        return true;
+    }
+
+    if host
+        .strip_prefix("0x")
+        .is_some_and(|rest| !rest.is_empty() && rest.chars().all(|ch| ch.is_ascii_hexdigit()))
+    {
+        return true;
+    }
+
+    let labels: Vec<&str> = host.split('.').collect();
+    if labels.len() > 1
+        && labels
+            .iter()
+            .all(|label| !label.is_empty() && label.chars().all(|ch| ch.is_ascii_digit()))
+    {
+        return true;
+    }
+
+    labels.iter().any(|label| {
+        (label.len() > 1 && label.starts_with('0') && label.chars().all(|ch| ch.is_ascii_digit()))
+            || label.strip_prefix("0x").is_some_and(|rest| {
+                !rest.is_empty() && rest.chars().all(|ch| ch.is_ascii_hexdigit())
+            })
+    })
 }
 
 fn is_non_global_v4(v4: std::net::Ipv4Addr) -> bool {
@@ -389,6 +426,27 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("allowed_domains"));
+    }
+
+    #[test]
+    fn validate_url_rejects_ambiguous_numeric_hosts() {
+        let allowed = vec!["*".to_string()];
+        let blocked: Vec<String> = Vec::new();
+
+        for raw in [
+            "https://0177.0.0.1",
+            "https://0x7f000001",
+            "https://2130706433",
+            "https://127.000.000.001",
+        ] {
+            let err = validate_url(raw, &policy(&allowed, &blocked))
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.contains("ambiguous numeric host"),
+                "expected ambiguous numeric host rejection for {raw}, got: {err}"
+            );
+        }
     }
 
     #[test]

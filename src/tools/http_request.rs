@@ -755,8 +755,8 @@ mod tests {
 
     #[test]
     fn ssrf_alternate_notations_rejected_by_validate_url() {
-        // Even if is_private_or_local_host doesn't flag these, they
-        // fail the allowlist because they're treated as hostnames.
+        // These notations are rejected before allowlist matching because the
+        // validator treats them as ambiguous numeric hosts.
         let tool = test_tool(vec!["example.com"]);
         for notation in [
             "http://0177.0.0.1",
@@ -766,8 +766,8 @@ mod tests {
         ] {
             let err = tool.validate_url(notation).unwrap_err().to_string();
             assert!(
-                err.contains("allowed_domains"),
-                "Expected allowlist rejection for {notation}, got: {err}"
+                err.contains("ambiguous numeric host"),
+                "Expected ambiguous numeric host rejection for {notation}, got: {err}"
             );
         }
     }

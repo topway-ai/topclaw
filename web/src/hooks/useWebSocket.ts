@@ -72,7 +72,7 @@ export function useWebSocket(
 
     if (autoConnect) {
       setStatus('connecting');
-      client.connect();
+      void client.connect();
     }
 
     return () => {
@@ -84,7 +84,7 @@ export function useWebSocket(
   const connect = useCallback(() => {
     const client = getClient();
     setStatus('connecting');
-    client.connect();
+    void client.connect();
   }, [getClient]);
 
   const disconnect = useCallback(() => {

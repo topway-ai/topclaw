@@ -128,6 +128,10 @@ export function getStatus(): Promise<StatusResponse> {
   return apiFetch<StatusResponse>('/api/status');
 }
 
+export function getWebSocketTicket(): Promise<string> {
+  return apiFetch<{ ticket: string }>('/api/ws-ticket').then((data) => data.ticket);
+}
+
 export function getHealth(): Promise<HealthSnapshot> {
   return apiFetch<HealthSnapshot | { health: HealthSnapshot }>('/api/health').then((data) =>
     unwrapField(data, 'health'),

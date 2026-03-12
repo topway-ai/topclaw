@@ -18,11 +18,12 @@ use crate::providers::ChatMessage;
 use axum::{
     extract::{
         ws::{Message, WebSocket},
-        ConnectInfo, State, WebSocketUpgrade,
+        ConnectInfo, Query, State, WebSocketUpgrade,
     },
     http::{header, HeaderMap},
     response::IntoResponse,
 };
+use serde::Deserialize;
 use serde_json::json;
 use std::net::SocketAddr;
 use uuid::Uuid;
@@ -30,6 +31,11 @@ use uuid::Uuid;
 const EMPTY_WS_RESPONSE_FALLBACK: &str =
     "Tool execution completed, but the model returned no final text response. Please ask me to summarize the result.";
 const WS_CHAT_SUBPROTOCOL: &str = "topclaw.v1";
+
+#[derive(Debug, Default, Deserialize)]
+pub struct WsTicketQuery {
+    ticket: Option<String>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum WsDeltaEvent {
@@ -238,16 +244,23 @@ async fn emit_ws_delta_event(socket: &mut WebSocket, event: WsDeltaEvent) {
 pub async fn handle_ws_chat(
     State(state): State<AppState>,
     ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
+    Query(query): Query<WsTicketQuery>,
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    // Auth via Authorization header or websocket protocol token.
+    // Auth via Authorization header for non-browser clients, or a short-lived
+    // one-time ticket for browser clients.
     if super::gateway_auth_required_for_peer(&state, Some(peer_addr), &headers) {
-        let token = extract_ws_bearer_token(&headers).unwrap_or_default();
-        if !state.pairing.is_authenticated(&token) {
+        let authorized = extract_ws_bearer_token(&headers)
+            .is_some_and(|token| state.pairing.is_authenticated(&token))
+            || query
+                .ticket
+                .as_deref()
+                .is_some_and(|ticket| state.pairing.consume_ws_ticket(ticket));
+        if !authorized {
             return (
                 axum::http::StatusCode::UNAUTHORIZED,
-                "Unauthorized — provide Authorization: Bearer <token> or Sec-WebSocket-Protocol: topclaw.v1, bearer.<token>",
+                "Unauthorized — provide Authorization: Bearer <token> or request a one-time ticket from GET /api/ws-ticket",
             )
                 .into_response();
         }
@@ -464,31 +477,14 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
 }
 
 fn extract_ws_bearer_token(headers: &HeaderMap) -> Option<String> {
-    if let Some(auth_header) = headers
+    headers
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .map(str::trim)
-    {
-        if let Some(token) = auth_header.strip_prefix("Bearer ") {
-            if !token.trim().is_empty() {
-                return Some(token.trim().to_string());
-            }
-        }
-    }
-
-    let offered = headers
-        .get(header::SEC_WEBSOCKET_PROTOCOL)
-        .and_then(|value| value.to_str().ok())?;
-
-    for protocol in offered.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-        if let Some(token) = protocol.strip_prefix("bearer.") {
-            if !token.trim().is_empty() {
-                return Some(token.trim().to_string());
-            }
-        }
-    }
-
-    None
+        .and_then(|auth_header| auth_header.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .map(ToString::to_string)
 }
 
 #[cfg(test)]
@@ -504,10 +500,6 @@ mod tests {
         headers.insert(
             header::AUTHORIZATION,
             HeaderValue::from_static("Bearer from-auth-header"),
-        );
-        headers.insert(
-            header::SEC_WEBSOCKET_PROTOCOL,
-            HeaderValue::from_static("topclaw.v1, bearer.from-protocol"),
         );
 
         assert_eq!(
@@ -551,40 +543,11 @@ mod tests {
     }
 
     #[test]
-    fn extract_ws_bearer_token_reads_websocket_protocol_token() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            header::SEC_WEBSOCKET_PROTOCOL,
-            HeaderValue::from_static("topclaw.v1, bearer.protocol-token"),
-        );
-
-        assert_eq!(
-            extract_ws_bearer_token(&headers).as_deref(),
-            Some("protocol-token")
-        );
-    }
-
-    #[test]
-    fn extract_ws_bearer_token_ignores_protocol_without_bearer_value() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            header::SEC_WEBSOCKET_PROTOCOL,
-            HeaderValue::from_static("topclaw.v1"),
-        );
-
-        assert!(extract_ws_bearer_token(&headers).is_none());
-    }
-
-    #[test]
     fn extract_ws_bearer_token_rejects_empty_tokens() {
         let mut headers = HeaderMap::new();
         headers.insert(
             header::AUTHORIZATION,
             HeaderValue::from_static("Bearer    "),
-        );
-        headers.insert(
-            header::SEC_WEBSOCKET_PROTOCOL,
-            HeaderValue::from_static("topclaw.v1, bearer."),
         );
 
         assert!(extract_ws_bearer_token(&headers).is_none());

@@ -476,6 +476,21 @@ pub async fn handle_api_status(
     Json(body).into_response()
 }
 
+/// GET /api/ws-ticket — short-lived browser WebSocket ticket
+pub async fn handle_api_ws_ticket(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = require_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    Json(serde_json::json!({
+        "ticket": state.pairing.issue_ws_ticket(),
+    }))
+    .into_response()
+}
+
 /// GET /api/config — current config (api_key masked)
 pub async fn handle_api_config_get(
     State(state): State<AppState>,

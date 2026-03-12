@@ -888,6 +888,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/v1/models", get(openai_compat::handle_v1_models))
         .merge(openai_compat_routes)
         .route("/api/status", get(api::handle_api_status))
+        .route("/api/ws-ticket", get(api::handle_api_ws_ticket))
         .route("/api/config", get(api::handle_api_config_get))
         .route("/api/tools", get(api::handle_api_tools))
         .route("/api/cron", get(api::handle_api_cron_list))
