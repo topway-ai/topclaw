@@ -75,7 +75,8 @@ pub use whatsapp::WhatsAppChannel;
 pub use whatsapp_web::WhatsAppWebChannel;
 
 use crate::agent::loop_::{
-    build_shell_policy_instructions, build_tool_instructions_from_specs, lossless::LosslessContext,
+    build_shell_policy_instructions, build_tool_instructions_from_specs,
+    is_non_cli_approval_pending, lossless::LosslessContext,
     run_tool_call_loop_with_non_cli_approval_context, scrub_credentials, NonCliApprovalContext,
 };
 use crate::approval::{ApprovalManager, ApprovalResponse, PendingApprovalError};
@@ -154,6 +155,7 @@ const CHANNEL_PARALLELISM_PER_CHANNEL: usize = 4;
 const CHANNEL_MIN_IN_FLIGHT_MESSAGES: usize = 8;
 const CHANNEL_MAX_IN_FLIGHT_MESSAGES: usize = 64;
 const CHANNEL_TYPING_REFRESH_INTERVAL_SECS: u64 = 4;
+const CHANNEL_PROGRESS_HEARTBEAT_SECS: u64 = 15;
 const CHANNEL_HEALTH_HEARTBEAT_SECS: u64 = 30;
 const MODEL_CACHE_FILE: &str = "models_cache.json";
 const MODEL_CACHE_PREVIEW_LIMIT: usize = 10;
@@ -596,20 +598,22 @@ fn split_internal_progress_delta(delta: &str) -> (bool, &str) {
     }
 }
 
-fn summarize_internal_progress_delta(delta: &str) -> Option<&'static str> {
+fn summarize_internal_progress_delta(delta: &str) -> Option<String> {
     let trimmed = delta.trim();
     if trimmed.is_empty() {
         return None;
     }
 
-    if trimmed.contains("Thinking") {
-        Some("Thinking...\n")
+    if trimmed.starts_with("⏳ Still working") || trimmed.starts_with("🤔 Still thinking") {
+        Some(format!("{trimmed}\n"))
+    } else if trimmed.contains("Thinking") {
+        Some("Thinking...\n".to_string())
     } else if trimmed.starts_with('↻') || trimmed.contains("Retrying:") {
-        Some("Retrying...\n")
+        Some("Retrying...\n".to_string())
     } else if trimmed.starts_with('⏳') || trimmed.contains("tool call") {
-        Some("Working...\n")
+        Some("Working...\n".to_string())
     } else if trimmed.starts_with('✅') || trimmed.starts_with('❌') {
-        Some("Step complete...\n")
+        Some("Step complete...\n".to_string())
     } else {
         None
     }
@@ -2590,6 +2594,31 @@ fn spawn_scoped_typing_task(
     handle
 }
 
+fn spawn_progress_heartbeat_task(
+    tx: tokio::sync::mpsc::Sender<String>,
+    cancellation_token: CancellationToken,
+    started_at: Instant,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                () = cancellation_token.cancelled() => break,
+                _ = tokio::time::sleep(Duration::from_secs(CHANNEL_PROGRESS_HEARTBEAT_SECS)) => {
+                    let elapsed = started_at.elapsed().as_secs();
+                    let heartbeat = format!(
+                        "{}⏳ Still working ({}s)...\n",
+                        crate::agent::loop_::DRAFT_PROGRESS_SENTINEL,
+                        elapsed
+                    );
+                    if tx.send(heartbeat).await.is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    })
+}
+
 async fn process_channel_message(
     ctx: Arc<ChannelRuntimeContext>,
     msg: traits::ChannelMessage,
@@ -3013,7 +3042,7 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
         let suppress_internal_progress = !expose_internal_tool_details;
         Some(tokio::spawn(async move {
             let mut accumulated = String::new();
-            let mut last_sanitized_progress: Option<&'static str> = None;
+            let mut last_sanitized_progress: Option<String> = None;
             while let Some(delta) = rx.recv().await {
                 if delta == crate::agent::loop_::DRAFT_CLEAR_SENTINEL {
                     accumulated.clear();
@@ -3025,10 +3054,10 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
                     let Some(summary) = summarize_internal_progress_delta(visible_delta) else {
                         continue;
                     };
-                    if last_sanitized_progress == Some(summary) {
+                    if last_sanitized_progress.as_deref() == Some(summary.as_str()) {
                         continue;
                     }
-                    accumulated.push_str(summary);
+                    accumulated.push_str(&summary);
                     last_sanitized_progress = Some(summary);
                 } else {
                     accumulated.push_str(visible_delta);
@@ -3101,6 +3130,16 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
         )),
         _ => None,
     };
+    let progress_heartbeat_cancellation = delta_tx.as_ref().map(|_| CancellationToken::new());
+    let progress_heartbeat_task =
+        match (delta_tx.as_ref(), progress_heartbeat_cancellation.as_ref()) {
+            (Some(tx), Some(token)) => Some(spawn_progress_heartbeat_task(
+                tx.clone(),
+                token.clone(),
+                started_at,
+            )),
+            _ => None,
+        };
 
     // Record history length before tool loop so we can extract tool context after.
     let history_len_before_tools = history.len();
@@ -3190,6 +3229,13 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
 
     drop(approval_prompt_tx);
     if let Some(handle) = approval_prompt_task {
+        log_worker_join_result(handle.await);
+    }
+
+    if let Some(token) = progress_heartbeat_cancellation.as_ref() {
+        token.cancel();
+    }
+    if let Some(handle) = progress_heartbeat_task {
         log_worker_join_result(handle.await);
     }
 
@@ -3488,6 +3534,37 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
                 {
                     if let Err(err) = channel.cancel_draft(&msg.reply_target, draft_id).await {
                         tracing::debug!("Failed to cancel draft on {}: {err}", channel.name());
+                    }
+                }
+            } else if let Some(pending) = is_non_cli_approval_pending(&e) {
+                runtime_trace::record_event(
+                    "channel_message_approval_pending",
+                    Some(msg.channel.as_str()),
+                    Some(route.provider.as_str()),
+                    Some(route.model.as_str()),
+                    None,
+                    Some(false),
+                    Some("paused awaiting non-cli approval"),
+                    serde_json::json!({
+                        "sender": msg.sender,
+                        "elapsed_ms": started_at.elapsed().as_millis(),
+                        "request_id": pending.request_id,
+                        "tool_name": pending.tool_name,
+                    }),
+                );
+                append_sender_turn(
+                    ctx.as_ref(),
+                    &history_key,
+                    ChatMessage::assistant(
+                        "[Task paused awaiting approval — confirm the pending request, then resend the message]",
+                    ),
+                );
+                let _ = lossless_context.record_raw_message(&ChatMessage::assistant(
+                    "[Task paused awaiting approval — confirm the pending request, then resend the message]",
+                ));
+                if let Some(channel) = target_channel.as_ref() {
+                    if let Some(ref draft_id) = draft_message_id {
+                        let _ = channel.cancel_draft(&msg.reply_target, draft_id).await;
                     }
                 }
             } else if is_context_window_overflow_error(&e) {
@@ -10034,25 +10111,33 @@ Done reminder set for 1:38 AM."#;
     fn summarize_internal_progress_delta_sanitizes_internal_updates() {
         assert_eq!(
             summarize_internal_progress_delta("🤔 Thinking...\n"),
-            Some("Thinking...\n")
+            Some("Thinking...\n".to_string())
         );
         assert_eq!(
             summarize_internal_progress_delta("⏳ shell: ls -la\n"),
-            Some("Working...\n")
+            Some("Working...\n".to_string())
         );
         assert_eq!(
             summarize_internal_progress_delta("💬 Got 1 tool call(s) (2s)\n"),
-            Some("Working...\n")
+            Some("Working...\n".to_string())
         );
         assert_eq!(
             summarize_internal_progress_delta("✅ shell (1s)\n"),
-            Some("Step complete...\n")
+            Some("Step complete...\n".to_string())
         );
         assert_eq!(
             summarize_internal_progress_delta("↻ Retrying: response implied action\n"),
-            Some("Retrying...\n")
+            Some("Retrying...\n".to_string())
         );
         assert_eq!(summarize_internal_progress_delta("plain text"), None);
+    }
+
+    #[test]
+    fn summarize_internal_progress_delta_preserves_visible_heartbeat_updates() {
+        assert_eq!(
+            summarize_internal_progress_delta("⏳ Still working (15s)...\n"),
+            Some("⏳ Still working (15s)...\n".to_string())
+        );
     }
 
     #[test]
