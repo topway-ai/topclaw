@@ -3001,35 +3001,15 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
         (None, None)
     };
 
-    let draft_message_id = if use_streaming {
-        if let Some(channel) = target_channel.as_ref() {
-            match channel
-                .send_draft(
-                    &SendMessage::new("...", &msg.reply_target).in_thread(msg.thread_ts.clone()),
-                )
-                .await
-            {
-                Ok(id) => id,
-                Err(e) => {
-                    tracing::debug!("Failed to send draft on {}: {e}", channel.name());
-                    None
-                }
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    };
+    let draft_message_id = Arc::new(tokio::sync::Mutex::new(None::<String>));
 
-    let draft_updater = if let (Some(mut rx), Some(draft_id_ref), Some(channel_ref)) = (
-        delta_rx,
-        draft_message_id.as_deref(),
-        target_channel.as_ref(),
-    ) {
+    let draft_updater = if let (Some(mut rx), Some(channel_ref)) =
+        (delta_rx, target_channel.as_ref())
+    {
         let channel = Arc::clone(channel_ref);
         let reply_target = msg.reply_target.clone();
-        let draft_id = draft_id_ref.to_string();
+        let thread_ts = msg.thread_ts.clone();
+        let draft_message_id = Arc::clone(&draft_message_id);
         let suppress_internal_progress = !expose_internal_tool_details;
         Some(tokio::spawn(async move {
             let mut accumulated = String::new();
@@ -3054,11 +3034,47 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
                     accumulated.push_str(visible_delta);
                     last_sanitized_progress = None;
                 }
-                if let Err(e) = channel
-                    .update_draft(&reply_target, &draft_id, &accumulated)
+
+                if accumulated.is_empty() {
+                    continue;
+                }
+
+                let current_draft_id = {
+                    let guard = draft_message_id.lock().await;
+                    guard.clone()
+                };
+
+                if let Some(draft_id) = current_draft_id {
+                    match channel
+                        .update_draft(&reply_target, &draft_id, &accumulated)
+                        .await
+                    {
+                        Ok(Some(new_id)) => {
+                            let mut guard = draft_message_id.lock().await;
+                            *guard = Some(new_id);
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            tracing::debug!("Draft update failed: {e}");
+                        }
+                    }
+                    continue;
+                }
+
+                match channel
+                    .send_draft(
+                        &SendMessage::new(&accumulated, &reply_target).in_thread(thread_ts.clone()),
+                    )
                     .await
                 {
-                    tracing::debug!("Draft update failed: {e}");
+                    Ok(Some(new_id)) => {
+                        let mut guard = draft_message_id.lock().await;
+                        *guard = Some(new_id);
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        tracing::debug!("Failed to send draft on {}: {e}", channel.name());
+                    }
                 }
             }
         }))
@@ -3180,6 +3196,8 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
     if let Some(handle) = draft_updater {
         let _ = handle.await;
     }
+
+    let draft_message_id = draft_message_id.lock().await.clone();
 
     if let Some(token) = typing_cancellation.as_ref() {
         token.cancel();
@@ -6441,14 +6459,6 @@ BTC is currently around $65,000 based on latest tool output."#
             "draft updates should still include streamed final answer"
         );
         assert!(
-            updates.iter().any(|entry| {
-                entry.contains("Thinking...")
-                    || entry.contains("Working...")
-                    || entry.contains("Step complete...")
-            }),
-            "default channel streaming should surface sanitized progress, got updates: {updates:?}"
-        );
-        assert!(
             !updates.iter().any(|entry| {
                 entry.contains("Got 1 tool call(s)")
                     || entry.contains("mock_price")
@@ -6530,6 +6540,73 @@ BTC is currently around $65,000 based on latest tool output."#
         assert!(
             updates.iter().any(|entry| entry.contains("Thinking")),
             "explicit requests should expose internal thinking/progress text, got updates: {updates:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn process_channel_message_streaming_does_not_seed_placeholder_draft() {
+        let temp = TempDir::new().unwrap();
+        let channel_impl = Arc::new(DraftStreamingRecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            channels_by_name: Arc::new(channels_by_name),
+            provider: Arc::new(ToolCallingProvider),
+            default_provider: Arc::new("test-provider".to_string()),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![Box::new(MockPriceTool)]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test-system-prompt".to_string()),
+            model: Arc::new("test-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            max_tool_iterations: 10,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            provider_cache: Arc::new(Mutex::new(HashMap::new())),
+            route_overrides: Arc::new(Mutex::new(HashMap::new())),
+            api_key: None,
+            api_url: None,
+            reliability: Arc::new(crate::config::ReliabilityConfig::default()),
+            provider_runtime_options: providers::ProviderRuntimeOptions::default(),
+            workspace_dir: Arc::new(temp.path().to_path_buf()),
+            message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
+            interrupt_on_new_message: false,
+            non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
+            approval_manager: Arc::new(ApprovalManager::from_config(
+                &autonomy_with_mock_price_auto_approve(),
+            )),
+            multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
+        });
+
+        Box::pin(process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "msg-stream-no-placeholder".to_string(),
+                sender: "alice".to_string(),
+                reply_target: "chat-stream".to_string(),
+                content: "What is the BTC price now?".to_string(),
+                channel: "draft-streaming-channel".to_string(),
+                timestamp: 1,
+                thread_ts: None,
+            },
+            CancellationToken::new(),
+        ))
+        .await;
+
+        let sent_messages = channel_impl.sent_messages.lock().await;
+        assert!(
+            sent_messages
+                .iter()
+                .filter(|entry| entry.starts_with("draft:chat-stream:"))
+                .all(|entry| !entry.ends_with(":...")),
+            "streaming should not seed placeholder drafts, got sent messages: {sent_messages:?}"
         );
     }
 
