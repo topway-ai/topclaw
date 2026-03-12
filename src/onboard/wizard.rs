@@ -6460,11 +6460,16 @@ fn print_summary(config: &Config, service_outcome: &BackgroundServiceOutcome) {
                 println!(
                     "    {} {}:",
                     style(format!("{step}.")).cyan().bold(),
-                    style("Channels are already running in the background")
-                        .white()
-                        .bold()
+                    style("Talk to your configured channel bot").white().bold()
                 );
-                println!("       {}", style("topclaw service status").yellow());
+                println!(
+                    "       {}",
+                    style("Send a message to TopClaw in your configured channel.").yellow()
+                );
+                println!(
+                    "       {}",
+                    style("Use `topclaw service status` if the bot does not reply.").dim()
+                );
                 println!();
                 step += 1;
             }
@@ -6494,16 +6499,29 @@ fn print_summary(config: &Config, service_outcome: &BackgroundServiceOutcome) {
         step += 1;
     }
 
-    println!(
-        "    {} Send a quick message:",
-        style(format!("{step}.")).cyan().bold()
-    );
-    println!(
-        "       {}",
-        style("topclaw agent -m \"Hello, TopClaw!\"").yellow()
-    );
-    println!();
-    step += 1;
+    if has_channels {
+        println!(
+            "    {} Send a quick CLI message too:",
+            style(format!("{step}.")).cyan().bold()
+        );
+        println!(
+            "       {}",
+            style("topclaw agent -m \"Hello, TopClaw!\"").yellow()
+        );
+        println!();
+        step += 1;
+    } else {
+        println!(
+            "    {} Send a quick message:",
+            style(format!("{step}.")).cyan().bold()
+        );
+        println!(
+            "       {}",
+            style("topclaw agent -m \"Hello, TopClaw!\"").yellow()
+        );
+        println!();
+        step += 1;
+    }
 
     println!(
         "    {} Start interactive CLI mode:",

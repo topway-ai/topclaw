@@ -1747,6 +1747,7 @@ cat <<'DONE'
 ✅ Bootstrap complete.
 
 Next steps:
+  If you configured a channel, send TopClaw a message there first.
   topclaw status
   topclaw agent -m "Hello, TopClaw!"
   topclaw gateway
