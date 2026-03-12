@@ -100,7 +100,7 @@ jobs:
               run: ./scripts/ci/ensure_cc.sh
 
             - name: Cache Cargo dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v3
+              uses: Swatinem/rust-cache@c676846f29d98ff6b0106d3608c7ffd4048af17b # v3
               with:
                   prefix-key: ci-cd-security-build
                   cache-bin: false
@@ -150,7 +150,7 @@ jobs:
               run: ./scripts/ci/ensure_cc.sh
 
             - name: Cache Cargo dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v3
+              uses: Swatinem/rust-cache@c676846f29d98ff6b0106d3608c7ffd4048af17b # v3
               with:
                   prefix-key: ci-cd-security-security
                   cache-bin: false
@@ -217,7 +217,7 @@ jobs:
                   components: llvm-tools-preview
 
             - name: Cache Cargo dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v3
+              uses: Swatinem/rust-cache@c676846f29d98ff6b0106d3608c7ffd4048af17b # v3
               with:
                   prefix-key: ci-cd-security-fuzz
                   cache-bin: false
