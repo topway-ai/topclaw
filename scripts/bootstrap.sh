@@ -444,6 +444,14 @@ guided_input_stream() {
   return 1
 }
 
+has_interactive_terminal() {
+  if [[ ! -t 1 ]]; then
+    return 1
+  fi
+
+  guided_input_stream >/dev/null
+}
+
 guided_read() {
   local __target_var="$1"
   local __prompt="$2"
@@ -1522,7 +1530,7 @@ else
   fi
 fi
 
-if [[ "$DOCKER_MODE" == false && "$RUN_ONBOARD" == false && -t 0 && -t 1 ]]; then
+if [[ "$DOCKER_MODE" == false && "$RUN_ONBOARD" == false ]] && has_interactive_terminal; then
   RUN_ONBOARD=true
   if [[ -z "$API_KEY" ]]; then
     INTERACTIVE_ONBOARD=true
@@ -1727,7 +1735,11 @@ if [[ "$RUN_ONBOARD" == true ]]; then
 
   if [[ "$INTERACTIVE_ONBOARD" == true ]]; then
     info "Running interactive onboarding"
-    "$TOPCLAW_BIN" bootstrap --interactive
+    if input_source="$(guided_input_stream)"; then
+      "$TOPCLAW_BIN" bootstrap --interactive <"$input_source"
+    else
+      "$TOPCLAW_BIN" bootstrap --interactive
+    fi
   else
     if [[ -z "$API_KEY" ]]; then
       cat <<'MSG'
