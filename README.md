@@ -18,28 +18,18 @@ existing trait and registering the implementation in the matching factory module
 
 ## Quick Start
 
-If you are on macOS, install Apple developer tools first:
+Use the supported one-line installer for your shell:
 
-```bash
-xcode-select --install
-```
-
-Then use the supported one-line installer for your shell:
+Linux / macOS:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/topway-ai/topclaw/main/scripts/bootstrap.sh | bash
-topclaw status
-topclaw status --diagnose
-topclaw agent -m "Hello, TopClaw!"
 ```
 
 Windows PowerShell:
 
 ```powershell
 iwr -useb https://raw.githubusercontent.com/topway-ai/topclaw/main/bootstrap.ps1 | iex
-topclaw status
-topclaw status --diagnose
-topclaw agent -m "Hello, TopClaw!"
 ```
 
 These hosted installers prefer the latest compatible release asset first, clone and build from source only if they need to fall back, and then start onboarding automatically.
