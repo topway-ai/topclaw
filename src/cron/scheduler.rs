@@ -337,7 +337,7 @@ pub(crate) async fn deliver_announcement(
             let channel = TelegramChannel::new(
                 tg.bot_token.clone(),
                 tg.allowed_users.clone(),
-                tg.mention_only,
+                tg.effective_group_reply_mode().requires_mention(),
             )
             .with_workspace_dir(config.workspace_dir.clone());
             channel.send(&SendMessage::new(output, target)).await?;
@@ -353,7 +353,7 @@ pub(crate) async fn deliver_announcement(
                 dc.guild_id.clone(),
                 dc.allowed_users.clone(),
                 dc.listen_to_bots,
-                dc.mention_only,
+                dc.effective_group_reply_mode().requires_mention(),
             )
             .with_workspace_dir(config.workspace_dir.clone());
             channel.send(&SendMessage::new(output, target)).await?;
@@ -383,7 +383,7 @@ pub(crate) async fn deliver_announcement(
                 mm.channel_id.clone(),
                 mm.allowed_users.clone(),
                 mm.thread_replies.unwrap_or(true),
-                mm.mention_only.unwrap_or(false),
+                mm.effective_group_reply_mode().requires_mention(),
             );
             channel.send(&SendMessage::new(output, target)).await?;
         }

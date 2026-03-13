@@ -664,7 +664,6 @@ mod tests {
             guild_id: None,
             allowed_users: vec!["*".into()],
             listen_to_bots: false,
-            mention_only: false,
             group_reply: None,
         });
 

@@ -180,7 +180,6 @@ mod tests {
             stream_mode: StreamMode::default(),
             draft_update_interval_ms: 500,
             interrupt_on_new_message: false,
-            mention_only: false,
             group_reply: None,
             base_url: None,
         };
@@ -190,7 +189,6 @@ mod tests {
             guild_id: Some("123".into()),
             allowed_users: vec![],
             listen_to_bots: false,
-            mention_only: false,
             group_reply: None,
         };
 
@@ -200,7 +198,6 @@ mod tests {
             encrypt_key: None,
             verification_token: None,
             allowed_users: vec![],
-            mention_only: false,
             group_reply: None,
             use_feishu: false,
             receive_mode: crate::config::schema::LarkReceiveMode::Websocket,

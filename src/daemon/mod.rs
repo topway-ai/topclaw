@@ -524,7 +524,6 @@ mod tests {
             stream_mode: crate::config::StreamMode::default(),
             draft_update_interval_ms: 500,
             interrupt_on_new_message: false,
-            mention_only: false,
             group_reply: None,
             base_url: None,
         });
@@ -551,7 +550,6 @@ mod tests {
             channel_id: Some("channel-id".into()),
             allowed_users: vec!["*".into()],
             thread_replies: Some(true),
-            mention_only: Some(false),
             group_reply: None,
         });
         assert!(has_supervised_channels(&config));
@@ -641,7 +639,6 @@ mod tests {
             stream_mode: crate::config::StreamMode::default(),
             draft_update_interval_ms: 500,
             interrupt_on_new_message: false,
-            mention_only: false,
             group_reply: None,
             base_url: None,
         });

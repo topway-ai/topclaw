@@ -10761,7 +10761,6 @@ BTC is currently around $65,000 based on latest tool output."#;
             channel_id: Some("channel-1".to_string()),
             allowed_users: vec![],
             thread_replies: Some(true),
-            mention_only: Some(false),
             group_reply: None,
         });
 

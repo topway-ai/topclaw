@@ -16,7 +16,7 @@ Runtime resolution order is:
 
 1. Explicit credential from config/CLI
 2. Provider-specific env var(s)
-3. Generic fallback env vars: `TOPCLAW_API_KEY` then `API_KEY`
+3. Generic fallback env var: `TOPCLAW_API_KEY`
 
 For resilient fallback chains (`reliability.fallback_providers`), each fallback
 provider resolves credentials independently. The primary provider's explicit
@@ -55,7 +55,7 @@ credential is not reused for fallback providers.
 | `novita` | — | No | `NOVITA_API_KEY` |
 | `perplexity` | — | No | `PERPLEXITY_API_KEY` |
 | `cohere` | — | No | `COHERE_API_KEY` |
-| `copilot` | `github-copilot` | No | (use config/`API_KEY` fallback with GitHub token) |
+| `copilot` | `github-copilot` | No | (use config or `TOPCLAW_API_KEY` with GitHub token) |
 | `lmstudio` | `lm-studio` | Yes | (optional; local by default) |
 | `llamacpp` | `llama.cpp` | Yes | `LLAMACPP_API_KEY` (optional; only if server auth is enabled) |
 | `sglang` | — | Yes | `SGLANG_API_KEY` (optional) |
@@ -76,7 +76,7 @@ default_model = "qwen2.5-coder:7b"
 ```
 
 - Authentication:
-  - Optional. If your LM Studio server enforces auth, set `api_key` (or `API_KEY`/`TOPCLAW_API_KEY`).
+  - Optional. If your LM Studio server enforces auth, set `api_key` (or `TOPCLAW_API_KEY`).
   - If no key is set, TopClaw uses an internal placeholder token for compatibility with OpenAI-style auth headers.
 
 ### Vercel AI Gateway Notes

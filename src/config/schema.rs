@@ -104,7 +104,7 @@ pub struct Config {
     /// Path to config.toml - computed from home, not serialized
     #[serde(skip)]
     pub config_path: PathBuf,
-    /// API key for the selected provider. Overridden by `TOPCLAW_API_KEY` or `API_KEY` env vars.
+    /// API key for the selected provider. Overridden by `TOPCLAW_API_KEY`.
     pub api_key: Option<String>,
     /// Base URL override for provider API (e.g. "http://10.0.0.1:11434" for remote Ollama)
     pub api_url: Option<String>,
@@ -850,8 +850,6 @@ impl GroupReplyMode {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct GroupReplyConfig {
     /// Optional explicit trigger mode.
-    ///
-    /// If omitted, channel-specific legacy behavior is used for compatibility.
     #[serde(default)]
     pub mode: Option<GroupReplyMode>,
     /// Sender IDs that always trigger group replies.
@@ -864,18 +862,10 @@ pub struct GroupReplyConfig {
 
 fn resolve_group_reply_mode(
     group_reply: Option<&GroupReplyConfig>,
-    legacy_mention_only: Option<bool>,
     default_mode: GroupReplyMode,
 ) -> GroupReplyMode {
     if let Some(mode) = group_reply.and_then(|cfg| cfg.mode) {
         return mode;
-    }
-    if let Some(mention_only) = legacy_mention_only {
-        return if mention_only {
-            GroupReplyMode::MentionOnly
-        } else {
-            GroupReplyMode::AllMessages
-        };
     }
     default_mode
 }
@@ -903,10 +893,6 @@ pub struct TelegramConfig {
     /// cancels the in-flight request and starts a fresh response with preserved history.
     #[serde(default)]
     pub interrupt_on_new_message: bool,
-    /// When true, only respond to messages that @-mention the bot in groups.
-    /// Direct messages are always processed.
-    #[serde(default)]
-    pub mention_only: bool,
     /// Group-chat trigger controls.
     #[serde(default)]
     pub group_reply: Option<GroupReplyConfig>,
@@ -929,11 +915,7 @@ impl ChannelConfig for TelegramConfig {
 impl TelegramConfig {
     #[must_use]
     pub fn effective_group_reply_mode(&self) -> GroupReplyMode {
-        resolve_group_reply_mode(
-            self.group_reply.as_ref(),
-            Some(self.mention_only),
-            GroupReplyMode::AllMessages,
-        )
+        resolve_group_reply_mode(self.group_reply.as_ref(), GroupReplyMode::AllMessages)
     }
 
     #[must_use]
@@ -956,10 +938,6 @@ pub struct DiscordConfig {
     /// The bot still ignores its own messages to prevent feedback loops.
     #[serde(default)]
     pub listen_to_bots: bool,
-    /// When true, only respond to messages that @-mention the bot.
-    /// Other messages in the guild are silently ignored.
-    #[serde(default)]
-    pub mention_only: bool,
     /// Group-chat trigger controls.
     #[serde(default)]
     pub group_reply: Option<GroupReplyConfig>,
@@ -977,11 +955,7 @@ impl ChannelConfig for DiscordConfig {
 impl DiscordConfig {
     #[must_use]
     pub fn effective_group_reply_mode(&self) -> GroupReplyMode {
-        resolve_group_reply_mode(
-            self.group_reply.as_ref(),
-            Some(self.mention_only),
-            GroupReplyMode::AllMessages,
-        )
+        resolve_group_reply_mode(self.group_reply.as_ref(), GroupReplyMode::AllMessages)
     }
 
     #[must_use]
@@ -1020,7 +994,7 @@ impl ChannelConfig for SlackConfig {
 impl SlackConfig {
     #[must_use]
     pub fn effective_group_reply_mode(&self) -> GroupReplyMode {
-        resolve_group_reply_mode(self.group_reply.as_ref(), None, GroupReplyMode::AllMessages)
+        resolve_group_reply_mode(self.group_reply.as_ref(), GroupReplyMode::AllMessages)
     }
 
     #[must_use]
@@ -1045,10 +1019,6 @@ pub struct MattermostConfig {
     /// When false, replies go to the channel root.
     #[serde(default)]
     pub thread_replies: Option<bool>,
-    /// When true, only respond to messages that @-mention the bot.
-    /// Other messages in the channel are silently ignored.
-    #[serde(default)]
-    pub mention_only: Option<bool>,
     /// Group-chat trigger controls.
     #[serde(default)]
     pub group_reply: Option<GroupReplyConfig>,
@@ -1066,11 +1036,7 @@ impl ChannelConfig for MattermostConfig {
 impl MattermostConfig {
     #[must_use]
     pub fn effective_group_reply_mode(&self) -> GroupReplyMode {
-        resolve_group_reply_mode(
-            self.group_reply.as_ref(),
-            Some(self.mention_only.unwrap_or(false)),
-            GroupReplyMode::AllMessages,
-        )
+        resolve_group_reply_mode(self.group_reply.as_ref(), GroupReplyMode::AllMessages)
     }
 
     #[must_use]
@@ -1411,10 +1377,6 @@ pub struct LarkConfig {
     /// Allowed user IDs or union IDs (empty = deny all, "*" = allow all)
     #[serde(default)]
     pub allowed_users: Vec<String>,
-    /// When true, only respond to messages that @-mention the bot in groups.
-    /// Direct messages are always processed.
-    #[serde(default)]
-    pub mention_only: bool,
     /// Group-chat trigger controls.
     #[serde(default)]
     pub group_reply: Option<GroupReplyConfig>,
@@ -1448,11 +1410,7 @@ impl ChannelConfig for LarkConfig {
 impl LarkConfig {
     #[must_use]
     pub fn effective_group_reply_mode(&self) -> GroupReplyMode {
-        resolve_group_reply_mode(
-            self.group_reply.as_ref(),
-            Some(self.mention_only),
-            GroupReplyMode::AllMessages,
-        )
+        resolve_group_reply_mode(self.group_reply.as_ref(), GroupReplyMode::AllMessages)
     }
 
     #[must_use]
@@ -1507,7 +1465,7 @@ impl ChannelConfig for FeishuConfig {
 impl FeishuConfig {
     #[must_use]
     pub fn effective_group_reply_mode(&self) -> GroupReplyMode {
-        resolve_group_reply_mode(self.group_reply.as_ref(), None, GroupReplyMode::AllMessages)
+        resolve_group_reply_mode(self.group_reply.as_ref(), GroupReplyMode::AllMessages)
     }
 
     #[must_use]
@@ -2729,7 +2687,7 @@ fn has_ollama_cloud_credential(config_api_key: Option<&str>) -> bool {
         return true;
     }
 
-    ["OLLAMA_API_KEY", "TOPCLAW_API_KEY", "API_KEY"]
+    ["OLLAMA_API_KEY", "TOPCLAW_API_KEY"]
         .iter()
         .any(|name| {
             std::env::var(name)
@@ -3348,8 +3306,8 @@ impl Config {
 
     /// Apply environment variable overrides to config
     pub fn apply_env_overrides(&mut self) {
-        // API Key: TOPCLAW_API_KEY or API_KEY (generic)
-        if let Ok(key) = std::env::var("TOPCLAW_API_KEY").or_else(|_| std::env::var("API_KEY")) {
+        // API Key: TOPCLAW_API_KEY
+        if let Ok(key) = std::env::var("TOPCLAW_API_KEY") {
             if !key.is_empty() {
                 self.api_key = Some(key);
             }
@@ -3372,25 +3330,15 @@ impl Config {
             }
         }
 
-        // Provider override precedence:
-        // 1) TOPCLAW_PROVIDER always wins when set.
-        // 2) Legacy PROVIDER is honored only when config still uses default provider.
+        // Provider override: TOPCLAW_PROVIDER
         if let Ok(provider) = std::env::var("TOPCLAW_PROVIDER") {
             if !provider.is_empty() {
                 self.default_provider = Some(provider);
             }
-        } else if let Ok(provider) = std::env::var("PROVIDER") {
-            let should_apply_legacy_provider =
-                self.default_provider.as_deref().map_or(true, |configured| {
-                    configured.trim().eq_ignore_ascii_case("openrouter")
-                });
-            if should_apply_legacy_provider && !provider.is_empty() {
-                self.default_provider = Some(provider);
-            }
         }
 
-        // Model: TOPCLAW_MODEL or MODEL
-        if let Ok(model) = std::env::var("TOPCLAW_MODEL").or_else(|_| std::env::var("MODEL")) {
+        // Model override: TOPCLAW_MODEL
+        if let Ok(model) = std::env::var("TOPCLAW_MODEL") {
             if !model.is_empty() {
                 self.default_model = Some(model);
             }
@@ -3498,10 +3446,8 @@ impl Config {
             }
         }
 
-        // Reasoning override: TOPCLAW_REASONING_ENABLED or REASONING_ENABLED
-        if let Ok(flag) = std::env::var("TOPCLAW_REASONING_ENABLED")
-            .or_else(|_| std::env::var("REASONING_ENABLED"))
-        {
+        // Reasoning override: TOPCLAW_REASONING_ENABLED
+        if let Ok(flag) = std::env::var("TOPCLAW_REASONING_ENABLED") {
             let normalized = flag.trim().to_ascii_lowercase();
             match normalized.as_str() {
                 "1" | "true" | "yes" | "on" => self.runtime.reasoning_enabled = Some(true),
@@ -3510,10 +3456,8 @@ impl Config {
             }
         }
 
-        // Vision support override: TOPCLAW_MODEL_SUPPORT_VISION or MODEL_SUPPORT_VISION
-        if let Ok(flag) = std::env::var("TOPCLAW_MODEL_SUPPORT_VISION")
-            .or_else(|_| std::env::var("MODEL_SUPPORT_VISION"))
-        {
+        // Vision support override: TOPCLAW_MODEL_SUPPORT_VISION
+        if let Ok(flag) = std::env::var("TOPCLAW_MODEL_SUPPORT_VISION") {
             let normalized = flag.trim().to_ascii_lowercase();
             match normalized.as_str() {
                 "1" | "true" | "yes" | "on" => self.model_support_vision = Some(true),
@@ -3522,37 +3466,29 @@ impl Config {
             }
         }
 
-        // Web search enabled: TOPCLAW_WEB_SEARCH_ENABLED or WEB_SEARCH_ENABLED
-        if let Ok(enabled) = std::env::var("TOPCLAW_WEB_SEARCH_ENABLED")
-            .or_else(|_| std::env::var("WEB_SEARCH_ENABLED"))
-        {
+        // Web search enabled: TOPCLAW_WEB_SEARCH_ENABLED
+        if let Ok(enabled) = std::env::var("TOPCLAW_WEB_SEARCH_ENABLED") {
             self.web_search.enabled = enabled == "1" || enabled.eq_ignore_ascii_case("true");
         }
 
-        // Web search provider: TOPCLAW_WEB_SEARCH_PROVIDER or WEB_SEARCH_PROVIDER
-        if let Ok(provider) = std::env::var("TOPCLAW_WEB_SEARCH_PROVIDER")
-            .or_else(|_| std::env::var("WEB_SEARCH_PROVIDER"))
-        {
+        // Web search provider: TOPCLAW_WEB_SEARCH_PROVIDER
+        if let Ok(provider) = std::env::var("TOPCLAW_WEB_SEARCH_PROVIDER") {
             let provider = provider.trim();
             if !provider.is_empty() {
                 self.web_search.provider = provider.to_string();
             }
         }
 
-        // Brave API key: TOPCLAW_BRAVE_API_KEY or BRAVE_API_KEY
-        if let Ok(api_key) =
-            std::env::var("TOPCLAW_BRAVE_API_KEY").or_else(|_| std::env::var("BRAVE_API_KEY"))
-        {
+        // Brave API key: TOPCLAW_BRAVE_API_KEY
+        if let Ok(api_key) = std::env::var("TOPCLAW_BRAVE_API_KEY") {
             let api_key = api_key.trim();
             if !api_key.is_empty() {
                 self.web_search.brave_api_key = Some(api_key.to_string());
             }
         }
 
-        // Web search max results: TOPCLAW_WEB_SEARCH_MAX_RESULTS or WEB_SEARCH_MAX_RESULTS
-        if let Ok(max_results) = std::env::var("TOPCLAW_WEB_SEARCH_MAX_RESULTS")
-            .or_else(|_| std::env::var("WEB_SEARCH_MAX_RESULTS"))
-        {
+        // Web search max results: TOPCLAW_WEB_SEARCH_MAX_RESULTS
+        if let Ok(max_results) = std::env::var("TOPCLAW_WEB_SEARCH_MAX_RESULTS") {
             if let Ok(max_results) = max_results.parse::<usize>() {
                 if (1..=10).contains(&max_results) {
                     self.web_search.max_results = max_results;
@@ -3560,10 +3496,8 @@ impl Config {
             }
         }
 
-        // Web search timeout: TOPCLAW_WEB_SEARCH_TIMEOUT_SECS or WEB_SEARCH_TIMEOUT_SECS
-        if let Ok(timeout_secs) = std::env::var("TOPCLAW_WEB_SEARCH_TIMEOUT_SECS")
-            .or_else(|_| std::env::var("WEB_SEARCH_TIMEOUT_SECS"))
-        {
+        // Web search timeout: TOPCLAW_WEB_SEARCH_TIMEOUT_SECS
+        if let Ok(timeout_secs) = std::env::var("TOPCLAW_WEB_SEARCH_TIMEOUT_SECS") {
             if let Ok(timeout_secs) = timeout_secs.parse::<u64>() {
                 if timeout_secs > 0 {
                     self.web_search.timeout_secs = timeout_secs;
@@ -3926,7 +3860,6 @@ mod tests {
             stream_mode: StreamMode::Off,
             draft_update_interval_ms: 500,
             interrupt_on_new_message: false,
-            mention_only: false,
             group_reply: None,
             base_url: None,
         });
@@ -4268,7 +4201,6 @@ default_temperature = 0.7
                     stream_mode: StreamMode::default(),
                     draft_update_interval_ms: default_draft_update_interval_ms(),
                     interrupt_on_new_message: false,
-                    mention_only: false,
                     group_reply: None,
                     base_url: None,
                 }),
@@ -4701,7 +4633,6 @@ tool_dispatcher = "xml"
             stream_mode: StreamMode::Off,
             draft_update_interval_ms: 500,
             interrupt_on_new_message: false,
-            mention_only: false,
             group_reply: None,
             base_url: None,
         });
@@ -4871,7 +4802,6 @@ tool_dispatcher = "xml"
             stream_mode: StreamMode::Partial,
             draft_update_interval_ms: 500,
             interrupt_on_new_message: true,
-            mention_only: false,
             group_reply: None,
             base_url: None,
         };
@@ -4896,7 +4826,6 @@ tool_dispatcher = "xml"
             stream_mode: StreamMode::Off,
             draft_update_interval_ms: 500,
             interrupt_on_new_message: false,
-            mention_only: false,
             group_reply: None,
             base_url: None,
         });
@@ -4921,7 +4850,6 @@ tool_dispatcher = "xml"
             stream_mode: StreamMode::Off,
             draft_update_interval_ms: 500,
             interrupt_on_new_message: false,
-            mention_only: false,
             group_reply: None,
             base_url: None,
         });
@@ -4946,7 +4874,6 @@ tool_dispatcher = "xml"
             stream_mode: StreamMode::Off,
             draft_update_interval_ms: 500,
             interrupt_on_new_message: false,
-            mention_only: false,
             group_reply: None,
             base_url: None,
         });
@@ -4967,7 +4894,6 @@ tool_dispatcher = "xml"
             stream_mode: StreamMode::Off,
             draft_update_interval_ms: 500,
             interrupt_on_new_message: false,
-            mention_only: false,
             group_reply: None,
             base_url: None,
         });
@@ -5000,11 +4926,10 @@ tool_dispatcher = "xml"
     }
 
     #[test]
-    async fn telegram_group_reply_config_overrides_legacy_mention_only() {
+    async fn telegram_group_reply_config_supports_explicit_mode() {
         let json = r#"{
             "bot_token":"tok",
             "allowed_users":["*"],
-            "mention_only":false,
             "group_reply":{
                 "mode":"mention_only",
                 "allowed_sender_ids":["1001","1002"]
@@ -5029,7 +4954,6 @@ tool_dispatcher = "xml"
             guild_id: Some("12345".into()),
             allowed_users: vec![],
             listen_to_bots: false,
-            mention_only: false,
             group_reply: None,
         };
         let json = serde_json::to_string(&dc).unwrap();
@@ -5045,7 +4969,6 @@ tool_dispatcher = "xml"
             guild_id: None,
             allowed_users: vec![],
             listen_to_bots: false,
-            mention_only: false,
             group_reply: None,
         };
         let json = serde_json::to_string(&dc).unwrap();
@@ -5054,24 +4977,20 @@ tool_dispatcher = "xml"
     }
 
     #[test]
-    async fn discord_group_reply_mode_falls_back_to_legacy_mention_only() {
-        let json = r#"{
-            "bot_token":"tok",
-            "mention_only":true
-        }"#;
+    async fn discord_group_reply_mode_defaults_to_all_messages() {
+        let json = r#"{"bot_token":"tok"}"#;
         let parsed: DiscordConfig = serde_json::from_str(json).unwrap();
         assert_eq!(
             parsed.effective_group_reply_mode(),
-            GroupReplyMode::MentionOnly
+            GroupReplyMode::AllMessages
         );
         assert!(parsed.group_reply_allowed_sender_ids().is_empty());
     }
 
     #[test]
-    async fn discord_group_reply_mode_overrides_legacy_mention_only() {
+    async fn discord_group_reply_mode_supports_explicit_override() {
         let json = r#"{
             "bot_token":"tok",
-            "mention_only":true,
             "group_reply":{
                 "mode":"all_messages",
                 "allowed_sender_ids":["111"]
@@ -5394,25 +5313,20 @@ channel_id = "C123"
     }
 
     #[test]
-    async fn mattermost_group_reply_mode_falls_back_to_legacy_mention_only() {
-        let json = r#"{
-            "url":"https://mm.example.com",
-            "bot_token":"token",
-            "mention_only":true
-        }"#;
+    async fn mattermost_group_reply_mode_defaults_to_all_messages() {
+        let json = r#"{"url":"https://mm.example.com","bot_token":"token"}"#;
         let parsed: MattermostConfig = serde_json::from_str(json).unwrap();
         assert_eq!(
             parsed.effective_group_reply_mode(),
-            GroupReplyMode::MentionOnly
+            GroupReplyMode::AllMessages
         );
     }
 
     #[test]
-    async fn mattermost_group_reply_mode_overrides_legacy_mention_only() {
+    async fn mattermost_group_reply_mode_supports_explicit_override() {
         let json = r#"{
             "url":"https://mm.example.com",
             "bot_token":"token",
-            "mention_only":true,
             "group_reply":{
                 "mode":"all_messages",
                 "allowed_sender_ids":["u1","u2"]
@@ -5963,14 +5877,14 @@ default_temperature = 0.7
     }
 
     #[test]
-    async fn env_override_api_key_fallback() {
+    async fn env_override_api_key_ignores_generic_alias() {
         let _env_guard = env_override_lock().await;
         let mut config = Config::default();
 
         std::env::remove_var("TOPCLAW_API_KEY");
         std::env::set_var("API_KEY", "sk-fallback-key");
         config.apply_env_overrides();
-        assert_eq!(config.api_key.as_deref(), Some("sk-fallback-key"));
+        assert!(config.api_key.is_none());
 
         std::env::remove_var("API_KEY");
     }
@@ -6052,55 +5966,6 @@ default_temperature = 0.7
         std::env::remove_var("TOPCLAW_OPEN_SKILLS_ENABLED");
         std::env::remove_var("TOPCLAW_SKILLS_PROMPT_MODE");
         std::env::remove_var("TOPCLAW_BUILTIN_SKILLS_ENABLED");
-    }
-
-    #[test]
-    async fn env_override_provider_fallback() {
-        let _env_guard = env_override_lock().await;
-        let mut config = Config::default();
-
-        std::env::remove_var("TOPCLAW_PROVIDER");
-        std::env::set_var("PROVIDER", "openai");
-        config.apply_env_overrides();
-        assert_eq!(config.default_provider.as_deref(), Some("openai"));
-
-        std::env::remove_var("PROVIDER");
-    }
-
-    #[test]
-    async fn env_override_provider_fallback_does_not_replace_non_default_provider() {
-        let _env_guard = env_override_lock().await;
-        let mut config = Config {
-            default_provider: Some("custom:https://proxy.example.com/v1".to_string()),
-            ..Config::default()
-        };
-
-        std::env::remove_var("TOPCLAW_PROVIDER");
-        std::env::set_var("PROVIDER", "openrouter");
-        config.apply_env_overrides();
-        assert_eq!(
-            config.default_provider.as_deref(),
-            Some("custom:https://proxy.example.com/v1")
-        );
-
-        std::env::remove_var("PROVIDER");
-    }
-
-    #[test]
-    async fn env_override_zero_claw_provider_overrides_non_default_provider() {
-        let _env_guard = env_override_lock().await;
-        let mut config = Config {
-            default_provider: Some("custom:https://proxy.example.com/v1".to_string()),
-            ..Config::default()
-        };
-
-        std::env::set_var("TOPCLAW_PROVIDER", "openrouter");
-        std::env::set_var("PROVIDER", "anthropic");
-        config.apply_env_overrides();
-        assert_eq!(config.default_provider.as_deref(), Some("openrouter"));
-
-        std::env::remove_var("TOPCLAW_PROVIDER");
-        std::env::remove_var("PROVIDER");
     }
 
     #[test]
@@ -6304,22 +6169,6 @@ provider_api = "not-a-real-mode"
         assert!(error
             .to_string()
             .contains("wire_api must be one of: responses, chat_completions"));
-    }
-
-    #[test]
-    async fn env_override_model_fallback() {
-        let _env_guard = env_override_lock().await;
-        let mut config = Config::default();
-
-        std::env::remove_var("TOPCLAW_MODEL");
-        std::env::set_var("MODEL", "anthropic/claude-3.5-sonnet");
-        config.apply_env_overrides();
-        assert_eq!(
-            config.default_model.as_deref(),
-            Some("anthropic/claude-3.5-sonnet")
-        );
-
-        std::env::remove_var("MODEL");
     }
 
     #[test]
@@ -6872,11 +6721,11 @@ default_model = "legacy-model"
         let _env_guard = env_override_lock().await;
         let mut config = Config::default();
 
-        std::env::set_var("WEB_SEARCH_ENABLED", "false");
-        std::env::set_var("WEB_SEARCH_PROVIDER", "brave");
-        std::env::set_var("WEB_SEARCH_MAX_RESULTS", "7");
-        std::env::set_var("WEB_SEARCH_TIMEOUT_SECS", "20");
-        std::env::set_var("BRAVE_API_KEY", "brave-test-key");
+        std::env::set_var("TOPCLAW_WEB_SEARCH_ENABLED", "false");
+        std::env::set_var("TOPCLAW_WEB_SEARCH_PROVIDER", "brave");
+        std::env::set_var("TOPCLAW_WEB_SEARCH_MAX_RESULTS", "7");
+        std::env::set_var("TOPCLAW_WEB_SEARCH_TIMEOUT_SECS", "20");
+        std::env::set_var("TOPCLAW_BRAVE_API_KEY", "brave-test-key");
 
         config.apply_env_overrides();
 
@@ -6889,11 +6738,11 @@ default_model = "legacy-model"
             Some("brave-test-key")
         );
 
-        std::env::remove_var("WEB_SEARCH_ENABLED");
-        std::env::remove_var("WEB_SEARCH_PROVIDER");
-        std::env::remove_var("WEB_SEARCH_MAX_RESULTS");
-        std::env::remove_var("WEB_SEARCH_TIMEOUT_SECS");
-        std::env::remove_var("BRAVE_API_KEY");
+        std::env::remove_var("TOPCLAW_WEB_SEARCH_ENABLED");
+        std::env::remove_var("TOPCLAW_WEB_SEARCH_PROVIDER");
+        std::env::remove_var("TOPCLAW_WEB_SEARCH_MAX_RESULTS");
+        std::env::remove_var("TOPCLAW_WEB_SEARCH_TIMEOUT_SECS");
+        std::env::remove_var("TOPCLAW_BRAVE_API_KEY");
     }
 
     #[test]
@@ -6903,16 +6752,16 @@ default_model = "legacy-model"
         let original_max_results = config.web_search.max_results;
         let original_timeout = config.web_search.timeout_secs;
 
-        std::env::set_var("WEB_SEARCH_MAX_RESULTS", "99");
-        std::env::set_var("WEB_SEARCH_TIMEOUT_SECS", "0");
+        std::env::set_var("TOPCLAW_WEB_SEARCH_MAX_RESULTS", "99");
+        std::env::set_var("TOPCLAW_WEB_SEARCH_TIMEOUT_SECS", "0");
 
         config.apply_env_overrides();
 
         assert_eq!(config.web_search.max_results, original_max_results);
         assert_eq!(config.web_search.timeout_secs, original_timeout);
 
-        std::env::remove_var("WEB_SEARCH_MAX_RESULTS");
-        std::env::remove_var("WEB_SEARCH_TIMEOUT_SECS");
+        std::env::remove_var("TOPCLAW_WEB_SEARCH_MAX_RESULTS");
+        std::env::remove_var("TOPCLAW_WEB_SEARCH_TIMEOUT_SECS");
     }
 
     #[test]
@@ -7125,7 +6974,6 @@ default_model = "legacy-model"
             encrypt_key: Some("encrypt_key".into()),
             verification_token: Some("verify_token".into()),
             allowed_users: vec!["user_123".into(), "user_456".into()],
-            mention_only: false,
             group_reply: None,
             use_feishu: true,
             receive_mode: LarkReceiveMode::Websocket,
@@ -7151,7 +6999,6 @@ default_model = "legacy-model"
             encrypt_key: Some("encrypt_key".into()),
             verification_token: Some("verify_token".into()),
             allowed_users: vec!["*".into()],
-            mention_only: false,
             group_reply: None,
             use_feishu: false,
             receive_mode: LarkReceiveMode::Webhook,
@@ -7173,7 +7020,6 @@ default_model = "legacy-model"
         assert!(parsed.encrypt_key.is_none());
         assert!(parsed.verification_token.is_none());
         assert!(parsed.allowed_users.is_empty());
-        assert!(!parsed.mention_only);
         assert!(!parsed.use_feishu);
         assert_eq!(
             parsed.effective_group_reply_mode(),
@@ -7199,11 +7045,10 @@ default_model = "legacy-model"
     }
 
     #[test]
-    async fn lark_group_reply_mode_overrides_legacy_mention_only() {
+    async fn lark_group_reply_mode_supports_explicit_override() {
         let json = r#"{
             "app_id":"cli_123",
             "app_secret":"secret",
-            "mention_only":true,
             "group_reply":{
                 "mode":"all_messages",
                 "allowed_sender_ids":["ou_1"]

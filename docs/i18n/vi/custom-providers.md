@@ -38,11 +38,10 @@ default_model = "claude-sonnet-4-6"
 
 ### Biến môi trường
 
-Với provider `custom:` và `anthropic-custom:`, dùng biến môi trường chứa key chung:
+Với provider `custom:` và `anthropic-custom:`, dùng `TOPCLAW_API_KEY`:
 
 ```bash
-export API_KEY="your-api-key"
-# hoặc: export TOPCLAW_API_KEY="your-api-key"
+export TOPCLAW_API_KEY="your-api-key"
 topclaw agent
 ```
 

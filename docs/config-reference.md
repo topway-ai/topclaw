@@ -33,7 +33,7 @@ Notes:
 - `model_support_vision = true` forces vision support on (e.g. Ollama running `llava`).
 - `model_support_vision = false` forces vision support off.
 - Unset keeps the provider's built-in default.
-- Environment override: `TOPCLAW_MODEL_SUPPORT_VISION` or `MODEL_SUPPORT_VISION` (values: `true`/`false`/`1`/`0`/`yes`/`no`/`on`/`off`).
+- Environment override: `TOPCLAW_MODEL_SUPPORT_VISION` (values: `true`/`false`/`1`/`0`/`yes`/`no`/`on`/`off`).
 
 ## `[observability]`
 
@@ -73,13 +73,11 @@ runtime_trace_max_entries = 200
 Provider selection can also be controlled by environment variables. Precedence is:
 
 1. `TOPCLAW_PROVIDER` (explicit override, always wins when non-empty)
-2. `PROVIDER` (legacy fallback, only applied when config provider is unset or still `openrouter`)
-3. `default_provider` in `config.toml`
+2. `default_provider` in `config.toml`
 
 Operational note for container users:
 
-- If your `config.toml` sets an explicit custom provider like `custom:https://.../v1`, a default `PROVIDER=openrouter` from Docker/container env will no longer replace it.
-- Use `TOPCLAW_PROVIDER` when you intentionally want runtime env to override a non-default configured provider.
+- Use `TOPCLAW_PROVIDER` when you intentionally want runtime env to override the configured provider.
 - For OpenAI-compatible Responses fallback transport:
   - `TOPCLAW_RESPONSES_WEBSOCKET=1` forces websocket-first mode (`wss://.../responses`) for compatible providers.
   - `TOPCLAW_RESPONSES_WEBSOCKET=0` forces HTTP-only mode.
@@ -784,8 +782,6 @@ Notes:
   - `mode = "all_messages"` or `mode = "mention_only"`
   - `allowed_sender_ids = ["..."]` to bypass mention gating in groups
   - `allowed_users` allowlist checks still run first
-- Legacy `mention_only` flags (Telegram/Discord/Mattermost/Lark) remain supported as fallback only.
-  If `group_reply.mode` is set, it takes precedence over legacy `mention_only`.
 - While `topclaw channel start` is running, updates to `default_provider`, `default_model`, `default_temperature`, `api_key`, `api_url`, and `reliability.*` are hot-applied from `config.toml` on the next inbound message.
 
 ### `[channels_config.nostr]`

@@ -57,11 +57,10 @@ default_model = "claude-sonnet-4-6"
 
 ### Environment Variables
 
-For `custom:` and `anthropic-custom:` providers, use the generic key env vars:
+For `custom:` and `anthropic-custom:` providers, use `TOPCLAW_API_KEY`:
 
 ```bash
-export API_KEY="your-api-key"
-# or: export TOPCLAW_API_KEY="your-api-key"
+export TOPCLAW_API_KEY="your-api-key"
 topclaw agent
 ```
 

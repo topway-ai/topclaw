@@ -4122,7 +4122,6 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     stream_mode: StreamMode::Partial,
                     draft_update_interval_ms: 500,
                     interrupt_on_new_message: false,
-                    mention_only: false,
                     group_reply: None,
                     base_url: None,
                 });
@@ -4223,7 +4222,6 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     guild_id: if guild.is_empty() { None } else { Some(guild) },
                     allowed_users,
                     listen_to_bots: false,
-                    mention_only: false,
                     group_reply: None,
                 });
             }
@@ -5260,7 +5258,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
 
                 let receive_mode_choice = Select::new()
                     .with_prompt("  Receive mode")
-                    .items(["Webhook (recommended)", "WebSocket (legacy fallback)"])
+                    .items(["Webhook (recommended)", "WebSocket"])
                     .default(0)
                     .interact()?;
                 let receive_mode = if receive_mode_choice == 0 {
@@ -5458,7 +5456,6 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     verification_token,
                     encrypt_key: None,
                     allowed_users,
-                    mention_only: false,
                     group_reply: None,
                     use_feishu,
                     receive_mode,
@@ -7978,7 +7975,6 @@ mod tests {
             channel_id: Some("channel".into()),
             allowed_users: vec!["*".into()],
             thread_replies: Some(true),
-            mention_only: Some(false),
             group_reply: None,
         });
         assert!(has_launchable_channels(&channels));

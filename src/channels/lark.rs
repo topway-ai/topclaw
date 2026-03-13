@@ -2369,7 +2369,6 @@ mod tests {
             encrypt_key: None,
             verification_token: Some("vtoken789".into()),
             allowed_users: vec!["ou_user1".into(), "ou_user2".into()],
-            mention_only: false,
             group_reply: None,
             use_feishu: false,
             receive_mode: LarkReceiveMode::default(),
@@ -2394,7 +2393,6 @@ mod tests {
             encrypt_key: None,
             verification_token: Some("tok".into()),
             allowed_users: vec!["*".into()],
-            mention_only: false,
             group_reply: None,
             use_feishu: false,
             receive_mode: LarkReceiveMode::Webhook,
@@ -2416,7 +2414,6 @@ mod tests {
         let parsed: LarkConfig = serde_json::from_str(json).unwrap();
         assert!(parsed.verification_token.is_none());
         assert!(parsed.allowed_users.is_empty());
-        assert!(!parsed.mention_only);
         assert_eq!(parsed.receive_mode, LarkReceiveMode::Websocket);
         assert!(parsed.port.is_none());
     }
@@ -2431,7 +2428,6 @@ mod tests {
             encrypt_key: None,
             verification_token: Some("vtoken789".into()),
             allowed_users: vec!["*".into()],
-            mention_only: false,
             group_reply: None,
             use_feishu: false,
             receive_mode: LarkReceiveMode::Webhook,
@@ -2458,7 +2454,6 @@ mod tests {
             encrypt_key: None,
             verification_token: Some("vtoken789".into()),
             allowed_users: vec!["*".into()],
-            mention_only: false,
             group_reply: None,
             use_feishu: true,
             receive_mode: LarkReceiveMode::Webhook,
