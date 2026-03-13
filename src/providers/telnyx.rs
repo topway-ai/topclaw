@@ -111,8 +111,8 @@ fn resolve_telnyx_api_key(api_key: Option<&str>) -> Option<String> {
         }
     }
 
-    // Fall back to generic env vars
-    for env_var in ["TOPCLAW_API_KEY", "API_KEY"] {
+    // Fall back to TopClaw's generic env var
+    for env_var in ["TOPCLAW_API_KEY"] {
         if let Ok(key) = std::env::var(env_var) {
             let key = key.trim();
             if !key.is_empty() {

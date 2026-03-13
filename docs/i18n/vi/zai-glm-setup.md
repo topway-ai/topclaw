@@ -91,8 +91,8 @@ Thêm vào file `.env` của bạn:
 # Z.AI API Key
 ZAI_API_KEY=your-id.secret
 
-# Optional generic key (used by many providers)
-# API_KEY=your-id.secret
+# Optional TopClaw generic key
+# TOPCLAW_API_KEY=your-id.secret
 ```
 
 Định dạng key là `id.secret` (ví dụ: `abc123.xyz789`).

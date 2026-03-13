@@ -3184,7 +3184,7 @@ fn provider_env_var(name: &str) -> &'static str {
         "gemini" => "GEMINI_API_KEY",
         "nvidia" | "nvidia-nim" | "build.nvidia.com" => "NVIDIA_API_KEY",
         "astrai" => "ASTRAI_API_KEY",
-        _ => "API_KEY",
+        _ => "TOPCLAW_API_KEY",
     }
 }
 
@@ -7900,7 +7900,7 @@ mod tests {
 
     #[test]
     fn provider_env_var_unknown_falls_back() {
-        assert_eq!(provider_env_var("some-new-provider"), "API_KEY");
+        assert_eq!(provider_env_var("some-new-provider"), "TOPCLAW_API_KEY");
     }
 
     #[test]

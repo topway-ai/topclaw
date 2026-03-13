@@ -303,7 +303,7 @@ fn provider_env_var(provider: &str) -> &'static str {
         "nvidia" | "nvidia-nim" | "build.nvidia.com" => "NVIDIA_API_KEY",
         "hunyuan" | "tencent" => "HUNYUAN_API_KEY",
         "astrai" => "ASTRAI_API_KEY",
-        _ => "API_KEY",
+        _ => "TOPCLAW_API_KEY",
     }
 }
 

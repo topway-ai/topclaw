@@ -812,7 +812,7 @@ pub async fn api_error(provider: &str, response: reqwest::Response) -> anyhow::E
 /// Resolution order:
 /// 1. Explicitly provided `api_key` parameter (trimmed, filtered if empty)
 /// 2. Provider-specific environment variable (e.g., `ANTHROPIC_OAUTH_TOKEN`, `OPENROUTER_API_KEY`)
-/// 3. Generic fallback variables (`TOPCLAW_API_KEY`, `API_KEY`)
+/// 3. Generic fallback variable (`TOPCLAW_API_KEY`)
 ///
 /// For Anthropic, the provider-specific env var is `ANTHROPIC_OAUTH_TOKEN` (for setup-tokens)
 /// followed by `ANTHROPIC_API_KEY` (for regular API keys).
@@ -903,7 +903,7 @@ fn resolve_provider_credential(name: &str, credential_override: Option<&str>) ->
         return None;
     }
 
-    for env_var in ["TOPCLAW_API_KEY", "API_KEY"] {
+    for env_var in ["TOPCLAW_API_KEY"] {
         if let Ok(value) = std::env::var(env_var) {
             let value = value.trim();
             if !value.is_empty() {
@@ -1932,7 +1932,7 @@ mod tests {
         let _oauth_guard = EnvGuard::set(MINIMAX_OAUTH_TOKEN_ENV, None);
         let _api_guard = EnvGuard::set(MINIMAX_API_KEY_ENV, None);
         let _refresh_guard = EnvGuard::set(MINIMAX_OAUTH_REFRESH_TOKEN_ENV, None);
-        let _generic_guard = EnvGuard::set("API_KEY", Some("generic-key"));
+        let _generic_guard = EnvGuard::set("TOPCLAW_API_KEY", Some("generic-key"));
 
         let resolved = resolve_provider_credential("minimax", Some(MINIMAX_OAUTH_PLACEHOLDER));
 
@@ -1941,7 +1941,7 @@ mod tests {
 
     #[test]
     fn resolve_provider_credential_bedrock_uses_internal_credential_path() {
-        let _generic_guard = EnvGuard::set("API_KEY", Some("generic-key"));
+        let _generic_guard = EnvGuard::set("TOPCLAW_API_KEY", Some("generic-key"));
         let _override_guard = EnvGuard::set("OPENROUTER_API_KEY", Some("openrouter-key"));
 
         assert_eq!(

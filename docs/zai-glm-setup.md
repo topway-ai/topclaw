@@ -91,8 +91,8 @@ Add to your `.env` file:
 # Z.AI API Key
 ZAI_API_KEY=your-id.secret
 
-# Optional generic key (used by many providers)
-# API_KEY=your-id.secret
+# Optional TopClaw generic key
+# TOPCLAW_API_KEY=your-id.secret
 ```
 
 The key format is `id.secret` (for example: `abc123.xyz789`).
