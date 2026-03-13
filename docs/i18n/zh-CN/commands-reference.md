@@ -21,7 +21,7 @@
 
 - `topclaw gateway` 新增 `--new-pairing` 参数，可清空已配对 token 并在网关启动时生成新的配对码。
 - `topclaw update` 现在明确给出了安全更新路径：先执行 `topclaw update --check`，再执行 `topclaw update`，如果以后台服务运行则再执行 `topclaw service restart`。
-- 兼容别名入口（`topclaw init`、`chat`、`run`、`info`、`check`、`channels`、`skill`）仍然可用，但新的文档与脚本应优先使用规范命令名。
+- 当前版本只应依赖英文源文档中的规范命令名。
 - `topclaw status --diagnose` 现在是推荐的“先看摘要，再看诊断”路径。
 - 常驻通道优先看 `topclaw service status`；`topclaw channel start` 更适合前台排障。参见 [runtime-model.md](runtime-model.md)。
 - 如果只是找最常用命令，先看英文原文顶部新增的 “Most Common Commands” 区块。

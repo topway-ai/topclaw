@@ -320,7 +320,6 @@ Notes:
 - `reasoning_enabled = false` explicitly disables provider-side reasoning for supported providers (currently `ollama`, via request field `think: false`).
 - `reasoning_enabled = true` explicitly requests reasoning for supported providers (`think: true` on `ollama`).
 - Unset keeps provider defaults.
-- Deprecated compatibility alias: `runtime.reasoning_level` is still accepted but should be migrated to `provider.reasoning_level`.
 - `runtime.kind = "wasm"` enables capability-bounded module execution and disables shell/process style execution.
 
 ### `[runtime.wasm]`
@@ -378,7 +377,6 @@ Notes:
 - Supported values: `minimal`, `low`, `medium`, `high`, `xhigh` (case-insensitive).
 - When set, overrides `TOPCLAW_CODEX_REASONING_EFFORT` for OpenAI Codex requests.
 - Unset falls back to `TOPCLAW_CODEX_REASONING_EFFORT` if present, otherwise defaults to `xhigh`.
-- If both `provider.reasoning_level` and deprecated `runtime.reasoning_level` are set, provider-level value wins.
 
 ## `[skills]`
 
@@ -426,7 +424,6 @@ Notes:
 
 Notes:
 
-- Backward compatibility: legacy `enable = true` is accepted as an alias for `enabled = true`.
 - If `enabled = false` or `api_key` is missing, the `composio` tool is not registered.
 - TopClaw requests Composio v3 tools with `toolkit_versions=latest` and executes tools with `version="latest"` to avoid stale default tool revisions.
 - Typical flow: call `connect`, complete browser OAuth, then run `execute` for the desired tool action.

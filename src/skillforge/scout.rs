@@ -99,7 +99,7 @@ impl GitHubScout {
 
         Self {
             client,
-            queries: vec!["topclaw skill".into(), "ai agent skill".into()],
+            queries: vec!["topclaw skills".into(), "ai agent skill".into()],
         }
     }
 

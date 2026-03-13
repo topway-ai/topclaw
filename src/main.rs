@@ -130,7 +130,7 @@ Start here:
 Most common tasks:
   topclaw status                   # quick readiness summary
   topclaw status --diagnose        # include full diagnostic report
-  topclaw check                    # run diagnostics
+  topclaw doctor                   # run diagnostics
   topclaw update --check           # check for a new release
   topclaw update                   # install latest release
   topclaw service restart          # restart background service after update
@@ -162,7 +162,7 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Set up TopClaw for first use
-    #[command(name = "bootstrap", visible_alias = "onboard", visible_alias = "init")]
+    #[command(name = "bootstrap")]
     Onboard {
         /// Run the full interactive wizard (default is quick setup)
         #[arg(long)]
@@ -192,7 +192,6 @@ enum Commands {
     },
 
     /// Chat with TopClaw
-    #[command(visible_alias = "chat")]
     #[command(long_about = "\
 Start the AI agent loop.
 
@@ -281,7 +280,6 @@ Examples:
     },
 
     /// Run TopClaw continuously in the background
-    #[command(visible_alias = "run")]
     #[command(long_about = "\
 Start the long-running autonomous daemon.
 
@@ -330,14 +328,12 @@ Examples:
     },
 
     /// Run diagnostics and health checks
-    #[command(visible_alias = "check")]
     Doctor {
         #[command(subcommand)]
         doctor_command: Option<DoctorCommands>,
     },
 
     /// Show current status and configuration summary
-    #[command(visible_alias = "info")]
     Status {
         /// Include the full diagnostic report after the status summary
         #[arg(long)]
@@ -490,7 +486,6 @@ Examples:
     Providers,
 
     /// Manage messaging and chat channels
-    #[command(visible_alias = "channels")]
     #[command(long_about = "\
 Manage communication channels.
 
@@ -517,7 +512,6 @@ Examples:
     },
 
     /// Manage skills and skill installation
-    #[command(visible_alias = "skill")]
     Skills {
         #[command(subcommand)]
         skill_command: SkillCommands,
@@ -641,7 +635,7 @@ Examples:
     },
 
     /// Self-improvement maintenance commands
-    #[command(name = "self-improvement", visible_alias = "self-improve")]
+    #[command(name = "self-improvement")]
     SelfImprovement {
         #[command(subcommand)]
         self_improvement_command: SelfImprovementCommands,
@@ -1514,56 +1508,6 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_cli_accepts_onboard_alias() {
-        let cli = Cli::try_parse_from(["topclaw", "onboard"]).expect("onboard alias should parse");
-
-        match cli.command {
-            Commands::Onboard { .. } => {}
-            other => panic!("expected bootstrap command, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn bootstrap_cli_accepts_init_alias() {
-        let cli = Cli::try_parse_from(["topclaw", "init"]).expect("init alias should parse");
-
-        match cli.command {
-            Commands::Onboard { .. } => {}
-            other => panic!("expected bootstrap command, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn agent_cli_accepts_chat_alias() {
-        let cli = Cli::try_parse_from(["topclaw", "chat"]).expect("chat alias should parse");
-
-        match cli.command {
-            Commands::Agent { .. } => {}
-            other => panic!("expected agent command, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn daemon_cli_accepts_run_alias() {
-        let cli = Cli::try_parse_from(["topclaw", "run"]).expect("run alias should parse");
-
-        match cli.command {
-            Commands::Daemon { .. } => {}
-            other => panic!("expected daemon command, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn status_cli_accepts_info_alias() {
-        let cli = Cli::try_parse_from(["topclaw", "info"]).expect("info alias should parse");
-
-        match cli.command {
-            Commands::Status { diagnose } => assert!(!diagnose),
-            other => panic!("expected status command, got {other:?}"),
-        }
-    }
-
-    #[test]
     fn status_cli_accepts_diagnose_flag() {
         let cli =
             Cli::try_parse_from(["topclaw", "status", "--diagnose"]).expect("status should parse");
@@ -1575,8 +1519,8 @@ mod tests {
     }
 
     #[test]
-    fn doctor_cli_accepts_check_alias() {
-        let cli = Cli::try_parse_from(["topclaw", "check"]).expect("check alias should parse");
+    fn doctor_cli_parses_default_command() {
+        let cli = Cli::try_parse_from(["topclaw", "doctor"]).expect("doctor should parse");
 
         match cli.command {
             Commands::Doctor { .. } => {}

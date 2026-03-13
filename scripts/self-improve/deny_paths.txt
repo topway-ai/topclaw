@@ -6,7 +6,6 @@ bootstrap.sh
 dev/config.template.toml
 scripts/bootstrap.sh
 scripts/install-release.sh
-scripts/install.sh
 scripts/self-improve/
 src/gateway/
 src/runtime/

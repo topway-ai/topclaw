@@ -21,7 +21,7 @@
 
 - `topclaw gateway` поддерживает `--new-pairing`: флаг очищает сохранённые paired-токены и генерирует новый код сопряжения.
 - `topclaw update` теперь явно описывает безопасный путь обновления: `topclaw update --check` -> `topclaw update` -> при сервисном запуске `topclaw service restart`.
-- Совместимые alias-команды (`topclaw init`, `chat`, `run`, `info`, `check`, `channels`, `skill`) всё ещё работают, но новые инструкции должны опираться на канонические имена команд.
+- Для текущего релиза ориентируйтесь только на канонические имена команд из английской версии.
 - `topclaw status --diagnose` теперь является рекомендуемым путём "сначала summary, затем подробная диагностика".
 - Для always-on каналов сначала смотрите `topclaw service status`. `topclaw channel start` остаётся в первую очередь foreground-инструментом для отладки. См. [runtime-model.md](runtime-model.md).
 - Если нужны только самые частые команды, сначала смотрите новый блок “Most Common Commands” в английском оригинале.

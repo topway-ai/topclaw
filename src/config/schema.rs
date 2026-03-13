@@ -109,13 +109,11 @@ pub struct Config {
     /// Base URL override for provider API (e.g. "http://10.0.0.1:11434" for remote Ollama)
     pub api_url: Option<String>,
     /// Default provider ID or alias (e.g. `"openrouter"`, `"ollama"`, `"anthropic"`). Default: `"openrouter"`.
-    #[serde(alias = "model_provider")]
     pub default_provider: Option<String>,
     /// Optional API protocol mode for `custom:` providers.
     #[serde(default)]
     pub provider_api: Option<ProviderApiMode>,
     /// Default model routed through the selected provider (e.g. `"anthropic/claude-sonnet-4-6"`).
-    #[serde(alias = "model")]
     pub default_model: Option<String>,
     /// Optional named provider profiles keyed by id (Codex app-server compatible layout).
     #[serde(default)]
@@ -420,7 +418,7 @@ impl Default for QdrantConfig {
 pub struct MemoryConfig {
     /// "sqlite" | "lucid" | "postgres" | "mariadb" | "qdrant" | "markdown" | "none" (`none` = explicit no-op memory)
     ///
-    /// `postgres` / `mariadb` require `[storage.provider.config]` with `db_url` (`dbURL` alias supported).
+    /// `postgres` / `mariadb` require `[storage.provider.config]` with `db_url`.
     /// `qdrant` uses `[memory.qdrant]` config or `QDRANT_URL` env var.
     pub backend: String,
     /// Auto-save user-stated conversation input to memory (assistant output is excluded)
@@ -2963,47 +2961,12 @@ impl Config {
         }
     }
 
-    /// Resolve provider reasoning level with backward-compatible runtime alias.
-    ///
-    /// Priority:
-    /// 1) `provider.reasoning_level` (canonical)
-    /// 2) `runtime.reasoning_level` (deprecated compatibility alias)
+    /// Resolve provider reasoning level from the canonical provider config.
     pub fn effective_provider_reasoning_level(&self) -> Option<String> {
-        let provider_level = Self::normalize_reasoning_level_override(
+        Self::normalize_reasoning_level_override(
             self.provider.reasoning_level.as_deref(),
             "provider.reasoning_level",
-        );
-        let runtime_level = Self::normalize_reasoning_level_override(
-            self.runtime.reasoning_level.as_deref(),
-            "runtime.reasoning_level",
-        );
-
-        match (provider_level, runtime_level) {
-            (Some(provider_level), Some(runtime_level)) => {
-                if provider_level == runtime_level {
-                    tracing::warn!(
-                        reasoning_level = %provider_level,
-                        "`runtime.reasoning_level` is deprecated; keep only `provider.reasoning_level`"
-                    );
-                } else {
-                    tracing::warn!(
-                        provider_reasoning_level = %provider_level,
-                        runtime_reasoning_level = %runtime_level,
-                        "`runtime.reasoning_level` is deprecated and ignored when `provider.reasoning_level` is set"
-                    );
-                }
-                Some(provider_level)
-            }
-            (Some(provider_level), None) => Some(provider_level),
-            (None, Some(runtime_level)) => {
-                tracing::warn!(
-                    reasoning_level = %runtime_level,
-                    "`runtime.reasoning_level` is deprecated; using it as compatibility fallback to `provider.reasoning_level`"
-                );
-                Some(runtime_level)
-            }
-            (None, None) => None,
-        }
+        )
     }
 
     fn lookup_model_provider_profile(
@@ -3411,15 +3374,8 @@ impl Config {
 
         // Provider override precedence:
         // 1) TOPCLAW_PROVIDER always wins when set.
-        // 2) TOPCLAW_MODEL_PROVIDER/MODEL_PROVIDER (Codex app-server style).
-        // 3) Legacy PROVIDER is honored only when config still uses default provider.
+        // 2) Legacy PROVIDER is honored only when config still uses default provider.
         if let Ok(provider) = std::env::var("TOPCLAW_PROVIDER") {
-            if !provider.is_empty() {
-                self.default_provider = Some(provider);
-            }
-        } else if let Ok(provider) =
-            std::env::var("TOPCLAW_MODEL_PROVIDER").or_else(|_| std::env::var("MODEL_PROVIDER"))
-        {
             if !provider.is_empty() {
                 self.default_provider = Some(provider);
             }
@@ -3551,28 +3507,6 @@ impl Config {
                 "1" | "true" | "yes" | "on" => self.runtime.reasoning_enabled = Some(true),
                 "0" | "false" | "no" | "off" => self.runtime.reasoning_enabled = Some(false),
                 _ => {}
-            }
-        }
-
-        // Deprecated reasoning level alias: TOPCLAW_REASONING_LEVEL or REASONING_LEVEL
-        let alias_level = std::env::var("TOPCLAW_REASONING_LEVEL")
-            .ok()
-            .map(|value| ("TOPCLAW_REASONING_LEVEL", value))
-            .or_else(|| {
-                std::env::var("REASONING_LEVEL")
-                    .ok()
-                    .map(|value| ("REASONING_LEVEL", value))
-            });
-        if let Some((env_name, level)) = alias_level {
-            if let Some(normalized) =
-                Self::normalize_reasoning_level_override(Some(&level), env_name)
-            {
-                tracing::warn!(
-                    env_name,
-                    reasoning_level = %normalized,
-                    "{env_name} is deprecated; prefer provider.reasoning_level in config"
-                );
-                self.runtime.reasoning_level = Some(normalized);
             }
         }
 
@@ -4201,23 +4135,6 @@ always_ask = []
     }
 
     #[test]
-    async fn heartbeat_config_parses_delivery_aliases() {
-        let raw = r#"
-enabled = true
-interval_minutes = 10
-message = "Ping"
-channel = "telegram"
-recipient = "42"
-"#;
-        let parsed: HeartbeatConfig = toml::from_str(raw).unwrap();
-        assert!(parsed.enabled);
-        assert_eq!(parsed.interval_minutes, 10);
-        assert_eq!(parsed.message.as_deref(), Some("Ping"));
-        assert_eq!(parsed.target.as_deref(), Some("telegram"));
-        assert_eq!(parsed.to.as_deref(), Some("42"));
-    }
-
-    #[test]
     async fn cron_config_default() {
         let c = CronConfig::default();
         assert!(c.enabled);
@@ -4451,13 +4368,13 @@ default_temperature = 0.7
     }
 
     #[test]
-    async fn storage_provider_dburl_alias_deserializes() {
+    async fn storage_provider_db_url_deserializes() {
         let raw = r#"
 default_temperature = 0.7
 
 [storage.provider.config]
 provider = "postgres"
-dbURL = "postgres://postgres:postgres@localhost:5432/topclaw"
+db_url = "postgres://postgres:postgres@localhost:5432/topclaw"
 schema = "public"
 table = "memories"
 connect_timeout_secs = 12
@@ -4630,42 +4547,6 @@ reasoning_level = "high"
         assert_eq!(
             parsed.effective_provider_reasoning_level().as_deref(),
             Some("high")
-        );
-    }
-
-    #[test]
-    async fn runtime_reasoning_level_alias_deserializes() {
-        let raw = r#"
-default_temperature = 0.7
-
-[runtime]
-reasoning_level = "xhigh"
-"#;
-
-        let parsed: Config = toml::from_str(raw).unwrap();
-        assert_eq!(parsed.runtime.reasoning_level.as_deref(), Some("xhigh"));
-        assert_eq!(
-            parsed.effective_provider_reasoning_level().as_deref(),
-            Some("xhigh")
-        );
-    }
-
-    #[test]
-    async fn provider_reasoning_level_wins_over_runtime_alias() {
-        let raw = r#"
-default_temperature = 0.7
-
-[provider]
-reasoning_level = "medium"
-
-[runtime]
-reasoning_level = "high"
-"#;
-
-        let parsed: Config = toml::from_str(raw).unwrap();
-        assert_eq!(
-            parsed.effective_provider_reasoning_level().as_deref(),
-            Some("medium")
         );
     }
 
@@ -5923,17 +5804,6 @@ enabled = true
         assert_eq!(parsed.entity_id, "default");
     }
 
-    #[test]
-    async fn composio_config_enable_alias_supported() {
-        let toml_str = r"
-enable = true
-";
-        let parsed: ComposioConfig = toml::from_str(toml_str).unwrap();
-        assert!(parsed.enabled);
-        assert!(parsed.api_key.is_none());
-        assert_eq!(parsed.entity_id, "default");
-    }
-
     // ══════════════════════════════════════════════════════════
     // SECRETS CONFIG TESTS
     // ══════════════════════════════════════════════════════════
@@ -6115,44 +5985,6 @@ default_temperature = 0.7
         assert_eq!(config.default_provider.as_deref(), Some("anthropic"));
 
         std::env::remove_var("TOPCLAW_PROVIDER");
-    }
-
-    #[test]
-    async fn env_override_model_provider_alias() {
-        let _env_guard = env_override_lock().await;
-        let mut config = Config::default();
-
-        std::env::remove_var("TOPCLAW_PROVIDER");
-        std::env::set_var("TOPCLAW_MODEL_PROVIDER", "openai-codex");
-        config.apply_env_overrides();
-        assert_eq!(config.default_provider.as_deref(), Some("openai-codex"));
-
-        std::env::remove_var("TOPCLAW_MODEL_PROVIDER");
-    }
-
-    #[test]
-    async fn toml_supports_model_provider_and_model_alias_fields() {
-        let raw = r#"
-default_temperature = 0.7
-model_provider = "sub2api"
-model = "gpt-5.3-codex"
-
-[model_providers.sub2api]
-name = "sub2api"
-base_url = "https://api.tonsof.blue/v1"
-wire_api = "responses"
-requires_openai_auth = true
-"#;
-
-        let parsed: Config = toml::from_str(raw).expect("config should parse");
-        assert_eq!(parsed.default_provider.as_deref(), Some("sub2api"));
-        assert_eq!(parsed.default_model.as_deref(), Some("gpt-5.3-codex"));
-        let profile = parsed
-            .model_providers
-            .get("sub2api")
-            .expect("profile should exist");
-        assert_eq!(profile.wire_api.as_deref(), Some("responses"));
-        assert!(profile.requires_openai_auth);
     }
 
     #[test]
@@ -6998,36 +6830,6 @@ default_model = "legacy-model"
         assert_eq!(config.runtime.reasoning_enabled, Some(false));
 
         std::env::remove_var("TOPCLAW_REASONING_ENABLED");
-    }
-
-    #[test]
-    async fn env_override_reasoning_level_alias() {
-        let _env_guard = env_override_lock().await;
-        let mut config = Config::default();
-        assert_eq!(config.runtime.reasoning_level, None);
-
-        std::env::set_var("TOPCLAW_REASONING_LEVEL", "xhigh");
-        config.apply_env_overrides();
-        assert_eq!(config.runtime.reasoning_level.as_deref(), Some("xhigh"));
-        assert_eq!(
-            config.effective_provider_reasoning_level().as_deref(),
-            Some("xhigh")
-        );
-
-        std::env::remove_var("TOPCLAW_REASONING_LEVEL");
-    }
-
-    #[test]
-    async fn env_override_reasoning_level_alias_invalid_ignored() {
-        let _env_guard = env_override_lock().await;
-        let mut config = Config::default();
-        config.runtime.reasoning_level = Some("medium".to_string());
-
-        std::env::set_var("TOPCLAW_REASONING_LEVEL", "invalid");
-        config.apply_env_overrides();
-        assert_eq!(config.runtime.reasoning_level.as_deref(), Some("medium"));
-
-        std::env::remove_var("TOPCLAW_REASONING_LEVEL");
     }
 
     #[test]

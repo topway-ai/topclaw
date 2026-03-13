@@ -30,16 +30,10 @@ Last verified: **March 12, 2026**.
 | `hardware` | Discover and introspect USB hardware |
 | `peripheral` | Configure and flash peripherals |
 
-Compatibility shortcuts:
+Canonical command names:
 
-- Prefer the canonical command names above for new docs, scripts, and operator runbooks.
-- `topclaw init` -> `topclaw bootstrap`
-- `topclaw chat` -> `topclaw agent`
-- `topclaw run` -> `topclaw daemon`
-- `topclaw info` -> `topclaw status`
-- `topclaw check` -> `topclaw doctor`
-- `topclaw channels` -> `topclaw channel`
-- `topclaw skill` -> `topclaw skills`
+- Use the command names above in docs, scripts, automation, and operator runbooks.
+- Breaking release note: older CLI aliases such as `topclaw init`, `chat`, `run`, `info`, `check`, `channels`, and `skill` were removed.
 
 ## Most Common Commands
 
@@ -66,8 +60,6 @@ If you only need the common day-1/day-2 commands, the table above is the fastest
 - `topclaw bootstrap --api-key <KEY> --provider <ID> --memory <sqlite|lucid|markdown|none>`
 - `topclaw bootstrap --api-key <KEY> --provider <ID> --model <MODEL_ID> --memory <sqlite|lucid|markdown|none>`
 - `topclaw bootstrap --api-key <KEY> --provider <ID> --model <MODEL_ID> --memory <sqlite|lucid|markdown|none> --force`
-
-Compatibility aliases still accepted for older workflows: `topclaw onboard`, `topclaw init`
 
 `bootstrap` safety behavior:
 
@@ -198,19 +190,16 @@ Runs a Rust integration test (`tests/gemini_model_availability.rs`) that verifie
 ### `doctor`
 
 - `topclaw doctor`
-- `topclaw check`
 - `topclaw doctor models [--provider <ID>] [--use-cache]`
 - `topclaw doctor traces [--limit <N>] [--event <TYPE>] [--contains <TEXT>]`
 - `topclaw doctor traces --id <TRACE_ID>`
 
 `topclaw doctor` now ends with concrete next-step commands when it detects actionable setup issues, such as missing provider configuration, missing auth, missing channels, or a missing workspace directory.
 
-`topclaw check` is the shorter alias for the same diagnostics flow.
-
 Beginner guidance:
 
 - prefer `topclaw status --diagnose` when you want the normal summary first
-- use `topclaw doctor` or `topclaw check` when you want to jump straight into diagnostics
+- use `topclaw doctor` when you want to jump straight into diagnostics
 
 ### `status`
 

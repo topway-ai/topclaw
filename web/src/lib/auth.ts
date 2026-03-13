@@ -1,8 +1,7 @@
 /**
  * Browser-session auth token storage.
  *
- * Tokens are kept in memory plus `sessionStorage`, with a one-time migration
- * path from the older `localStorage` behavior.
+ * Tokens are kept in memory plus `sessionStorage`.
  */
 export const TOKEN_STORAGE_KEY = 'topclaw_token';
 let inMemoryToken: string | null = null;
@@ -31,14 +30,6 @@ function removeStorage(key: string): void {
   }
 }
 
-function clearLegacyLocalStorageToken(key: string): void {
-  try {
-    localStorage.removeItem(key);
-  } catch {
-    // Ignore
-  }
-}
-
 /**
  * Retrieve the stored authentication token.
  */
@@ -53,19 +44,6 @@ export function getToken(): string | null {
     return sessionToken;
   }
 
-  // One-time migration from older localStorage-backed sessions.
-  try {
-    const legacy = localStorage.getItem(TOKEN_STORAGE_KEY);
-    if (legacy && legacy.length > 0) {
-      inMemoryToken = legacy;
-      writeStorage(TOKEN_STORAGE_KEY, legacy);
-      localStorage.removeItem(TOKEN_STORAGE_KEY);
-      return legacy;
-    }
-  } catch {
-    // Ignore
-  }
-
   return null;
 }
 
@@ -75,7 +53,6 @@ export function getToken(): string | null {
 export function setToken(token: string): void {
   inMemoryToken = token;
   writeStorage(TOKEN_STORAGE_KEY, token);
-  clearLegacyLocalStorageToken(TOKEN_STORAGE_KEY);
 }
 
 /**
@@ -84,7 +61,6 @@ export function setToken(token: string): void {
 export function clearToken(): void {
   inMemoryToken = null;
   removeStorage(TOKEN_STORAGE_KEY);
-  clearLegacyLocalStorageToken(TOKEN_STORAGE_KEY);
 }
 
 /**

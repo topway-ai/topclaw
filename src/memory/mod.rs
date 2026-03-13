@@ -321,9 +321,7 @@ pub fn create_memory_backend_with_storage_and_routes(
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .context(
-                "memory backend 'postgres' requires [storage.provider.config].db_url (or dbURL)",
-            )?;
+            .context("memory backend 'postgres' requires [storage.provider.config].db_url")?;
 
         let memory = PostgresMemory::new(
             db_url,
@@ -355,9 +353,7 @@ pub fn create_memory_backend_with_storage_and_routes(
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .context(
-                "memory backend 'mariadb' requires [storage.provider.config].db_url (or dbURL)",
-            )?;
+            .context("memory backend 'mariadb' requires [storage.provider.config].db_url")?;
 
         let memory = MariadbMemory::new(
             db_url,

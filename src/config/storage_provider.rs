@@ -17,13 +17,7 @@ pub struct StorageProviderConfig {
     pub provider: String,
 
     /// Connection URL for remote providers.
-    /// Accepts legacy aliases: dbURL, database_url, databaseUrl.
-    #[serde(
-        default,
-        alias = "dbURL",
-        alias = "database_url",
-        alias = "databaseUrl"
-    )]
+    #[serde(default)]
     pub db_url: Option<String>,
 
     /// Database schema for SQL backends.

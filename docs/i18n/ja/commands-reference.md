@@ -21,7 +21,7 @@
 
 - `topclaw gateway` は `--new-pairing` をサポートし、既存のペアリングトークンを消去して新しいペアリングコードを生成できます。
 - `topclaw update` を使って最新リリースを確認・適用できます。安全な更新手順は `topclaw update --check` -> `topclaw update` -> 必要なら `topclaw service restart` です。
-- 互換用エイリアスとして `topclaw init` / `chat` / `run` / `info` / `check` / `channels` / `skill` は利用できますが、新しいドキュメントでは正規コマンド名を優先してください。
+- 現行バージョンでは、英語版の正規コマンド名だけを前提にしてください。
 - `topclaw status --diagnose` は、先に要約を確認してから詳細診断へ進む推奨経路です。
 - 常駐チャネルは `topclaw service status` から確認します。`topclaw channel start` は主に foreground デバッグ向けです。詳しくは [runtime-model.md](runtime-model.md) を参照してください。
 - まず頻出コマンドだけを知りたい場合は、英語版原文の先頭にある “Most Common Commands” セクションを参照してください。

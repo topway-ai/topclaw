@@ -347,7 +347,7 @@ smtp_tls = true
 username = "bot@example.com"
 password = "email-password"
 from_address = "bot@example.com"
-poll_interval_secs = 60
+idle_timeout_secs = 60
 allowed_senders = ["*"]
 ```
 

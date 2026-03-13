@@ -19,7 +19,6 @@ TopClaw installer bootstrap engine
 
 Usage:
   ./bootstrap.sh [options]
-  ./topclaw_install.sh [options]   # repository-root compatibility wrapper
 
 Modes:
   Default mode installs/builds TopClaw only (requires existing Rust toolchain).
@@ -59,9 +58,6 @@ Examples:
   ./bootstrap.sh --onboard --api-key "sk-..." --provider openrouter [--model "openrouter/auto"]
   ./bootstrap.sh --interactive-onboard
   ./bootstrap.sh --docker --docker-config ./config.toml --docker-daemon
-
-  # Repository-root wrapper (kept for compatibility):
-  ./topclaw_install.sh --docker
 
   # Remote one-liner
   curl -fsSL https://raw.githubusercontent.com/topway-ai/topclaw/main/scripts/bootstrap.sh | bash
@@ -985,7 +981,7 @@ config_gateway_port() {
 
 config_has_encrypted_secrets() {
   local config_path="$1"
-  grep -Eq "enc2:|enc:" "$config_path"
+  grep -Eq "enc2:" "$config_path"
 }
 
 seed_docker_secret_key_for_config() {

@@ -16,8 +16,6 @@ pub struct RuntimeConfig {
     pub wasm: WasmRuntimeConfig,
     #[serde(default)]
     pub reasoning_enabled: Option<bool>,
-    #[serde(default)]
-    pub reasoning_level: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -180,7 +178,6 @@ impl Default for RuntimeConfig {
             docker: DockerRuntimeConfig::default(),
             wasm: WasmRuntimeConfig::default(),
             reasoning_enabled: None,
-            reasoning_level: None,
         }
     }
 }

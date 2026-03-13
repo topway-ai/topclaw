@@ -189,11 +189,10 @@ Required docs governance rules:
 - If a change touches docs IA, runtime-contract references, or user-facing wording in shared docs, perform i18n follow-through for currently supported locales in the same PR:
   - Update locale navigation links (`README*`, `docs/README*`, `docs/SUMMARY.md`).
   - Update canonical locale hubs and summaries under `docs/i18n/<locale>/` for every supported locale.
-  - Update localized runtime-contract docs where equivalents exist (currently full trees for `vi` and `el`; do not regress `zh-CN`/`ja`/`ru`/`fr` hub parity).
+  - Update localized runtime-contract docs where equivalents exist; English is the only full runtime-contract source of truth, and non-English locale docs may be bridge pages back to the English normative docs.
   - Keep `docs/*.<locale>.md` compatibility shims aligned if present.
 - Follow `docs/i18n-guide.md` as the mandatory completion checklist when docs navigation or shared wording changes.
 - Keep proposal/roadmap docs explicitly labeled; avoid mixing proposal text into runtime-contract docs.
-- Keep project snapshots date-stamped and immutable once superseded by a newer date.
 
 ### 4.2 Docs i18n Completion Gate (Required)
 
@@ -377,7 +376,7 @@ Additional expectations by change type:
 - **Docs/template-only**:
     - run markdown lint and link-integrity checks
     - if touching README/docs-hub/SUMMARY/collection indexes, verify EN/ZH-CN/JA/RU/FR/VI/EL navigation parity
-    - if touching bootstrap docs/scripts, run `bash -n bootstrap.sh scripts/bootstrap.sh scripts/install.sh`
+    - if touching bootstrap docs/scripts, run `bash -n bootstrap.sh scripts/bootstrap.sh`
 - **Workflow changes**: validate YAML syntax; run workflow lint/sanity checks when available.
 - **Security/runtime/gateway/tools**: include at least one boundary/failure-mode validation.
 

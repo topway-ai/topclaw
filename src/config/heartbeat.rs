@@ -12,10 +12,10 @@ pub struct HeartbeatConfig {
     #[serde(default)]
     pub message: Option<String>,
     /// Optional delivery channel for heartbeat output (for example: `telegram`).
-    #[serde(default, alias = "channel")]
+    #[serde(default)]
     pub target: Option<String>,
     /// Optional delivery recipient/chat identifier (required when `target` is set).
-    #[serde(default, alias = "recipient")]
+    #[serde(default)]
     pub to: Option<String>,
 }
 

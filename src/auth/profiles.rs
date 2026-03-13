@@ -247,34 +247,14 @@ impl AuthProfilesStore {
     }
 
     async fn load_locked(&self) -> Result<AuthProfilesData> {
-        let mut persisted = self.read_persisted_locked().await?;
-        let mut migrated = false;
+        let persisted = self.read_persisted_locked().await?;
 
         let mut profiles = BTreeMap::new();
-        for (id, p) in &mut persisted.profiles {
-            let (access_token, access_migrated) =
-                self.decrypt_optional(p.access_token.as_deref())?;
-            let (refresh_token, refresh_migrated) =
-                self.decrypt_optional(p.refresh_token.as_deref())?;
-            let (id_token, id_migrated) = self.decrypt_optional(p.id_token.as_deref())?;
-            let (token, token_migrated) = self.decrypt_optional(p.token.as_deref())?;
-
-            if let Some(value) = access_migrated {
-                p.access_token = Some(value);
-                migrated = true;
-            }
-            if let Some(value) = refresh_migrated {
-                p.refresh_token = Some(value);
-                migrated = true;
-            }
-            if let Some(value) = id_migrated {
-                p.id_token = Some(value);
-                migrated = true;
-            }
-            if let Some(value) = token_migrated {
-                p.token = Some(value);
-                migrated = true;
-            }
+        for (id, p) in &persisted.profiles {
+            let access_token = self.decrypt_optional(p.access_token.as_deref())?;
+            let refresh_token = self.decrypt_optional(p.refresh_token.as_deref())?;
+            let id_token = self.decrypt_optional(p.id_token.as_deref())?;
+            let token = self.decrypt_optional(p.token.as_deref())?;
 
             let kind = parse_profile_kind(&p.kind)?;
             let token_set = match kind {
@@ -310,10 +290,6 @@ impl AuthProfilesStore {
                     updated_at: parse_datetime_with_fallback(&p.updated_at),
                 },
             );
-        }
-
-        if migrated {
-            self.write_persisted_locked(&persisted).await?;
         }
 
         Ok(AuthProfilesData {
@@ -456,13 +432,10 @@ impl AuthProfilesStore {
         }
     }
 
-    fn decrypt_optional(&self, value: Option<&str>) -> Result<(Option<String>, Option<String>)> {
+    fn decrypt_optional(&self, value: Option<&str>) -> Result<Option<String>> {
         match value {
-            Some(value) if !value.is_empty() => {
-                let (plaintext, migrated) = self.secret_store.decrypt_and_migrate(value)?;
-                Ok((Some(plaintext), migrated))
-            }
-            Some(_) | None => Ok((None, None)),
+            Some(value) if !value.is_empty() => self.secret_store.decrypt(value).map(Some),
+            Some(_) | None => Ok(None),
         }
     }
 

@@ -7,24 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Security
-- **Legacy XOR cipher migration**: The `enc:` prefix (XOR cipher) is now deprecated. 
-  Secrets using this format will be automatically migrated to `enc2:` (ChaCha20-Poly1305 AEAD)
-  when decrypted via `decrypt_and_migrate()`. A `tracing::warn!` is emitted when legacy
-  values are encountered. The XOR cipher will be removed in a future release.
-
-### Added
-- `SecretStore::decrypt_and_migrate()` — Decrypts secrets and returns a migrated `enc2:` 
-  value if the input used the legacy `enc:` format
-- `SecretStore::needs_migration()` — Check if a value uses the legacy `enc:` format
-- `SecretStore::is_secure_encrypted()` — Check if a value uses the secure `enc2:` format
-- **Telegram mention_only mode** — New config option `mention_only` for Telegram channel.
-  When enabled, bot only responds to messages that @-mention the bot in group chats.
-  Direct messages always work regardless of this setting. Default: `false`.
-
-### Deprecated
-- `enc:` prefix for encrypted secrets — Use `enc2:` (ChaCha20-Poly1305) instead.
-  Legacy values are still decrypted for backward compatibility but should be migrated.
+### Removed
+- Deprecated CLI aliases such as `topclaw onboard`, `topclaw init`, `chat`, `run`, `info`, `check`, `channels`, `skill`, and `self-improve`.
+- Deprecated Unix installer wrappers `topclaw_install.sh` and `scripts/install.sh`.
+- Deprecated config alias `runtime.reasoning_level` and its `TOPCLAW_REASONING_LEVEL` / `REASONING_LEVEL` environment aliases.
+- Legacy `enc:` XOR-encrypted secret support and the associated migration helpers.
+- Dashboard `localStorage` auth-token migration path; session tokens now load only from memory + `sessionStorage`.
 
 ### Fixed
 - **Gemini thinking model support** — Responses from thinking models (e.g. `gemini-3-pro-preview`)

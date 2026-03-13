@@ -19,6 +19,6 @@ Nguồn tiếng Anh:
 
 ## Điểm cần chú ý
 
-- `topclaw bootstrap` là lệnh thiết lập chuẩn; `topclaw onboard` và `topclaw init` chỉ nên xem như alias tương thích, không phải đường dẫn chính cho tài liệu mới.
+- `topclaw bootstrap` là lệnh thiết lập chuẩn cho phiên bản hiện tại.
 - Với channel chạy nền, ưu tiên `topclaw service status` để kiểm tra trạng thái trước khi cài lại service.
 - Sau khi onboarding xong và đã cấu hình channel, bước thử đầu tiên nên là nhắn tin cho bot trong channel đó.

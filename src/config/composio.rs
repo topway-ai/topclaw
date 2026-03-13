@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ComposioConfig {
     /// Enable Composio integration for 1000+ OAuth tools
-    #[serde(default, alias = "enable")]
+    #[serde(default)]
     pub enabled: bool,
     /// Composio API key (stored encrypted when secrets.encrypt = true)
     #[serde(default)]
