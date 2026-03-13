@@ -4,21 +4,20 @@ TopClaw is a Rust-based AI agent runtime for local and remote AI workflows.
 
 ## What TopClaw Is
 
-TopClaw combines several runtime surfaces in one Rust codebase:
+TopClaw combines several runtime surfaces in one codebase:
 
-- a CLI for onboarding, diagnostics, and direct chat
+- a CLI for setup, diagnostics, and direct chat
 - an agent loop that can call tools and persist memory
 - provider adapters for multiple model APIs
-- channel adapters for chat platforms such as Telegram, Discord, Slack, and others
-- a gateway for HTTP, WebSocket, and OpenAI-compatible access
+- channel adapters for Telegram, Discord, Slack, and others
+- an HTTP, WebSocket, and OpenAI-compatible gateway
 - optional hardware and peripheral integrations
 
-The implementation is trait-driven. Most extensions are added by implementing an
-existing trait and registering the implementation in the matching factory module.
+The implementation is trait-driven. Most extensions are added by implementing an existing trait and registering it in the matching factory.
 
 ## Quick Start
 
-Use the supported one-line installer for your shell:
+Use the supported one-line installer for your shell.
 
 Linux / macOS:
 
@@ -32,7 +31,7 @@ Windows PowerShell:
 iwr -useb https://raw.githubusercontent.com/topway-ai/topclaw/main/bootstrap.ps1 | iex
 ```
 
-These hosted installers prefer the latest compatible release asset first, clone and build from source only if they need to fall back, and then start onboarding automatically.
+The hosted installers prefer the latest compatible release asset first, fall back to a source build only if needed, and then start onboarding automatically.
 
 If you need to review the installer first or validate local source changes, use a repository checkout instead:
 
@@ -42,45 +41,24 @@ cd topclaw
 ./bootstrap.sh --install-system-deps --install-rust --prefer-prebuilt
 ```
 
-Use `./bootstrap.sh --force-source-build` when you need to test the local checkout instead of the latest release asset.
+Use `./bootstrap.sh --force-source-build` when you need to validate the local checkout instead of the latest release asset.
 
 ## What Bootstrap Does
 
-Recommended first-run command:
+The default onboarding path is:
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/topway-ai/topclaw/main/scripts/bootstrap.sh | bash
-```
+1. choose your AI provider
+2. authenticate or enter the provider API key if needed
+3. choose a channel such as Telegram or Discord
+4. enter the channel token and allowed user info
+5. let onboarding try to install and start the background service when your selected channels need one
 
-Windows PowerShell:
-
-```powershell
-iwr -useb https://raw.githubusercontent.com/topway-ai/topclaw/main/bootstrap.ps1 | iex
-```
-
-What the hosted installers do:
-
-1. install missing system dependencies when possible
-2. install Rust if it is not already present
-3. try a prebuilt `topclaw` binary first, then clone and fall back to source build only if needed
-4. start the onboarding wizard
+After onboarding, `topclaw status` shows whether the provider is ready, whether channels are configured, and whether any manual action is still required.
 
 Important:
 
 - the hosted installers prefer the latest released TopClaw binary, not the exact code in a local checkout
 - use a local checkout plus `./bootstrap.sh --force-source-build` when you need to validate local source changes
-
-During onboarding, the default path is now:
-
-- choose your AI provider
-- authenticate or enter the provider API key if needed
-- choose a channel such as Telegram or Discord
-- enter the channel token and allowed user info
-- let onboarding try to start the background service automatically when your selected channels need one
-
-Everything else can be changed later in `config.toml`.
-
-After onboarding, `topclaw status` should show whether the provider is ready, whether channels are configured, and whether any manual action is still required.
 
 ## Fast Path
 
@@ -107,18 +85,43 @@ topclaw status --diagnose
 topclaw agent -m "Hello, TopClaw!"
 ```
 
-Use `topclaw gateway` only when you are intentionally testing the HTTP/webhook surface.
+If you configured a channel and the service is running, the first real end-to-end check is usually to send TopClaw a message in that channel.
+
+Use `topclaw gateway` only when you are intentionally testing the HTTP or webhook surface.
 
 ## Runtime Modes
 
-TopClaw has a few different runtime commands:
+TopClaw exposes a few main runtime commands:
 
 - `topclaw agent`: talk to TopClaw directly in this terminal
 - `topclaw service ...`: keep configured channels running in the background
 - `topclaw daemon`: run the full runtime in the foreground for debugging
-- `topclaw gateway`: run only the HTTP/webhook gateway
+- `topclaw gateway`: run only the HTTP, WebSocket, and webhook gateway
 
 For the full explanation, see [`docs/runtime-model.md`](docs/runtime-model.md).
+
+## Run In Background
+
+If onboarding configured background channels on a supported platform, it tries to install and start the service automatically.
+
+To confirm that background runtime is healthy:
+
+```bash
+topclaw service status
+```
+
+If the service still needs manual setup:
+
+```bash
+topclaw service install
+topclaw service start
+```
+
+To stop the background service completely:
+
+```bash
+topclaw service stop
+```
 
 ## Architecture At A Glance
 
@@ -151,11 +154,11 @@ High-signal paths:
 - `src/channels/`: chat platform integrations
 - `src/tools/`: agent-callable tools
 - `src/memory/`: memory traits and backends
-- `src/security/`: policy, sandboxing, pairing, and secrets
+- `src/security/`: policy, pairing, and secrets
 - `src/gateway/`: HTTP, SSE, WebSocket, and OpenAI-compatible endpoints
-- `src/runtime/`: native, Docker, and WASM runtime adapters
+- `src/runtime/`: runtime adapters
 - `src/peripherals/` and `src/hardware/`: hardware-facing integrations
-- `examples/*.rs`: custom provider, tool, channel, and memory examples
+- `examples/`: custom provider, tool, channel, and memory examples
 - `tests/`: integration and regression coverage
 - `docs/`: user-facing reference, operations, security, and architecture docs
 
@@ -170,31 +173,6 @@ If you are extending TopClaw, start with these contracts:
 - observability backends: [`src/observability/traits.rs`](src/observability/traits.rs)
 - runtimes: [`src/runtime/traits.rs`](src/runtime/traits.rs)
 - peripherals: [`src/peripherals/traits.rs`](src/peripherals/traits.rs)
-
-Examples of these extension points are available under `examples/*.rs`.
-
-## Run In Background
-
-If onboarding configured background channels on a supported platform, it now tries to install and start the service automatically.
-
-To confirm that background runtime is healthy:
-
-```bash
-topclaw service status
-```
-
-If the service still needs manual setup:
-
-```bash
-topclaw service install
-topclaw service start
-```
-
-To stop the background service completely:
-
-```bash
-topclaw service stop
-```
 
 ## Uninstall
 
@@ -212,13 +190,7 @@ topclaw uninstall --purge
 
 ## Documentation Map
 
-- Getting started: [`docs/getting-started/README.md`](docs/getting-started/README.md)
-- Commands and config: [`docs/reference/README.md`](docs/reference/README.md)
-- Operations and troubleshooting: [`docs/operations/README.md`](docs/operations/README.md)
-- Full docs hub: [`docs/README.md`](docs/README.md)
-
-### Other Platforms
-
-- Windows: `iwr -useb https://raw.githubusercontent.com/topway-ai/topclaw/main/bootstrap.ps1 | iex`
-- Linux/macOS: `curl -fsSL https://raw.githubusercontent.com/topway-ai/topclaw/main/scripts/bootstrap.sh | bash`
-- Lower-resource machines from a repo checkout: `./bootstrap.sh --prefer-prebuilt`
+- getting started: [`docs/getting-started/README.md`](docs/getting-started/README.md)
+- commands and config: [`docs/reference/README.md`](docs/reference/README.md)
+- operations and troubleshooting: [`docs/operations/README.md`](docs/operations/README.md)
+- full docs hub: [`docs/README.md`](docs/README.md)
