@@ -138,18 +138,31 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [ "${{ needs.deploy-guard.outputs.source_ref }}" = "${{ github.sha }}" ]; then
+            echo "DOCS_SOURCE_DIR=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+            exit 0
+          fi
           rm -rf .docs-source
           mkdir -p .docs-source
           git archive "${{ needs.deploy-guard.outputs.source_ref }}" | tar -x -C .docs-source
+          echo "DOCS_SOURCE_DIR=$GITHUB_WORKSPACE/.docs-source" >> "$GITHUB_ENV"
       - name: Build static docs site
         shell: bash
         run: |
           set -euo pipefail
           rm -rf docs-built-site
           python3 ./scripts/docs/build_site.py \
-            --repo-root .docs-source \
+            --repo-root "${DOCS_SOURCE_DIR:-$GITHUB_WORKSPACE}" \
             --output-dir "$GITHUB_WORKSPACE/docs-built-site" \
             --github-source-base "https://github.com/topway-ai/topclaw/blob/${{ needs.deploy-guard.outputs.source_ref }}"
+      - name: Verify generated docs payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f docs-built-site/index.html
+          test -f docs-built-site/README.html
+          test -f docs-built-site/docs/README.html
+          find docs-built-site -maxdepth 2 -type f | sort | sed -n '1,120p'
       - name: Upload preview artifact
         if: needs.deploy-guard.outputs.deploy_target == 'preview'
         uses: actions/upload-artifact@v4
