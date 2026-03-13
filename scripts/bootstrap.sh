@@ -1532,6 +1532,7 @@ fi
 WORK_DIR="$ROOT_DIR"
 TEMP_CLONE=false
 TEMP_DIR=""
+REMOTE_BOOTSTRAP_MODE=false
 
 cleanup() {
   if [[ "$TEMP_CLONE" == true && -n "$TEMP_DIR" && -d "$TEMP_DIR" ]]; then
@@ -1548,19 +1549,8 @@ if [[ ! -f "$WORK_DIR/Cargo.toml" ]]; then
   if [[ -f "$(pwd)/Cargo.toml" ]]; then
     WORK_DIR="$(pwd)"
   else
-    if ! have_cmd git; then
-      error "git is required when running bootstrap outside a local repository checkout."
-      if [[ "$INSTALL_SYSTEM_DEPS" == false ]]; then
-        error "Re-run with --install-system-deps or install git manually."
-      fi
-      exit 1
-    fi
-
-    TEMP_DIR="$(mktemp -d -t topclaw-bootstrap-XXXXXX)"
-    info "No local repository detected; cloning latest main branch"
-    git clone --depth 1 "$REPO_URL" "$TEMP_DIR"
-    WORK_DIR="$TEMP_DIR"
-    TEMP_CLONE=true
+    WORK_DIR="$(pwd)"
+    REMOTE_BOOTSTRAP_MODE=true
   fi
 fi
 
@@ -1575,6 +1565,11 @@ if [[ "$FORCE_SOURCE_BUILD" == true ]]; then
 fi
 
 if [[ "$PREBUILT_ONLY" == true ]]; then
+  PREFER_PREBUILT=true
+fi
+
+if [[ "$REMOTE_BOOTSTRAP_MODE" == true && "$FORCE_SOURCE_BUILD" == false && "$PREFER_PREBUILT" == false && "$PREBUILT_ONLY" == false ]]; then
+  info "No local repository detected; preferring the latest release asset before any source-build fallback."
   PREFER_PREBUILT=true
 fi
 
@@ -1661,6 +1656,23 @@ if [[ "$FORCE_SOURCE_BUILD" == false ]]; then
       warn "Pre-built install unavailable; falling back to source build."
     fi
   fi
+fi
+
+if [[ "$PREBUILT_INSTALLED" == false && ! -f "$WORK_DIR/Cargo.toml" ]]; then
+  if ! have_cmd git; then
+    error "git is required when source-build fallback is needed outside a local repository checkout."
+    if [[ "$INSTALL_SYSTEM_DEPS" == false ]]; then
+      error "Re-run with --install-system-deps, use --prebuilt-only, or install git manually."
+    fi
+    exit 1
+  fi
+
+  TEMP_DIR="$(mktemp -d -t topclaw-bootstrap-XXXXXX)"
+  info "No local repository detected; cloning latest main branch for source-build fallback"
+  git clone --depth 1 "$REPO_URL" "$TEMP_DIR"
+  WORK_DIR="$TEMP_DIR"
+  TEMP_CLONE=true
+  cd "$WORK_DIR"
 fi
 
 if [[ "$PREBUILT_INSTALLED" == false && ( "$SKIP_BUILD" == false || "$SKIP_INSTALL" == false ) ]] && ! have_cmd cargo; then

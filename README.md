@@ -42,7 +42,7 @@ topclaw status --diagnose
 topclaw agent -m "Hello, TopClaw!"
 ```
 
-These hosted installers install standard prerequisites when needed, install Rust when missing, prefer a prebuilt binary first, and start onboarding automatically.
+These hosted installers prefer the latest compatible release asset first, clone and build from source only if they need to fall back, and then start onboarding automatically.
 
 If you need to review the installer first or validate local source changes, use a repository checkout instead:
 
@@ -72,7 +72,7 @@ What the hosted installers do:
 
 1. install missing system dependencies when possible
 2. install Rust if it is not already present
-3. try a prebuilt `topclaw` binary first, then fall back to source build if needed
+3. try a prebuilt `topclaw` binary first, then clone and fall back to source build only if needed
 4. start the onboarding wizard
 
 Important:

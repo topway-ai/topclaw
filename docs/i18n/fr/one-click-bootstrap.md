@@ -20,7 +20,7 @@ Source anglaise:
 ## Conseils d'exécution
 
 - Pour une installation existante, utiliser d'abord `topclaw update --check`, puis `topclaw update`, puis `topclaw service restart` si TopClaw tourne comme service.
-- `--prefer-prebuilt` peut installer le binaire de la dernière release au lieu de construire exactement le checkout courant. Pour valider des changements locaux, utilisez `./bootstrap.sh --force-source-build`.
+- Le one-line installer hébergé privilégie désormais d'abord le binaire compatible de la dernière release et ne clone le dépôt qu'en cas de repli vers une compilation source. Pour valider des changements locaux, utilisez un checkout puis `./bootstrap.sh --force-source-build`.
 - Commencer par la structure des sections source, puis cibler les parties directement liées au changement en cours.
 - Les noms de commandes, clés de configuration, chemins API et identifiants de code restent en anglais.
 - En cas d'ambiguïté d'interprétation, la source anglaise fait foi.

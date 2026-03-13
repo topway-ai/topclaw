@@ -9,7 +9,7 @@ Use this section for first install, onboarding, and first-run validation.
    `curl -fsSL https://raw.githubusercontent.com/topway-ai/topclaw/main/scripts/bootstrap.sh | bash`
    or on Windows PowerShell:
    `iwr -useb https://raw.githubusercontent.com/topway-ai/topclaw/main/bootstrap.ps1 | iex`
-3. Let the installer install prerequisites, prefer a prebuilt binary, and launch onboarding
+3. Let the installer try the latest compatible release asset first, fall back to a source build only if needed, and launch onboarding
 4. Validate readiness with `topclaw status`
 5. Run deeper checks with `topclaw status --diagnose`
 6. Send a test prompt with `topclaw agent -m "Hello, TopClaw!"`

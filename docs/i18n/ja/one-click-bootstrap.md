@@ -20,7 +20,7 @@
 ## 実行ヒント
 
 - 既存インストールの更新は、まず `topclaw update --check`、次に `topclaw update`、サービス運用中なら `topclaw service restart` の順で行います。
-- `--prefer-prebuilt` は最新 release binary を優先するため、現在の checkout を必ずしもビルドしません。ローカル変更の検証には `./bootstrap.sh --force-source-build` を使います。
+- ホスト型 one-line installer は、まず最新 release の互換バイナリを優先し、ソースビルドへのフォールバックが必要な場合だけリポジトリを clone します。ローカル変更の検証には checkout 上で `./bootstrap.sh --force-source-build` を使います。
 - まず原文の見出し構成を確認し、今回の変更範囲に直結する節から読みます。
 - コマンド名、設定キー、API パス、コード識別子は英語のまま保持します。
 - 仕様解釈に差分が出る場合は英語版原文を優先します。

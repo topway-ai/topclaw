@@ -54,7 +54,7 @@ What this recommended path does:
 1. installs standard prerequisites when supported
 2. installs Rust when missing
 3. tries a prebuilt binary first
-4. falls back to source build only if no compatible release asset exists
+4. clones and falls back to source build only if no compatible release asset exists
 
 Important:
 
@@ -129,7 +129,7 @@ curl -fsSL https://raw.githubusercontent.com/topway-ai/topclaw/main/scripts/inst
 
 This legacy endpoint prefers forwarding to `scripts/bootstrap.sh` and falls back to legacy source install if unavailable in that revision.
 
-If you run Option A or Option C outside a repository checkout, the bootstrap script automatically clones a temporary workspace, builds, installs, and then cleans it up.
+If you run Option A or Option C outside a repository checkout, the bootstrap script now tries the latest compatible release asset without cloning first. It only clones a temporary workspace if it needs a source-build fallback, then cleans that workspace up afterward.
 
 ## Optional onboarding modes
 
