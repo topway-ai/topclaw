@@ -25,12 +25,129 @@ const SKILLS_SH_HOST: &str = "skills.sh";
 const SKILL_PROMPT_GUARD_NOTICE: &str =
     "Skill instructions withheld by runtime security guard. Inspect the skill file manually before using it.";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CuratedSkillRisk {
+    Lower,
+    Higher,
+}
+
+impl CuratedSkillRisk {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Lower => "lower-risk",
+            Self::Higher => "higher-risk",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CuratedSkillInstallKind {
+    BuiltinPreloaded,
+    OptionalBundle,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CuratedSkillCatalogEntry {
+    pub slug: &'static str,
+    pub description: &'static str,
+    pub risk: CuratedSkillRisk,
+    pub install_kind: CuratedSkillInstallKind,
+    pub source_url: &'static str,
+}
+
+const CURATED_SKILL_CATALOG: [CuratedSkillCatalogEntry; 11] = [
+    CuratedSkillCatalogEntry {
+        slug: "find-skills",
+        description: "Discover and install extra skills for recurring tasks.",
+        risk: CuratedSkillRisk::Lower,
+        install_kind: CuratedSkillInstallKind::BuiltinPreloaded,
+        source_url: "https://skills.sh/vercel-labs/skills/find-skills",
+    },
+    CuratedSkillCatalogEntry {
+        slug: "skill-creator",
+        description: "Create, validate, and package reusable skill bundles.",
+        risk: CuratedSkillRisk::Lower,
+        install_kind: CuratedSkillInstallKind::BuiltinPreloaded,
+        source_url: "https://github.com/topway-ai/topclaw/tree/main/skills/skill-creator",
+    },
+    CuratedSkillCatalogEntry {
+        slug: "local-file-analyzer",
+        description: "Read and summarize local files without editing them.",
+        risk: CuratedSkillRisk::Lower,
+        install_kind: CuratedSkillInstallKind::BuiltinPreloaded,
+        source_url: "https://github.com/topway-ai/topclaw/tree/main/skills/local-file-analyzer",
+    },
+    CuratedSkillCatalogEntry {
+        slug: "workspace-search",
+        description: "Search code, docs, and config inside the current workspace.",
+        risk: CuratedSkillRisk::Lower,
+        install_kind: CuratedSkillInstallKind::BuiltinPreloaded,
+        source_url: "https://github.com/topway-ai/topclaw/tree/main/skills/workspace-search",
+    },
+    CuratedSkillCatalogEntry {
+        slug: "code-explainer",
+        description: "Explain modules, control flow, and behavior from existing code.",
+        risk: CuratedSkillRisk::Lower,
+        install_kind: CuratedSkillInstallKind::BuiltinPreloaded,
+        source_url: "https://github.com/topway-ai/topclaw/tree/main/skills/code-explainer",
+    },
+    CuratedSkillCatalogEntry {
+        slug: "change-summary",
+        description: "Summarize diffs, commits, and release deltas clearly.",
+        risk: CuratedSkillRisk::Lower,
+        install_kind: CuratedSkillInstallKind::BuiltinPreloaded,
+        source_url: "https://github.com/topway-ai/topclaw/tree/main/skills/change-summary",
+    },
+    CuratedSkillCatalogEntry {
+        slug: "safe-web-search",
+        description: "Look up current information with low-risk web search tools.",
+        risk: CuratedSkillRisk::Higher,
+        install_kind: CuratedSkillInstallKind::BuiltinPreloaded,
+        source_url: "https://github.com/topway-ai/topclaw/tree/main/skills/safe-web-search",
+    },
+    CuratedSkillCatalogEntry {
+        slug: "self-improving-agent",
+        description: "Write durable learnings and failure notes into the workspace.",
+        risk: CuratedSkillRisk::Higher,
+        install_kind: CuratedSkillInstallKind::OptionalBundle,
+        source_url: "https://github.com/topway-ai/topclaw/tree/main/skills/self-improving-agent",
+    },
+    CuratedSkillCatalogEntry {
+        slug: "multi-search-engine",
+        description: "Use specific public search engines and advanced query operators.",
+        risk: CuratedSkillRisk::Higher,
+        install_kind: CuratedSkillInstallKind::OptionalBundle,
+        source_url: "https://github.com/topway-ai/topclaw/tree/main/skills/multi-search-engine",
+    },
+    CuratedSkillCatalogEntry {
+        slug: "agent-browser-extension",
+        description: "Drive approved websites with interactive browser automation.",
+        risk: CuratedSkillRisk::Higher,
+        install_kind: CuratedSkillInstallKind::OptionalBundle,
+        source_url: "https://github.com/topway-ai/topclaw/tree/main/skills/agent-browser-extension",
+    },
+    CuratedSkillCatalogEntry {
+        slug: "desktop-computer-use",
+        description: "Control real desktop apps and windows through computer-use tooling.",
+        risk: CuratedSkillRisk::Higher,
+        install_kind: CuratedSkillInstallKind::OptionalBundle,
+        source_url: "https://github.com/topway-ai/topclaw/tree/main/skills/desktop-computer-use",
+    },
+];
+
+pub fn curated_skill_catalog() -> &'static [CuratedSkillCatalogEntry] {
+    &CURATED_SKILL_CATALOG
+}
+
 const DEFAULT_PRELOADED_SKILL_SOURCES: [(&str, &str); 7] = [
     (
         "find-skills",
         "https://skills.sh/vercel-labs/skills/find-skills",
     ),
-    ("skill-creator", "https://clawhub.ai/chindden/skill-creator"),
+    (
+        "skill-creator",
+        "https://github.com/topway-ai/topclaw/tree/main/skills/skill-creator",
+    ),
     (
         "local-file-analyzer",
         "https://github.com/topway-ai/topclaw/tree/main/skills/local-file-analyzer",
@@ -67,16 +184,11 @@ struct BuiltinPreloadedSkillFile {
     executable: bool,
 }
 
-#[cfg(feature = "builtin-preloaded-skills")]
 fn is_builtin_preloaded_skill(name: &str) -> bool {
-    builtin_preloaded_skills()
-        .iter()
-        .any(|builtin| builtin.dir_name.eq_ignore_ascii_case(name))
-}
-
-#[cfg(not(feature = "builtin-preloaded-skills"))]
-fn is_builtin_preloaded_skill(_name: &str) -> bool {
-    false
+    curated_skill_catalog().iter().any(|entry| {
+        entry.install_kind == CuratedSkillInstallKind::BuiltinPreloaded
+            && entry.slug.eq_ignore_ascii_case(name)
+    })
 }
 
 fn configured_builtin_skill_blocklist(entries: &[String]) -> HashSet<String> {
@@ -103,7 +215,7 @@ const BUILTIN_PRELOADED_SKILLS: [BuiltinPreloadedSkill; 7] = [
     },
     BuiltinPreloadedSkill {
         dir_name: "skill-creator",
-        source_url: "https://clawhub.ai/chindden/skill-creator",
+        source_url: "https://github.com/topway-ai/topclaw/tree/main/skills/skill-creator",
         files: &[
             BuiltinPreloadedSkillFile {
                 relative_path: "SKILL.md",
@@ -226,12 +338,124 @@ const BUILTIN_PRELOADED_SKILLS: [BuiltinPreloadedSkill; 7] = [
 ];
 
 #[cfg(feature = "builtin-preloaded-skills")]
+const EMBEDDED_OPTIONAL_SKILLS: [BuiltinPreloadedSkill; 4] = [
+    BuiltinPreloadedSkill {
+        dir_name: "self-improving-agent",
+        source_url: "https://github.com/topway-ai/topclaw/tree/main/skills/self-improving-agent",
+        files: &[BuiltinPreloadedSkillFile {
+            relative_path: "SKILL.md",
+            contents: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/skills/self-improving-agent/SKILL.md"
+            )),
+            executable: false,
+        }],
+    },
+    BuiltinPreloadedSkill {
+        dir_name: "multi-search-engine",
+        source_url: "https://github.com/topway-ai/topclaw/tree/main/skills/multi-search-engine",
+        files: &[
+            BuiltinPreloadedSkillFile {
+                relative_path: "SKILL.md",
+                contents: include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/skills/multi-search-engine/SKILL.md"
+                )),
+                executable: false,
+            },
+            BuiltinPreloadedSkillFile {
+                relative_path: "CHANGELOG.md",
+                contents: include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/skills/multi-search-engine/CHANGELOG.md"
+                )),
+                executable: false,
+            },
+            BuiltinPreloadedSkillFile {
+                relative_path: "CHANNELLOG.md",
+                contents: include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/skills/multi-search-engine/CHANNELLOG.md"
+                )),
+                executable: false,
+            },
+            BuiltinPreloadedSkillFile {
+                relative_path: "config.json",
+                contents: include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/skills/multi-search-engine/config.json"
+                )),
+                executable: false,
+            },
+            BuiltinPreloadedSkillFile {
+                relative_path: "metadata.json",
+                contents: include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/skills/multi-search-engine/metadata.json"
+                )),
+                executable: false,
+            },
+            BuiltinPreloadedSkillFile {
+                relative_path: "_meta.json",
+                contents: include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/skills/multi-search-engine/_meta.json"
+                )),
+                executable: false,
+            },
+            BuiltinPreloadedSkillFile {
+                relative_path: "references/international-search.md",
+                contents: include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/skills/multi-search-engine/references/international-search.md"
+                )),
+                executable: false,
+            },
+        ],
+    },
+    BuiltinPreloadedSkill {
+        dir_name: "agent-browser-extension",
+        source_url: "https://github.com/topway-ai/topclaw/tree/main/skills/agent-browser-extension",
+        files: &[BuiltinPreloadedSkillFile {
+            relative_path: "SKILL.md",
+            contents: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/skills/agent-browser-extension/SKILL.md"
+            )),
+            executable: false,
+        }],
+    },
+    BuiltinPreloadedSkill {
+        dir_name: "desktop-computer-use",
+        source_url: "https://github.com/topway-ai/topclaw/tree/main/skills/desktop-computer-use",
+        files: &[BuiltinPreloadedSkillFile {
+            relative_path: "SKILL.md",
+            contents: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/skills/desktop-computer-use/SKILL.md"
+            )),
+            executable: false,
+        }],
+    },
+];
+
+#[cfg(feature = "builtin-preloaded-skills")]
 fn builtin_preloaded_skills() -> &'static [BuiltinPreloadedSkill] {
     &BUILTIN_PRELOADED_SKILLS
 }
 
+#[cfg(feature = "builtin-preloaded-skills")]
+fn embedded_optional_skills() -> &'static [BuiltinPreloadedSkill] {
+    &EMBEDDED_OPTIONAL_SKILLS
+}
+
 #[cfg(not(feature = "builtin-preloaded-skills"))]
 fn builtin_preloaded_skills() -> &'static [()] {
+    &[]
+}
+
+#[cfg(not(feature = "builtin-preloaded-skills"))]
+fn embedded_optional_skills() -> &'static [()] {
     &[]
 }
 
@@ -277,6 +501,20 @@ struct SkillsShSource {
 }
 
 impl SkillsShSource {
+    fn github_repo_url(&self) -> String {
+        format!("https://github.com/{}/{}.git", self.owner, self.repo)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GitHubTreeSource {
+    owner: String,
+    repo: String,
+    git_ref: String,
+    skill_path: String,
+}
+
+impl GitHubTreeSource {
     fn github_repo_url(&self) -> String {
         format!("https://github.com/{}/{}.git", self.owner, self.repo)
     }
@@ -1264,44 +1502,55 @@ fn ensure_source_domain_trust(
 }
 
 #[cfg(feature = "builtin-preloaded-skills")]
+fn materialize_embedded_skill_bundle(
+    skills_path: &Path,
+    bundle: &BuiltinPreloadedSkill,
+) -> Result<PathBuf> {
+    let skill_dir = skills_path.join(bundle.dir_name);
+    if skill_dir.exists() {
+        return Ok(skill_dir);
+    }
+
+    std::fs::create_dir_all(&skill_dir)
+        .with_context(|| format!("failed to create {}", skill_dir.display()))?;
+    for file in bundle.files {
+        let dest = skill_dir.join(file.relative_path);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create {}", parent.display()))?;
+        }
+        std::fs::write(&dest, file.contents)
+            .with_context(|| format!("failed to write embedded skill {}", dest.display()))?;
+        #[cfg(unix)]
+        if file.executable {
+            let permissions = fs::Permissions::from_mode(0o755);
+            std::fs::set_permissions(&dest, permissions).with_context(|| {
+                format!(
+                    "failed to mark embedded skill file executable {}",
+                    dest.display()
+                )
+            })?;
+        }
+    }
+
+    let meta = serde_json::json!({
+        "slug": bundle.dir_name,
+        "version": "preloaded",
+        "source": bundle.source_url
+    });
+    std::fs::write(
+        skill_dir.join("_meta.json"),
+        serde_json::to_vec_pretty(&meta)?,
+    )
+    .with_context(|| format!("failed to write {}", skill_dir.join("_meta.json").display()))?;
+
+    Ok(skill_dir)
+}
+
+#[cfg(feature = "builtin-preloaded-skills")]
 fn ensure_builtin_preloaded_skills(skills_path: &Path) -> Result<()> {
     for builtin in builtin_preloaded_skills() {
-        let skill_dir = skills_path.join(builtin.dir_name);
-        if skill_dir.exists() {
-            continue;
-        }
-
-        std::fs::create_dir_all(&skill_dir)
-            .with_context(|| format!("failed to create {}", skill_dir.display()))?;
-        for file in builtin.files {
-            let dest = skill_dir.join(file.relative_path);
-            if let Some(parent) = dest.parent() {
-                std::fs::create_dir_all(parent)
-                    .with_context(|| format!("failed to create {}", parent.display()))?;
-            }
-            std::fs::write(&dest, file.contents)
-                .with_context(|| format!("failed to write preloaded skill {}", dest.display()))?;
-            #[cfg(unix)]
-            if file.executable {
-                let permissions = fs::Permissions::from_mode(0o755);
-                std::fs::set_permissions(&dest, permissions).with_context(|| {
-                    format!(
-                        "failed to mark preloaded skill file executable {}",
-                        dest.display()
-                    )
-                })?;
-            }
-        }
-        let meta = serde_json::json!({
-            "slug": builtin.dir_name,
-            "version": "preloaded",
-            "source": builtin.source_url
-        });
-        std::fs::write(
-            skill_dir.join("_meta.json"),
-            serde_json::to_vec_pretty(&meta)?,
-        )
-        .with_context(|| format!("failed to write {}", skill_dir.join("_meta.json").display()))?;
+        let _ = materialize_embedded_skill_bundle(skills_path, builtin)?;
     }
     Ok(())
 }
@@ -1351,6 +1600,110 @@ pub fn init_skills_dir(workspace_dir: &Path) -> Result<()> {
     let _ = load_or_init_skill_download_policy(&dir)?;
 
     Ok(())
+}
+
+#[cfg(feature = "builtin-preloaded-skills")]
+fn find_embedded_optional_skill(slug: &str) -> Option<&'static BuiltinPreloadedSkill> {
+    embedded_optional_skills()
+        .iter()
+        .find(|bundle| bundle.dir_name.eq_ignore_ascii_case(slug))
+}
+
+#[cfg(not(feature = "builtin-preloaded-skills"))]
+fn find_embedded_optional_skill(_slug: &str) -> Option<&'static ()> {
+    None
+}
+
+fn curated_skill_catalog_entry(slug: &str) -> Option<&'static CuratedSkillCatalogEntry> {
+    curated_skill_catalog()
+        .iter()
+        .find(|entry| entry.slug.eq_ignore_ascii_case(slug))
+}
+
+fn install_curated_skill_from_source(
+    skills_path: &Path,
+    entry: &CuratedSkillCatalogEntry,
+) -> Result<PathBuf> {
+    let allow_non_low_risk = entry.risk == CuratedSkillRisk::Higher;
+    let (installed_dir, _files_scanned) = if is_skills_sh_source(entry.source_url) {
+        install_skills_sh_source_with_override(entry.source_url, skills_path, allow_non_low_risk)?
+    } else if is_github_tree_source(entry.source_url) {
+        install_github_tree_skill_source_with_override(
+            entry.source_url,
+            skills_path,
+            allow_non_low_risk,
+        )?
+    } else if is_git_source(entry.source_url) {
+        install_git_skill_source_with_override(entry.source_url, skills_path, allow_non_low_risk)?
+    } else {
+        install_local_skill_source_with_override(entry.source_url, skills_path, allow_non_low_risk)?
+    };
+    Ok(installed_dir)
+}
+
+pub fn install_curated_skill(workspace_dir: &Path, slug: &str) -> Result<PathBuf> {
+    init_skills_dir(workspace_dir)?;
+    let skills_path = skills_dir(workspace_dir);
+    let entry = curated_skill_catalog_entry(slug)
+        .ok_or_else(|| anyhow::anyhow!("Curated skill not found: {slug}"))?;
+    let skill_dir = skills_path.join(entry.slug);
+    if skill_dir.exists() {
+        return Ok(skill_dir);
+    }
+
+    #[cfg(feature = "builtin-preloaded-skills")]
+    {
+        if entry.install_kind == CuratedSkillInstallKind::BuiltinPreloaded {
+            if let Some(bundle) = builtin_preloaded_skills()
+                .iter()
+                .find(|bundle| bundle.dir_name.eq_ignore_ascii_case(entry.slug))
+            {
+                return materialize_embedded_skill_bundle(&skills_path, bundle);
+            }
+        } else if let Some(bundle) = find_embedded_optional_skill(entry.slug) {
+            return materialize_embedded_skill_bundle(&skills_path, bundle);
+        }
+    }
+
+    install_curated_skill_from_source(&skills_path, entry)
+}
+
+pub fn apply_builtin_skill_selection(
+    workspace_dir: &Path,
+    allowed_builtin_slugs: &[String],
+) -> Result<()> {
+    let skills_path = skills_dir(workspace_dir);
+    std::fs::create_dir_all(&skills_path)?;
+    let allowed: HashSet<String> = allowed_builtin_slugs
+        .iter()
+        .map(|slug| slug.trim().to_ascii_lowercase())
+        .filter(|slug| !slug.is_empty())
+        .collect();
+
+    for entry in curated_skill_catalog()
+        .iter()
+        .filter(|entry| entry.install_kind == CuratedSkillInstallKind::BuiltinPreloaded)
+    {
+        let skill_dir = skills_path.join(entry.slug);
+        if allowed.contains(&entry.slug.to_ascii_lowercase()) {
+            if !skill_dir.exists() {
+                let _ = install_curated_skill(workspace_dir, entry.slug)?;
+            }
+        } else if skill_dir.exists() {
+            std::fs::remove_dir_all(&skill_dir).with_context(|| {
+                format!(
+                    "failed to remove unselected builtin skill {}",
+                    skill_dir.display()
+                )
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
+pub fn install_optional_curated_skill(workspace_dir: &Path, slug: &str) -> Result<PathBuf> {
+    install_curated_skill(workspace_dir, slug)
 }
 
 fn is_git_source(source: &str) -> bool {
@@ -1436,6 +1789,43 @@ fn is_skills_sh_source(source: &str) -> bool {
     parse_skills_sh_source(source).is_some()
 }
 
+fn parse_github_tree_source(source: &str) -> Option<GitHubTreeSource> {
+    let rest = source.strip_prefix("https://github.com/")?;
+    let path = rest.split(&['?', '#'][..]).next().unwrap_or("");
+    let mut segments = path.split('/').filter(|part| !part.trim().is_empty());
+    let owner = segments.next()?;
+    let repo = segments.next()?;
+    let tree = segments.next()?;
+    if tree != "tree" {
+        return None;
+    }
+    let git_ref = segments.next()?;
+    let skill_path = segments.collect::<Vec<_>>().join("/");
+    if skill_path.is_empty()
+        || owner.contains("..")
+        || repo.contains("..")
+        || git_ref.contains("..")
+        || skill_path.contains("..")
+        || owner.contains('\\')
+        || repo.contains('\\')
+        || git_ref.contains('\\')
+        || skill_path.contains('\\')
+    {
+        return None;
+    }
+
+    Some(GitHubTreeSource {
+        owner: owner.to_string(),
+        repo: repo.to_string(),
+        git_ref: git_ref.to_string(),
+        skill_path,
+    })
+}
+
+fn is_github_tree_source(source: &str) -> bool {
+    parse_github_tree_source(source).is_some()
+}
+
 fn snapshot_skill_children(skills_path: &Path) -> Result<HashSet<PathBuf>> {
     let mut paths = HashSet::new();
     for entry in std::fs::read_dir(skills_path)? {
@@ -1469,9 +1859,12 @@ fn detect_newly_installed_directory(
     }
 }
 
-fn enforce_skill_security_audit(skill_path: &Path) -> Result<audit::SkillVettingReport> {
+fn enforce_skill_security_audit_with_override(
+    skill_path: &Path,
+    allow_non_low_risk: bool,
+) -> Result<audit::SkillVettingReport> {
     let report = audit::vet_skill_directory(skill_path)?;
-    if report.install_allowed {
+    if report.install_allowed || allow_non_low_risk {
         return Ok(report);
     }
 
@@ -1481,6 +1874,10 @@ fn enforce_skill_security_audit(skill_path: &Path) -> Result<audit::SkillVetting
         report.static_audit.summary(),
         report.dependency_audit.summary
     );
+}
+
+fn enforce_skill_security_audit(skill_path: &Path) -> Result<audit::SkillVettingReport> {
+    enforce_skill_security_audit_with_override(skill_path, false)
 }
 
 fn vetting_options_from_cli_sandbox(sandbox: Option<&str>) -> Result<audit::VettingOptions> {
@@ -1616,7 +2013,11 @@ fn copy_dir_recursive_secure(src: &Path, dest: &Path) -> Result<()> {
     Ok(())
 }
 
-fn install_local_skill_source(source: &str, skills_path: &Path) -> Result<(PathBuf, usize)> {
+fn install_local_skill_source_with_override(
+    source: &str,
+    skills_path: &Path,
+    allow_non_low_risk: bool,
+) -> Result<(PathBuf, usize)> {
     let source_path = PathBuf::from(source);
     if !source_path.exists() {
         anyhow::bail!("Source path does not exist: {source}");
@@ -1625,7 +2026,7 @@ fn install_local_skill_source(source: &str, skills_path: &Path) -> Result<(PathB
     let source_path = source_path
         .canonicalize()
         .with_context(|| format!("failed to canonicalize source path {source}"))?;
-    let _ = enforce_skill_security_audit(&source_path)?;
+    let _ = enforce_skill_security_audit_with_override(&source_path, allow_non_low_risk)?;
 
     let name = source_path
         .file_name()
@@ -1640,7 +2041,7 @@ fn install_local_skill_source(source: &str, skills_path: &Path) -> Result<(PathB
         return Err(err);
     }
 
-    match enforce_skill_security_audit(&dest) {
+    match enforce_skill_security_audit_with_override(&dest, allow_non_low_risk) {
         Ok(report) => Ok((dest, report.static_audit.files_scanned)),
         Err(err) => {
             let _ = std::fs::remove_dir_all(&dest);
@@ -1649,7 +2050,15 @@ fn install_local_skill_source(source: &str, skills_path: &Path) -> Result<(PathB
     }
 }
 
-fn install_git_skill_source(source: &str, skills_path: &Path) -> Result<(PathBuf, usize)> {
+fn install_local_skill_source(source: &str, skills_path: &Path) -> Result<(PathBuf, usize)> {
+    install_local_skill_source_with_override(source, skills_path, false)
+}
+
+fn install_git_skill_source_with_override(
+    source: &str,
+    skills_path: &Path,
+    allow_non_low_risk: bool,
+) -> Result<(PathBuf, usize)> {
     let before = snapshot_skill_children(skills_path)?;
     let output = std::process::Command::new("git")
         .args(["clone", "--depth", "1", source])
@@ -1662,7 +2071,7 @@ fn install_git_skill_source(source: &str, skills_path: &Path) -> Result<(PathBuf
 
     let installed_dir = detect_newly_installed_directory(skills_path, &before)?;
     remove_git_metadata(&installed_dir)?;
-    match enforce_skill_security_audit(&installed_dir) {
+    match enforce_skill_security_audit_with_override(&installed_dir, allow_non_low_risk) {
         Ok(report) => Ok((installed_dir, report.static_audit.files_scanned)),
         Err(err) => {
             let _ = std::fs::remove_dir_all(&installed_dir);
@@ -1671,7 +2080,48 @@ fn install_git_skill_source(source: &str, skills_path: &Path) -> Result<(PathBuf
     }
 }
 
-fn install_skills_sh_source(source: &str, skills_path: &Path) -> Result<(PathBuf, usize)> {
+fn install_git_skill_source(source: &str, skills_path: &Path) -> Result<(PathBuf, usize)> {
+    install_git_skill_source_with_override(source, skills_path, false)
+}
+
+fn install_github_tree_skill_source_with_override(
+    source: &str,
+    skills_path: &Path,
+    allow_non_low_risk: bool,
+) -> Result<(PathBuf, usize)> {
+    let parsed = parse_github_tree_source(source)
+        .ok_or_else(|| anyhow::anyhow!("invalid GitHub tree source: {source}"))?;
+    let checkout_root = tempfile::tempdir().context("failed to create temporary checkout dir")?;
+    let checkout_dir = checkout_root.path().join("repo");
+    let repo_url = parsed.github_repo_url();
+    let output = std::process::Command::new("git")
+        .args([
+            "clone",
+            "--depth",
+            "1",
+            "--branch",
+            &parsed.git_ref,
+            &repo_url,
+        ])
+        .arg(&checkout_dir)
+        .output()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("failed to clone GitHub source {repo_url}: {stderr}");
+    }
+
+    let source_dir = checkout_dir.join(&parsed.skill_path);
+    let source_dir = source_dir
+        .to_str()
+        .context("GitHub tree source path contained invalid UTF-8")?;
+    install_local_skill_source_with_override(source_dir, skills_path, allow_non_low_risk)
+}
+
+fn install_skills_sh_source_with_override(
+    source: &str,
+    skills_path: &Path,
+    allow_non_low_risk: bool,
+) -> Result<(PathBuf, usize)> {
     let parsed = parse_skills_sh_source(source).ok_or_else(|| {
         anyhow::anyhow!(
             "invalid skills.sh source '{source}': expected https://skills.sh/<owner>/<repo>/<skill>"
@@ -1742,13 +2192,17 @@ fn install_skills_sh_source(source: &str, skills_path: &Path) -> Result<(PathBuf
         return Err(err).context("failed to persist skills.sh metadata");
     }
 
-    match enforce_skill_security_audit(&dest) {
+    match enforce_skill_security_audit_with_override(&dest, allow_non_low_risk) {
         Ok(report) => Ok((dest, report.static_audit.files_scanned)),
         Err(err) => {
             let _ = std::fs::remove_dir_all(&dest);
             Err(err)
         }
     }
+}
+
+fn install_skills_sh_source(source: &str, skills_path: &Path) -> Result<(PathBuf, usize)> {
+    install_skills_sh_source_with_override(source, skills_path, false)
 }
 
 /// Handle the `skills` CLI command
@@ -1890,6 +2344,24 @@ pub fn handle_command(command: crate::SkillCommands, config: &crate::config::Con
                     )?;
                 println!(
                     "  {} Skill installed from skills.sh: {} ({} files scanned)",
+                    console::style("✓").green().bold(),
+                    installed_dir.display(),
+                    files_scanned
+                );
+                let report = audit::vet_skill_directory(&installed_dir)?;
+                print_skill_vetting_report(&report);
+            } else if is_github_tree_source(&resolved_source) {
+                let (installed_dir, files_scanned) =
+                    install_github_tree_skill_source_with_override(
+                        &resolved_source,
+                        &skills_path,
+                        false,
+                    )
+                    .with_context(|| {
+                        format!("failed to install GitHub tree skill source: {resolved_source}")
+                    })?;
+                println!(
+                    "  {} Skill installed and audited: {} ({} files scanned)",
                     console::style("✓").green().bold(),
                     installed_dir.display(),
                     files_scanned
@@ -2345,6 +2817,86 @@ prompts = ["Do not preload me"]
     }
 
     #[test]
+    fn curated_skill_catalog_splits_lower_and_higher_risk_entries() {
+        let lower = curated_skill_catalog()
+            .iter()
+            .filter(|entry| entry.risk == CuratedSkillRisk::Lower)
+            .count();
+        let higher = curated_skill_catalog()
+            .iter()
+            .filter(|entry| entry.risk == CuratedSkillRisk::Higher)
+            .count();
+
+        assert_eq!(lower, 6);
+        assert_eq!(higher, 5);
+        assert!(curated_skill_catalog().iter().any(|entry| {
+            entry.slug == "safe-web-search"
+                && entry.risk == CuratedSkillRisk::Higher
+                && entry.install_kind == CuratedSkillInstallKind::BuiltinPreloaded
+        }));
+        assert!(curated_skill_catalog().iter().any(|entry| {
+            entry.slug == "desktop-computer-use"
+                && entry.risk == CuratedSkillRisk::Higher
+                && entry.install_kind == CuratedSkillInstallKind::OptionalBundle
+        }));
+    }
+
+    #[test]
+    fn apply_builtin_skill_selection_keeps_only_selected_preloaded_skills() {
+        let dir = tempfile::tempdir().unwrap();
+        init_skills_dir(dir.path()).unwrap();
+
+        apply_builtin_skill_selection(
+            dir.path(),
+            &["find-skills".to_string(), "change-summary".to_string()],
+        )
+        .unwrap();
+
+        assert!(dir
+            .path()
+            .join("skills")
+            .join("find-skills")
+            .join("SKILL.md")
+            .exists());
+        assert!(dir
+            .path()
+            .join("skills")
+            .join("change-summary")
+            .join("SKILL.md")
+            .exists());
+        assert!(!dir
+            .path()
+            .join("skills")
+            .join("safe-web-search")
+            .join("SKILL.md")
+            .exists());
+        assert!(!dir
+            .path()
+            .join("skills")
+            .join("skill-creator")
+            .join("SKILL.md")
+            .exists());
+    }
+
+    #[test]
+    fn install_optional_curated_skill_materializes_bundle_files() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let installed = install_optional_curated_skill(dir.path(), "multi-search-engine").unwrap();
+
+        assert_eq!(
+            installed,
+            dir.path().join("skills").join("multi-search-engine")
+        );
+        assert!(installed.join("SKILL.md").exists());
+        assert!(installed
+            .join("references")
+            .join("international-search.md")
+            .exists());
+        assert!(installed.join("_meta.json").exists());
+    }
+
+    #[test]
     fn load_nonexistent_dir() {
         let dir = tempfile::tempdir().unwrap();
         let fake = dir.path().join("nonexistent");
@@ -2647,6 +3199,18 @@ description = "Bare minimum"
     }
 
     #[test]
+    fn parse_github_tree_source_accepts_repo_skill_paths() {
+        let parsed = parse_github_tree_source(
+            "https://github.com/topway-ai/topclaw/tree/main/skills/code-explainer",
+        )
+        .expect("should parse GitHub tree source");
+        assert_eq!(parsed.owner, "topway-ai");
+        assert_eq!(parsed.repo, "topclaw");
+        assert_eq!(parsed.git_ref, "main");
+        assert_eq!(parsed.skill_path, "skills/code-explainer");
+    }
+
+    #[test]
     fn default_download_policy_contains_required_preloaded_sources() {
         let policy = SkillDownloadPolicy::default();
         assert_eq!(
@@ -2655,7 +3219,9 @@ description = "Bare minimum"
         );
         assert_eq!(
             policy.aliases.get("skill-creator"),
-            Some(&"https://clawhub.ai/chindden/skill-creator".to_string())
+            Some(
+                &"https://github.com/topway-ai/topclaw/tree/main/skills/skill-creator".to_string()
+            )
         );
         assert_eq!(
             policy.aliases.get("local-file-analyzer"),

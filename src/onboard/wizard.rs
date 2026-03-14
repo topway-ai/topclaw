@@ -18,9 +18,10 @@ use crate::providers::{
     is_moonshot_alias, is_qianfan_alias, is_qwen_alias, is_qwen_oauth_alias, is_zai_alias,
     is_zai_cn_alias, list_providers,
 };
+use crate::skills::{CuratedSkillCatalogEntry, CuratedSkillInstallKind, CuratedSkillRisk};
 use anyhow::{bail, Context, Result};
 use console::style;
-use dialoguer::{Confirm, Input, Select};
+use dialoguer::{Confirm, Input, MultiSelect, Select};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -30,11 +31,12 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::fs;
 
-// ── SIMPLIFIED WIZARD: 3 Steps for Newbies ───────────────────────
+// ── SIMPLIFIED WIZARD: 4 Steps for Newbies ───────────────────────
 //
 // Step 1: Workspace - Where to store files
 // Step 2: AI Provider - Choose model and configure provider authentication
-// Step 3: How to reach you - connect one or more channels
+// Step 3: Skills - Select the starter skills to enable or install
+// Step 4: How to reach you - connect one or more channels
 //
 // Everything else (Tunnel, Web tools, Hardware, Memory) can be configured later.
 
@@ -45,6 +47,12 @@ pub struct ProjectContext {
     pub timezone: String,
     pub agent_name: String,
     pub communication_style: String,
+}
+
+#[derive(Debug, Clone, Default)]
+struct SkillOnboardingSelection {
+    enabled_builtin_slugs: Vec<String>,
+    install_optional_slugs: Vec<String>,
 }
 
 // ── Banner ───────────────────────────────────────────────────────
@@ -76,7 +84,151 @@ fn has_launchable_channels(channels: &ChannelsConfig) -> bool {
     channels.channels_except_webhook().iter().any(|(_, ok)| *ok)
 }
 
-// ── Simplified 3-Step Wizard Entry Point ────────────────────────────
+fn default_selected_onboarding_skill(entry: &CuratedSkillCatalogEntry) -> bool {
+    matches!(
+        (entry.install_kind, entry.risk),
+        (
+            CuratedSkillInstallKind::BuiltinPreloaded,
+            CuratedSkillRisk::Lower
+        )
+    )
+}
+
+fn format_onboarding_skill_label(entry: &CuratedSkillCatalogEntry) -> String {
+    let source = match entry.install_kind {
+        CuratedSkillInstallKind::BuiltinPreloaded => "built-in",
+        CuratedSkillInstallKind::OptionalBundle => "optional",
+    };
+    format!("{:<24} {} [{}]", entry.slug, entry.description, source)
+}
+
+fn build_skills_config_from_selection(
+    selection: &SkillOnboardingSelection,
+) -> crate::config::SkillsConfig {
+    let mut skills = crate::config::SkillsConfig::default();
+    let builtin_catalog: Vec<&'static str> = crate::skills::curated_skill_catalog()
+        .iter()
+        .filter(|entry| entry.install_kind == CuratedSkillInstallKind::BuiltinPreloaded)
+        .map(|entry| entry.slug)
+        .collect();
+
+    if selection.enabled_builtin_slugs.is_empty() {
+        skills.builtin_skills_enabled = false;
+        return skills;
+    }
+
+    let enabled: std::collections::HashSet<String> = selection
+        .enabled_builtin_slugs
+        .iter()
+        .map(|slug| slug.trim().to_ascii_lowercase())
+        .collect();
+
+    skills.disabled_builtin_skills = builtin_catalog
+        .into_iter()
+        .filter(|slug| !enabled.contains(&slug.to_ascii_lowercase()))
+        .map(str::to_string)
+        .collect();
+    skills
+}
+
+fn prompt_skill_group_selection(
+    title: &str,
+    help_text: &str,
+    entries: &[&CuratedSkillCatalogEntry],
+) -> Result<Vec<String>> {
+    if entries.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    println!("  {}", style(help_text).dim());
+    let labels: Vec<String> = entries
+        .iter()
+        .map(|entry| format_onboarding_skill_label(entry))
+        .collect();
+    let defaults: Vec<bool> = entries
+        .iter()
+        .map(|entry| default_selected_onboarding_skill(entry))
+        .collect();
+    let selected = MultiSelect::new()
+        .with_prompt(title)
+        .items(&labels)
+        .defaults(&defaults)
+        .interact()
+        .context("failed to read skill selection")?;
+
+    Ok(selected
+        .into_iter()
+        .map(|index| entries[index].slug.to_string())
+        .collect())
+}
+
+fn setup_skills() -> Result<SkillOnboardingSelection> {
+    println!(
+        "  {}",
+        style("Pick starter skills to install into this workspace.").dim()
+    );
+    println!(
+        "  {}",
+        style("Lower-risk skills are recommended. Higher-risk skills reach outside the workspace, drive automation, or write persistent learnings.")
+            .dim()
+    );
+
+    let catalog = crate::skills::curated_skill_catalog();
+    let lower_risk: Vec<&CuratedSkillCatalogEntry> = catalog
+        .iter()
+        .filter(|entry| entry.risk == CuratedSkillRisk::Lower)
+        .collect();
+    let higher_risk: Vec<&CuratedSkillCatalogEntry> = catalog
+        .iter()
+        .filter(|entry| entry.risk == CuratedSkillRisk::Higher)
+        .collect();
+
+    let lower_selected = prompt_skill_group_selection(
+        "Recommended lower-risk skills",
+        "These stay inside repo/workspace analysis or skill-authoring workflows for most users.",
+        &lower_risk,
+    )?;
+    println!();
+    let higher_selected = prompt_skill_group_selection(
+        "Advanced higher-risk skills",
+        "These can query the public web, write durable notes, or automate browsers and desktop apps. They are off by default.",
+        &higher_risk,
+    )?;
+
+    let enabled_builtin_slugs = lower_selected
+        .iter()
+        .chain(higher_selected.iter())
+        .filter_map(|slug| {
+            crate::skills::curated_skill_catalog()
+                .iter()
+                .find(|entry| {
+                    entry.slug == slug
+                        && entry.install_kind == CuratedSkillInstallKind::BuiltinPreloaded
+                })
+                .map(|entry| entry.slug.to_string())
+        })
+        .collect();
+    let install_optional_slugs = lower_selected
+        .iter()
+        .chain(higher_selected.iter())
+        .filter_map(|slug| {
+            crate::skills::curated_skill_catalog()
+                .iter()
+                .find(|entry| {
+                    entry.slug == slug
+                        && entry.install_kind == CuratedSkillInstallKind::OptionalBundle
+                })
+                .map(|entry| entry.slug.to_string())
+        })
+        .collect();
+
+    Ok(SkillOnboardingSelection {
+        enabled_builtin_slugs,
+        install_optional_slugs,
+    })
+}
+
+// ── Simplified 4-Step Wizard Entry Point ────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum InteractiveOnboardingMode {
@@ -105,7 +257,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
     println!();
 
     // ── STEP 1: Workspace ──────────────────────────────────────────
-    println!("  {}", style("[1/3] Where should we work?").cyan().bold());
+    println!("  {}", style("[1/4] Where should we work?").cyan().bold());
     println!("  {}", style("─".repeat(40)).dim());
     let (workspace_dir, config_path) = setup_workspace().await?;
 
@@ -121,7 +273,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
 
     // ── STEP 2: AI Provider & API Key ───────────────────────────────
     println!();
-    println!("  {}", style("[2/3] Connect to an AI").cyan().bold());
+    println!("  {}", style("[2/4] Connect to an AI").cyan().bold());
     println!("  {}", style("─".repeat(40)).dim());
     let (provider, api_key, model, provider_api_url) = setup_provider_simple(
         &workspace_dir,
@@ -130,11 +282,17 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
     )
     .await?;
 
-    // ── STEP 3: How to reach you (Channels) ──────────────────────────
+    // ── STEP 3: Starter skills ────────────────────────────────────────
+    println!();
+    println!("  {}", style("[3/4] Choose starter skills").cyan().bold());
+    println!("  {}", style("─".repeat(40)).dim());
+    let skill_selection = setup_skills()?;
+
+    // ── STEP 4: How to reach you (Channels) ──────────────────────────
     println!();
     println!(
         "  {}",
-        style("[3/3] How do you want to talk to TopClaw?")
+        style("[4/4] How do you want to talk to TopClaw?")
             .cyan()
             .bold()
     );
@@ -168,7 +326,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         coordination: crate::config::CoordinationConfig::default(),
         agent: crate::config::AgentConfig::default(),
         workspaces: crate::config::WorkspacesConfig::default(),
-        skills: crate::config::SkillsConfig::default(),
+        skills: build_skills_config_from_selection(&skill_selection),
         model_routes: Vec::new(),
         embedding_routes: Vec::new(),
         heartbeat: HeartbeatConfig::default(),
@@ -211,6 +369,15 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         style("✓").green().bold(),
         style("SQLite").green()
     );
+    let total_selected_skills =
+        skill_selection.enabled_builtin_slugs.len() + skill_selection.install_optional_slugs.len();
+    println!(
+        "  {} Skills: {} selected ({} built-in, {} optional)",
+        style("✓").green().bold(),
+        style(total_selected_skills).green(),
+        skill_selection.enabled_builtin_slugs.len(),
+        skill_selection.install_optional_slugs.len()
+    );
 
     config.save().await?;
     persist_workspace_selection(&config.config_path).await?;
@@ -223,6 +390,13 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         communication_style: "Be warm, natural, and clear. Use occasional relevant emojis (1-2 max) and avoid robotic phrasing.".into(),
     };
     scaffold_workspace(&workspace_dir, &project_ctx).await?;
+    crate::skills::apply_builtin_skill_selection(
+        &workspace_dir,
+        &skill_selection.enabled_builtin_slugs,
+    )?;
+    for slug in &skill_selection.install_optional_slugs {
+        let _ = crate::skills::install_optional_curated_skill(&workspace_dir, slug)?;
+    }
 
     let service_outcome = ensure_background_service_for_channels(&config)?;
 
@@ -4054,7 +4228,7 @@ fn setup_memory() -> Result<MemoryConfig> {
     Ok(config)
 }
 
-// ── Step 3: Channels ────────────────────────────────────────────
+// ── Channel setup step ───────────────────────────────────────────
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ChannelMenuChoice {
@@ -8279,6 +8453,47 @@ mod tests {
             .get(default_channel_menu_index(&channels))
             .copied();
         assert_eq!(default_choice, Some(ChannelMenuChoice::Done));
+    }
+
+    #[test]
+    fn lower_risk_builtin_skills_are_selected_by_default() {
+        let find_skills = crate::skills::curated_skill_catalog()
+            .iter()
+            .find(|entry| entry.slug == "find-skills")
+            .unwrap();
+        let safe_web_search = crate::skills::curated_skill_catalog()
+            .iter()
+            .find(|entry| entry.slug == "safe-web-search")
+            .unwrap();
+        let desktop_use = crate::skills::curated_skill_catalog()
+            .iter()
+            .find(|entry| entry.slug == "desktop-computer-use")
+            .unwrap();
+
+        assert!(default_selected_onboarding_skill(find_skills));
+        assert!(!default_selected_onboarding_skill(safe_web_search));
+        assert!(!default_selected_onboarding_skill(desktop_use));
+    }
+
+    #[test]
+    fn build_skills_config_from_selection_disables_unselected_builtin_skills() {
+        let selection = SkillOnboardingSelection {
+            enabled_builtin_slugs: vec!["find-skills".into(), "change-summary".into()],
+            install_optional_slugs: vec!["desktop-computer-use".into()],
+        };
+
+        let skills = build_skills_config_from_selection(&selection);
+
+        assert!(skills.builtin_skills_enabled);
+        assert!(skills
+            .disabled_builtin_skills
+            .contains(&"safe-web-search".to_string()));
+        assert!(!skills
+            .disabled_builtin_skills
+            .contains(&"find-skills".to_string()));
+        assert!(!skills
+            .disabled_builtin_skills
+            .contains(&"change-summary".to_string()));
     }
 
     #[test]
