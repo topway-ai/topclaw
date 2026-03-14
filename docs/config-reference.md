@@ -388,10 +388,10 @@ Notes:
 
 - Security-first default: TopClaw does **not** clone or sync `open-skills` unless `open_skills_enabled = true`.
 - Curated TopClaw skills are installed into the workspace during onboarding when selected.
-- CLI onboarding now presents curated skills in one list with explicit risk labels.
-  - lower-risk starter skills: `find-skills`, `skill-creator`, `local-file-analyzer`, `workspace-search`, `code-explainer`, `change-summary`, `safe-web-search`
-  - higher-risk advanced skills: `self-improving-agent`, `multi-search-engine`, `agent-browser-extension`, `desktop-computer-use`
-- Onboarding keeps every skill optional, preselects the lower-risk entries by default, and leaves higher-risk entries opt-in.
+- CLI onboarding now presents curated skills in one list with recommendation labels.
+  - recommended starter skills: `find-skills`, `skill-creator`, `local-file-analyzer`, `workspace-search`, `code-explainer`, `change-summary`, `safe-web-search`
+  - advanced optional skills: `self-improving-agent`, `multi-search-engine`, `agent-browser-extension`, `desktop-computer-use`
+- Onboarding keeps every skill optional, preselects the recommended starter skills by default, and leaves advanced optional skills unchecked until you opt in.
 - Curated installs prefer a local TopClaw repo checkout when available. Bootstrap/install flows seed `TOPCLAW_CURATED_REPO_DIR` automatically; the default fallback location is `$HOME/.topclaw/repositories/topclaw`.
 - Environment overrides:
   - `TOPCLAW_OPEN_SKILLS_ENABLED` accepts `1/0`, `true/false`, `yes/no`, `on/off`.

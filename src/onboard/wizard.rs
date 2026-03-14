@@ -87,24 +87,37 @@ fn default_selected_onboarding_skill(entry: &CuratedSkillCatalogEntry) -> bool {
     entry.risk == CuratedSkillRisk::Lower
 }
 
-fn onboarding_skill_risk_label(entry: &CuratedSkillCatalogEntry) -> &'static str {
-    match entry.risk {
-        CuratedSkillRisk::Lower => "lower-risk",
-        CuratedSkillRisk::Higher => "higher-risk",
+fn onboarding_skill_short_description(entry: &CuratedSkillCatalogEntry) -> &'static str {
+    match entry.slug {
+        "find-skills" => "find more skills",
+        "skill-creator" => "create skills",
+        "local-file-analyzer" => "read local files",
+        "workspace-search" => "search workspace",
+        "code-explainer" => "explain code",
+        "change-summary" => "summarize changes",
+        "safe-web-search" => "search the web",
+        "self-improving-agent" => "save learnings",
+        "multi-search-engine" => "advanced web search",
+        "agent-browser-extension" => "browser automation",
+        "desktop-computer-use" => "control desktop apps",
+        _ => entry.description,
     }
 }
 
 fn format_onboarding_skill_label(entry: &CuratedSkillCatalogEntry) -> String {
-    format!("{} [{}]", entry.slug, onboarding_skill_risk_label(entry))
+    format!(
+        "{} — {}",
+        entry.slug,
+        onboarding_skill_short_description(entry)
+    )
 }
 
 fn print_onboarding_skill_summary(entries: &[&CuratedSkillCatalogEntry]) {
     for entry in entries {
         println!(
-            "    {:<24} {} [{}]",
+            "    {:<24} {}",
             entry.slug,
-            entry.description,
-            onboarding_skill_risk_label(entry)
+            onboarding_skill_short_description(entry)
         );
     }
 }
@@ -112,11 +125,14 @@ fn print_onboarding_skill_summary(entries: &[&CuratedSkillCatalogEntry]) {
 fn print_onboarding_skill_controls() {
     println!(
         "  {}",
-        style("Controls: Up/Down move, Space toggles, Enter confirms.").dim()
+        style(
+            "Use Up/Down to navigate, Space to select or unselect, and Return/Enter to continue."
+        )
+        .dim()
     );
     println!(
         "  {}",
-        style("Tip: Press 'a' to toggle all items in the current list.").dim()
+        style("Tip: Press 'a' to toggle all items in the list.").dim()
     );
 }
 
@@ -163,7 +179,7 @@ fn prompt_skill_selection_instruction(
     println!(
         "  {}",
         style(format!(
-            "Select entries for {title}. The interactive list shows compact labels to avoid terminal redraw artifacts on narrow screens."
+            "Select entries for {title}. The list uses short labels to reduce terminal redraw artifacts on narrow screens."
         ))
         .dim()
     );
@@ -215,7 +231,7 @@ fn setup_skills() -> Result<SkillOnboardingSelection> {
     );
     println!(
         "  {}",
-        style("Everything in this list is optional. Lower-risk skills are selected by default; higher-risk skills require explicit opt-in.")
+        style("Everything in this list is optional. Recommended starter skills are selected by default.")
             .dim()
     );
 
@@ -223,7 +239,7 @@ fn setup_skills() -> Result<SkillOnboardingSelection> {
     let ordered_entries: Vec<&CuratedSkillCatalogEntry> = catalog.iter().collect();
     let selected = prompt_skill_selection(
         "Starter skills",
-        "Review the full list below. Lower-risk entries are preselected; higher-risk entries stay unchecked until you opt in.",
+        "Review the list below and choose the skills you want to install.",
         &ordered_entries,
     )?;
 
@@ -8501,7 +8517,7 @@ mod tests {
     }
 
     #[test]
-    fn onboarding_skill_labels_are_compact_and_keep_source_marker() {
+    fn onboarding_skill_labels_are_compact_and_descriptive() {
         let safe_web_search = crate::skills::curated_skill_catalog()
             .iter()
             .find(|entry| entry.slug == "safe-web-search")
@@ -8513,11 +8529,11 @@ mod tests {
 
         assert_eq!(
             format_onboarding_skill_label(safe_web_search),
-            "safe-web-search [lower-risk]"
+            "safe-web-search — search the web"
         );
         assert_eq!(
             format_onboarding_skill_label(browser_extension),
-            "agent-browser-extension [higher-risk]"
+            "agent-browser-extension — browser automation"
         );
     }
 

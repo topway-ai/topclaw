@@ -5,7 +5,7 @@ description: Helps users discover and install agent skills when they ask questio
 
 # Find Skills
 
-This skill helps you discover and install skills from the open agent skills ecosystem.
+This skill helps you discover and install skills from public skill indexes.
 
 ## When to Use This Skill
 
@@ -40,7 +40,7 @@ skill vetter before the skill is added to the workspace.
 When a user asks for help with something, identify:
 
 1. The domain (e.g., React, testing, design, deployment)
-2. The specific task (e.g., writing tests, creating animations, reviewing PRs)
+2. The specific task (e.g., writing tests, reviewing PRs, creating docs)
 3. Whether this is a common enough task that a skill likely exists
 
 ### Step 2: Search for Skills
@@ -50,9 +50,9 @@ skills.sh page URL for any promising result instead of jumping straight to insta
 
 For example:
 
-- User asks "how do I make my React app faster?" → `npx skills find react performance`
-- User asks "can you help me with PR reviews?" → `npx skills find pr review`
-- User asks "I need to create a changelog" → `npx skills find changelog`
+- User asks "how do I make my React app faster?" → search skills.sh for `react performance`
+- User asks "can you help me with PR reviews?" → search skills.sh for `pr review`
+- User asks "I need to create a changelog" → search skills.sh for `changelog`
 
 The index will return results like:
 
@@ -93,20 +93,6 @@ topclaw skills vet <installed-skill-name> --json
 ```
 Do not recommend unattended global installs or third-party package managers when the
 same skill can be installed through TopClaw's audited path.
-
-## Common Skill Categories
-
-When searching, consider these common categories:
-
-| Category        | Example Queries                          |
-| --------------- | ---------------------------------------- |
-| Web Development | react, nextjs, typescript, css, tailwind |
-| Testing         | testing, jest, playwright, e2e           |
-| DevOps          | deploy, docker, kubernetes, ci-cd        |
-| Documentation   | docs, readme, changelog, api-docs        |
-| Code Quality    | review, lint, refactor, best-practices   |
-| Design          | ui, ux, design-system, accessibility     |
-| Productivity    | workflow, automation, git                |
 
 ## Tips for Effective Searches
 

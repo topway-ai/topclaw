@@ -27,7 +27,7 @@ Before using this skill, confirm all of the following:
 1. `browser.enabled = true` is explicitly set by the operator.
 2. `browser.backend = "agent_browser"` is selected intentionally.
 3. `browser.allowed_domains` is narrow and task-specific.
-4. No OS-level Accessibility or unrestricted GUI automation has been granted unless the machine is dedicated to that purpose.
+4. No broad system-control permissions have been granted unless the machine is dedicated to this workflow.
 5. Login flows, secrets, payment flows, and identity-provider pages are blocked unless external policy explicitly allows them.
 
 ## Guardrails

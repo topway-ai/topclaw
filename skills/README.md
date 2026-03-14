@@ -2,9 +2,9 @@
 
 This directory contains the curated skill bundles that TopClaw can copy into a workspace.
 
-On CLI onboarding, TopClaw presents these skills in one list with explicit risk labels:
+On CLI onboarding, TopClaw presents these skills in one list with recommendation labels:
 
-## Lower-risk starter skills
+## Recommended Starter Skills
 
 These are recommended by default because they stay focused on local explanation, read-only analysis, or skill authoring.
 
@@ -16,7 +16,7 @@ These are recommended by default because they stay focused on local explanation,
 - `change-summary` — summarize diffs, commits, and release deltas clearly
 - `safe-web-search` — look up current information with low-risk web search tools
 
-## Higher-risk advanced skills
+## Advanced Optional Skills
 
 These remain opt-in because they reach outside the workspace, write durable notes, or automate external surfaces.
 
@@ -29,9 +29,9 @@ These remain opt-in because they reach outside the workspace, write durable note
 
 - Onboarding installs curated skills into the workspace from their reviewed sources.
 - Every listed skill remains optional during onboarding.
-- Lower-risk skills are selected by default during onboarding.
-- Higher-risk skills are shown unchecked until you explicitly opt in.
+- Recommended starter skills are selected by default during onboarding.
+- Advanced optional skills are shown unchecked until you explicitly opt in.
 - Curated installs prefer a local TopClaw repo checkout when available, which keeps prebuilt binaries small while preserving reviewed skill sources.
-- Curated advanced skills can still be installed later with `topclaw skills install <source>` after review.
+- Curated advanced optional skills can still be installed later with `topclaw skills install <source>` after review.
 
 These files are committed for reviewability so users can audit exactly what ships with the repository.
