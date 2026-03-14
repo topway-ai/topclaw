@@ -940,20 +940,28 @@ async fn main() -> Result<()> {
         if channels_only && force {
             bail!("--channels-only does not accept --force");
         }
-        let config = if channels_only {
-            Box::pin(onboard::run_channels_repair_wizard()).await
-        } else if interactive {
-            Box::pin(onboard::run_wizard(force)).await
-        } else {
-            Box::pin(onboard::run_quick_setup(
-                api_key.as_deref(),
-                provider.as_deref(),
-                model.as_deref(),
-                memory.as_deref(),
-                force,
-            ))
-            .await
-        }?;
+        let config = tokio::task::spawn_blocking(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .context("failed to create onboarding runtime")?;
+
+            if channels_only {
+                runtime.block_on(onboard::run_channels_repair_wizard())
+            } else if interactive {
+                runtime.block_on(onboard::run_wizard(force))
+            } else {
+                runtime.block_on(onboard::run_quick_setup(
+                    api_key.as_deref(),
+                    provider.as_deref(),
+                    model.as_deref(),
+                    memory.as_deref(),
+                    force,
+                ))
+            }
+        })
+        .await
+        .context("onboarding task panicked")??;
         let _ = config;
         return Ok(());
     }

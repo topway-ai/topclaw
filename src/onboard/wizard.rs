@@ -18,7 +18,7 @@ use crate::providers::{
     is_moonshot_alias, is_qianfan_alias, is_qwen_alias, is_qwen_oauth_alias, is_zai_alias,
     is_zai_cn_alias, list_providers,
 };
-use crate::skills::{CuratedSkillCatalogEntry, CuratedSkillInstallKind, CuratedSkillRisk};
+use crate::skills::{CuratedSkillCatalogEntry, CuratedSkillRisk};
 use anyhow::{bail, Context, Result};
 use console::style;
 use dialoguer::{Confirm, Input, MultiSelect, Select};
@@ -51,8 +51,7 @@ pub struct ProjectContext {
 
 #[derive(Debug, Clone, Default)]
 struct SkillOnboardingSelection {
-    enabled_builtin_slugs: Vec<String>,
-    install_optional_slugs: Vec<String>,
+    selected_curated_slugs: Vec<String>,
 }
 
 // ── Banner ───────────────────────────────────────────────────────
@@ -85,53 +84,98 @@ fn has_launchable_channels(channels: &ChannelsConfig) -> bool {
 }
 
 fn default_selected_onboarding_skill(entry: &CuratedSkillCatalogEntry) -> bool {
-    matches!(
-        (entry.install_kind, entry.risk),
-        (
-            CuratedSkillInstallKind::BuiltinPreloaded,
-            CuratedSkillRisk::Lower
-        )
-    )
+    entry.risk == CuratedSkillRisk::Lower
+}
+
+fn onboarding_skill_risk_label(entry: &CuratedSkillCatalogEntry) -> &'static str {
+    match entry.risk {
+        CuratedSkillRisk::Lower => "lower-risk",
+        CuratedSkillRisk::Higher => "higher-risk",
+    }
 }
 
 fn format_onboarding_skill_label(entry: &CuratedSkillCatalogEntry) -> String {
-    let source = match entry.install_kind {
-        CuratedSkillInstallKind::BuiltinPreloaded => "built-in",
-        CuratedSkillInstallKind::OptionalBundle => "optional",
-    };
-    format!("{:<24} {} [{}]", entry.slug, entry.description, source)
+    format!("{} [{}]", entry.slug, onboarding_skill_risk_label(entry))
+}
+
+fn print_onboarding_skill_summary(entries: &[&CuratedSkillCatalogEntry]) {
+    for entry in entries {
+        println!(
+            "    {:<24} {} [{}]",
+            entry.slug,
+            entry.description,
+            onboarding_skill_risk_label(entry)
+        );
+    }
+}
+
+fn print_onboarding_skill_controls() {
+    println!(
+        "  {}",
+        style("Controls: Up/Down move, Space toggles, Enter confirms.").dim()
+    );
+    println!(
+        "  {}",
+        style("Tip: Press 'a' to toggle all items in the current list.").dim()
+    );
+}
+
+fn format_onboarding_skill_selection_report(
+    entries: &[&CuratedSkillCatalogEntry],
+    selected: &[usize],
+) -> String {
+    let chosen: Vec<&str> = selected
+        .iter()
+        .filter_map(|index| entries.get(*index).map(|entry| entry.slug))
+        .collect();
+
+    if chosen.is_empty() {
+        "none".to_string()
+    } else {
+        chosen.join(", ")
+    }
+}
+
+fn prompt_skill_selection_report(
+    title: &str,
+    entries: &[&CuratedSkillCatalogEntry],
+    selected: &[usize],
+) {
+    println!(
+        "  {} {}",
+        style(title).cyan().bold(),
+        style(format!(
+            "[{}]",
+            format_onboarding_skill_selection_report(entries, selected)
+        ))
+        .dim()
+    );
+}
+
+fn prompt_skill_selection_instruction(
+    title: &str,
+    help_text: &str,
+    entries: &[&CuratedSkillCatalogEntry],
+) {
+    println!("  {}", style(help_text).dim());
+    print_onboarding_skill_controls();
+    print_onboarding_skill_summary(entries);
+    println!(
+        "  {}",
+        style(format!(
+            "Select entries for {title}. The interactive list shows compact labels to avoid terminal redraw artifacts on narrow screens."
+        ))
+        .dim()
+    );
 }
 
 fn build_skills_config_from_selection(
-    selection: &SkillOnboardingSelection,
+    _selection: &SkillOnboardingSelection,
 ) -> crate::config::SkillsConfig {
-    let mut skills = crate::config::SkillsConfig::default();
-    let builtin_catalog: Vec<&'static str> = crate::skills::curated_skill_catalog()
-        .iter()
-        .filter(|entry| entry.install_kind == CuratedSkillInstallKind::BuiltinPreloaded)
-        .map(|entry| entry.slug)
-        .collect();
-
-    if selection.enabled_builtin_slugs.is_empty() {
-        skills.builtin_skills_enabled = false;
-        return skills;
-    }
-
-    let enabled: std::collections::HashSet<String> = selection
-        .enabled_builtin_slugs
-        .iter()
-        .map(|slug| slug.trim().to_ascii_lowercase())
-        .collect();
-
-    skills.disabled_builtin_skills = builtin_catalog
-        .into_iter()
-        .filter(|slug| !enabled.contains(&slug.to_ascii_lowercase()))
-        .map(str::to_string)
-        .collect();
-    skills
+    crate::config::SkillsConfig::default()
 }
 
-fn prompt_skill_group_selection(
+fn prompt_skill_selection(
     title: &str,
     help_text: &str,
     entries: &[&CuratedSkillCatalogEntry],
@@ -140,7 +184,7 @@ fn prompt_skill_group_selection(
         return Ok(Vec::new());
     }
 
-    println!("  {}", style(help_text).dim());
+    prompt_skill_selection_instruction(title, help_text, entries);
     let labels: Vec<String> = entries
         .iter()
         .map(|entry| format_onboarding_skill_label(entry))
@@ -153,8 +197,10 @@ fn prompt_skill_group_selection(
         .with_prompt(title)
         .items(&labels)
         .defaults(&defaults)
+        .report(false)
         .interact()
         .context("failed to read skill selection")?;
+    prompt_skill_selection_report(title, entries, &selected);
 
     Ok(selected
         .into_iter()
@@ -169,62 +215,20 @@ fn setup_skills() -> Result<SkillOnboardingSelection> {
     );
     println!(
         "  {}",
-        style("Lower-risk skills are recommended. Higher-risk skills reach outside the workspace, drive automation, or write persistent learnings.")
+        style("Everything in this list is optional. Lower-risk skills are selected by default; higher-risk skills require explicit opt-in.")
             .dim()
     );
 
     let catalog = crate::skills::curated_skill_catalog();
-    let lower_risk: Vec<&CuratedSkillCatalogEntry> = catalog
-        .iter()
-        .filter(|entry| entry.risk == CuratedSkillRisk::Lower)
-        .collect();
-    let higher_risk: Vec<&CuratedSkillCatalogEntry> = catalog
-        .iter()
-        .filter(|entry| entry.risk == CuratedSkillRisk::Higher)
-        .collect();
-
-    let lower_selected = prompt_skill_group_selection(
-        "Recommended lower-risk skills",
-        "These stay inside repo/workspace analysis or skill-authoring workflows for most users.",
-        &lower_risk,
+    let ordered_entries: Vec<&CuratedSkillCatalogEntry> = catalog.iter().collect();
+    let selected = prompt_skill_selection(
+        "Starter skills",
+        "Review the full list below. Lower-risk entries are preselected; higher-risk entries stay unchecked until you opt in.",
+        &ordered_entries,
     )?;
-    println!();
-    let higher_selected = prompt_skill_group_selection(
-        "Advanced higher-risk skills",
-        "These can query the public web, write durable notes, or automate browsers and desktop apps. They are off by default.",
-        &higher_risk,
-    )?;
-
-    let enabled_builtin_slugs = lower_selected
-        .iter()
-        .chain(higher_selected.iter())
-        .filter_map(|slug| {
-            crate::skills::curated_skill_catalog()
-                .iter()
-                .find(|entry| {
-                    entry.slug == slug
-                        && entry.install_kind == CuratedSkillInstallKind::BuiltinPreloaded
-                })
-                .map(|entry| entry.slug.to_string())
-        })
-        .collect();
-    let install_optional_slugs = lower_selected
-        .iter()
-        .chain(higher_selected.iter())
-        .filter_map(|slug| {
-            crate::skills::curated_skill_catalog()
-                .iter()
-                .find(|entry| {
-                    entry.slug == slug
-                        && entry.install_kind == CuratedSkillInstallKind::OptionalBundle
-                })
-                .map(|entry| entry.slug.to_string())
-        })
-        .collect();
 
     Ok(SkillOnboardingSelection {
-        enabled_builtin_slugs,
-        install_optional_slugs,
+        selected_curated_slugs: selected,
     })
 }
 
@@ -369,14 +373,10 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         style("✓").green().bold(),
         style("SQLite").green()
     );
-    let total_selected_skills =
-        skill_selection.enabled_builtin_slugs.len() + skill_selection.install_optional_slugs.len();
     println!(
-        "  {} Skills: {} selected ({} built-in, {} optional)",
+        "  {} Skills: {} selected",
         style("✓").green().bold(),
-        style(total_selected_skills).green(),
-        skill_selection.enabled_builtin_slugs.len(),
-        skill_selection.install_optional_slugs.len()
+        style(skill_selection.selected_curated_slugs.len()).green(),
     );
 
     config.save().await?;
@@ -390,13 +390,10 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         communication_style: "Be warm, natural, and clear. Use occasional relevant emojis (1-2 max) and avoid robotic phrasing.".into(),
     };
     scaffold_workspace(&workspace_dir, &project_ctx).await?;
-    crate::skills::apply_builtin_skill_selection(
+    crate::skills::sync_curated_skill_selection(
         &workspace_dir,
-        &skill_selection.enabled_builtin_slugs,
+        &skill_selection.selected_curated_slugs,
     )?;
-    for slug in &skill_selection.install_optional_slugs {
-        let _ = crate::skills::install_optional_curated_skill(&workspace_dir, slug)?;
-    }
 
     let service_outcome = ensure_background_service_for_channels(&config)?;
 
@@ -1552,6 +1549,16 @@ fn build_model_fetch_client() -> Result<reqwest::blocking::Client> {
         .context("failed to build model-fetch HTTP client")
 }
 
+fn run_model_fetch_in_thread<T, F>(fetch: F) -> Result<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T> + Send + 'static,
+{
+    std::thread::spawn(fetch)
+        .join()
+        .map_err(|_| anyhow::anyhow!("model fetch thread panicked"))?
+}
+
 fn normalize_model_ids(ids: Vec<String>) -> Vec<String> {
     let mut unique = BTreeMap::new();
     for id in ids {
@@ -1764,150 +1771,168 @@ fn fetch_openai_compatible_models(
     api_key: Option<&str>,
     allow_unauthenticated: bool,
 ) -> Result<Vec<String>> {
-    let client = build_model_fetch_client()?;
-    let mut request = client.get(endpoint);
+    let endpoint = endpoint.to_string();
+    let api_key = api_key.map(str::to_string);
+    run_model_fetch_in_thread(move || {
+        let client = build_model_fetch_client()?;
+        let mut request = client.get(&endpoint);
 
-    if let Some(api_key) = api_key {
-        request = request.bearer_auth(api_key);
-    } else if !allow_unauthenticated {
-        bail!("model fetch requires API key for endpoint {endpoint}");
-    }
+        if let Some(api_key) = api_key.as_deref() {
+            request = request.bearer_auth(api_key);
+        } else if !allow_unauthenticated {
+            bail!("model fetch requires API key for endpoint {endpoint}");
+        }
 
-    let payload: Value = request
-        .send()
-        .and_then(reqwest::blocking::Response::error_for_status)
-        .with_context(|| format!("model fetch failed: GET {endpoint}"))?
-        .json()
-        .context("failed to parse model list response")?;
+        let payload: Value = request
+            .send()
+            .and_then(reqwest::blocking::Response::error_for_status)
+            .with_context(|| format!("model fetch failed: GET {endpoint}"))?
+            .json()
+            .context("failed to parse model list response")?;
 
-    Ok(parse_openai_compatible_model_ids(&payload))
+        Ok(parse_openai_compatible_model_ids(&payload))
+    })
 }
 
 fn fetch_openrouter_models(api_key: Option<&str>) -> Result<Vec<String>> {
-    let client = build_model_fetch_client()?;
-    let mut request = client.get("https://openrouter.ai/api/v1/models");
-    if let Some(api_key) = api_key {
-        request = request.bearer_auth(api_key);
-    }
+    let api_key = api_key.map(str::to_string);
+    run_model_fetch_in_thread(move || {
+        let client = build_model_fetch_client()?;
+        let mut request = client.get("https://openrouter.ai/api/v1/models");
+        if let Some(api_key) = api_key.as_deref() {
+            request = request.bearer_auth(api_key);
+        }
 
-    let payload: Value = request
-        .send()
-        .and_then(reqwest::blocking::Response::error_for_status)
-        .context("model fetch failed: GET https://openrouter.ai/api/v1/models")?
-        .json()
-        .context("failed to parse OpenRouter model list response")?;
+        let payload: Value = request
+            .send()
+            .and_then(reqwest::blocking::Response::error_for_status)
+            .context("model fetch failed: GET https://openrouter.ai/api/v1/models")?
+            .json()
+            .context("failed to parse OpenRouter model list response")?;
 
-    Ok(parse_openai_compatible_model_ids(&payload))
+        Ok(parse_openai_compatible_model_ids(&payload))
+    })
 }
 
 fn fetch_openrouter_top_onboarding_models(api_key: Option<&str>) -> Result<Vec<String>> {
-    let client = build_model_fetch_client()?;
-    let mut models_request = client.get("https://openrouter.ai/api/v1/models");
-    if let Some(api_key) = api_key {
-        models_request = models_request.bearer_auth(api_key);
-    }
+    let api_key = api_key.map(str::to_string);
+    run_model_fetch_in_thread(move || {
+        let client = build_model_fetch_client()?;
+        let mut models_request = client.get("https://openrouter.ai/api/v1/models");
+        if let Some(api_key) = api_key.as_deref() {
+            models_request = models_request.bearer_auth(api_key);
+        }
 
-    let models_payload: Value = models_request
-        .send()
-        .and_then(reqwest::blocking::Response::error_for_status)
-        .context("model fetch failed: GET https://openrouter.ai/api/v1/models")?
-        .json()
-        .context("failed to parse OpenRouter model list response")?;
-    let catalog = parse_openrouter_model_summaries(&models_payload);
-    if catalog.is_empty() {
-        bail!("OpenRouter returned no models");
-    }
+        let models_payload: Value = models_request
+            .send()
+            .and_then(reqwest::blocking::Response::error_for_status)
+            .context("model fetch failed: GET https://openrouter.ai/api/v1/models")?
+            .json()
+            .context("failed to parse OpenRouter model list response")?;
+        let catalog = parse_openrouter_model_summaries(&models_payload);
+        if catalog.is_empty() {
+            bail!("OpenRouter returned no models");
+        }
 
-    let rankings_html = client
-        .get("https://openrouter.ai/rankings")
-        .send()
-        .and_then(reqwest::blocking::Response::error_for_status)
-        .context("model fetch failed: GET https://openrouter.ai/rankings")?
-        .text()
-        .context("failed to read OpenRouter rankings page")?;
+        let rankings_html = client
+            .get("https://openrouter.ai/rankings")
+            .send()
+            .and_then(reqwest::blocking::Response::error_for_status)
+            .context("model fetch failed: GET https://openrouter.ai/rankings")?
+            .text()
+            .context("failed to read OpenRouter rankings page")?;
 
-    let ranked_names =
-        parse_openrouter_rankings_model_names(&rankings_html, OPENROUTER_ONBOARDING_MODEL_LIMIT);
-    if ranked_names.is_empty() {
-        bail!("failed to parse OpenRouter rankings page");
-    }
+        let ranked_names = parse_openrouter_rankings_model_names(
+            &rankings_html,
+            OPENROUTER_ONBOARDING_MODEL_LIMIT,
+        );
+        if ranked_names.is_empty() {
+            bail!("failed to parse OpenRouter rankings page");
+        }
 
-    let ranked_ids = match_openrouter_rankings_to_model_ids(
-        &ranked_names,
-        &catalog,
-        OPENROUTER_ONBOARDING_MODEL_LIMIT,
-    );
-    if ranked_ids.is_empty() {
-        bail!("failed to match OpenRouter ranking entries to model IDs");
-    }
+        let ranked_ids = match_openrouter_rankings_to_model_ids(
+            &ranked_names,
+            &catalog,
+            OPENROUTER_ONBOARDING_MODEL_LIMIT,
+        );
+        if ranked_ids.is_empty() {
+            bail!("failed to match OpenRouter ranking entries to model IDs");
+        }
 
-    Ok(ranked_ids)
+        Ok(ranked_ids)
+    })
 }
 
 fn fetch_anthropic_models(api_key: Option<&str>) -> Result<Vec<String>> {
-    let Some(api_key) = api_key else {
+    let Some(api_key) = api_key.map(str::to_string) else {
         bail!("Anthropic model fetch requires API key or OAuth token");
     };
 
-    let client = build_model_fetch_client()?;
-    let mut request = client
-        .get("https://api.anthropic.com/v1/models")
-        .header("anthropic-version", "2023-06-01");
+    run_model_fetch_in_thread(move || {
+        let client = build_model_fetch_client()?;
+        let mut request = client
+            .get("https://api.anthropic.com/v1/models")
+            .header("anthropic-version", "2023-06-01");
 
-    if api_key.starts_with("sk-ant-oat01-") {
-        request = request
-            .header("Authorization", format!("Bearer {api_key}"))
-            .header("anthropic-beta", "oauth-2025-04-20");
-    } else {
-        request = request.header("x-api-key", api_key);
-    }
+        if api_key.starts_with("sk-ant-oat01-") {
+            request = request
+                .header("Authorization", format!("Bearer {api_key}"))
+                .header("anthropic-beta", "oauth-2025-04-20");
+        } else {
+            request = request.header("x-api-key", &api_key);
+        }
 
-    let response = request
-        .send()
-        .context("model fetch failed: GET https://api.anthropic.com/v1/models")?;
+        let response = request
+            .send()
+            .context("model fetch failed: GET https://api.anthropic.com/v1/models")?;
 
-    let status = response.status();
-    if !status.is_success() {
-        let body = response.text().unwrap_or_default();
-        bail!("Anthropic model list request failed (HTTP {status}): {body}");
-    }
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().unwrap_or_default();
+            bail!("Anthropic model list request failed (HTTP {status}): {body}");
+        }
 
-    let payload: Value = response
-        .json()
-        .context("failed to parse Anthropic model list response")?;
+        let payload: Value = response
+            .json()
+            .context("failed to parse Anthropic model list response")?;
 
-    Ok(parse_openai_compatible_model_ids(&payload))
+        Ok(parse_openai_compatible_model_ids(&payload))
+    })
 }
 
 fn fetch_gemini_models(api_key: Option<&str>) -> Result<Vec<String>> {
-    let Some(api_key) = api_key else {
+    let Some(api_key) = api_key.map(str::to_string) else {
         bail!("Gemini model fetch requires API key");
     };
 
-    let client = build_model_fetch_client()?;
-    let payload: Value = client
-        .get("https://generativelanguage.googleapis.com/v1beta/models")
-        .query(&[("key", api_key), ("pageSize", "200")])
-        .send()
-        .and_then(reqwest::blocking::Response::error_for_status)
-        .context("model fetch failed: GET Gemini models")?
-        .json()
-        .context("failed to parse Gemini model list response")?;
+    run_model_fetch_in_thread(move || {
+        let client = build_model_fetch_client()?;
+        let payload: Value = client
+            .get("https://generativelanguage.googleapis.com/v1beta/models")
+            .query(&[("key", api_key), ("pageSize", "200".to_string())])
+            .send()
+            .and_then(reqwest::blocking::Response::error_for_status)
+            .context("model fetch failed: GET Gemini models")?
+            .json()
+            .context("failed to parse Gemini model list response")?;
 
-    Ok(parse_gemini_model_ids(&payload))
+        Ok(parse_gemini_model_ids(&payload))
+    })
 }
 
 fn fetch_ollama_models() -> Result<Vec<String>> {
-    let client = build_model_fetch_client()?;
-    let payload: Value = client
-        .get("http://localhost:11434/api/tags")
-        .send()
-        .and_then(reqwest::blocking::Response::error_for_status)
-        .context("model fetch failed: GET http://localhost:11434/api/tags")?
-        .json()
-        .context("failed to parse Ollama model list response")?;
+    run_model_fetch_in_thread(move || {
+        let client = build_model_fetch_client()?;
+        let payload: Value = client
+            .get("http://localhost:11434/api/tags")
+            .send()
+            .and_then(reqwest::blocking::Response::error_for_status)
+            .context("model fetch failed: GET http://localhost:11434/api/tags")?
+            .json()
+            .context("failed to parse Ollama model list response")?;
 
-    Ok(parse_ollama_model_ids(&payload))
+        Ok(parse_ollama_model_ids(&payload))
+    })
 }
 
 fn normalize_ollama_endpoint_url(raw_url: &str) -> String {
@@ -8471,29 +8496,49 @@ mod tests {
             .unwrap();
 
         assert!(default_selected_onboarding_skill(find_skills));
-        assert!(!default_selected_onboarding_skill(safe_web_search));
+        assert!(default_selected_onboarding_skill(safe_web_search));
         assert!(!default_selected_onboarding_skill(desktop_use));
     }
 
     #[test]
-    fn build_skills_config_from_selection_disables_unselected_builtin_skills() {
+    fn onboarding_skill_labels_are_compact_and_keep_source_marker() {
+        let safe_web_search = crate::skills::curated_skill_catalog()
+            .iter()
+            .find(|entry| entry.slug == "safe-web-search")
+            .unwrap();
+        let browser_extension = crate::skills::curated_skill_catalog()
+            .iter()
+            .find(|entry| entry.slug == "agent-browser-extension")
+            .unwrap();
+
+        assert_eq!(
+            format_onboarding_skill_label(safe_web_search),
+            "safe-web-search [lower-risk]"
+        );
+        assert_eq!(
+            format_onboarding_skill_label(browser_extension),
+            "agent-browser-extension [higher-risk]"
+        );
+    }
+
+    #[test]
+    fn build_skills_config_from_selection_uses_default_skill_settings() {
         let selection = SkillOnboardingSelection {
-            enabled_builtin_slugs: vec!["find-skills".into(), "change-summary".into()],
-            install_optional_slugs: vec!["desktop-computer-use".into()],
+            selected_curated_slugs: vec![
+                "find-skills".into(),
+                "change-summary".into(),
+                "desktop-computer-use".into(),
+            ],
         };
 
         let skills = build_skills_config_from_selection(&selection);
 
-        assert!(skills.builtin_skills_enabled);
-        assert!(skills
-            .disabled_builtin_skills
-            .contains(&"safe-web-search".to_string()));
-        assert!(!skills
-            .disabled_builtin_skills
-            .contains(&"find-skills".to_string()));
-        assert!(!skills
-            .disabled_builtin_skills
-            .contains(&"change-summary".to_string()));
+        assert_eq!(
+            skills.prompt_injection_mode,
+            crate::config::SkillsPromptInjectionMode::Compact
+        );
+        assert!(!skills.open_skills_enabled);
+        assert!(skills.open_skills_dir.is_none());
     }
 
     #[test]

@@ -23,6 +23,16 @@ Skills are modular, self-contained packages that extend an agent with procedural
 
 A good skill should reduce repeated work. It should not merely restate what a capable agent already knows.
 
+In TopClaw, a skill you create with this workflow should behave like a plugin:
+
+- create it under the active workspace `skills/` directory
+- it appears as `self-added` in `topclaw skills list`
+- users can disable it with `topclaw skills disable <name>`
+- users can re-enable it with `topclaw skills enable <name>`
+- users can remove it with `topclaw skills remove <name>`
+
+Do not invent a separate storage location or management flow for generated skills unless the user explicitly asks for one.
+
 ### What a Skill Can Provide
 
 1. Specialized workflows for a recurring task.
@@ -160,6 +170,8 @@ The initializer:
 - adds placeholder files that can be customized or deleted
 
 Use this instead of hand-creating the skeleton unless there is a good reason not to.
+
+When initializing into a live TopClaw workspace, prefer the workspace `skills/` directory so the generated skill immediately follows the normal self-added plugin policy.
 
 ## Step 4: Edit the Skill
 

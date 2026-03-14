@@ -28,6 +28,12 @@ description: [TODO: Explain what this skill does and when to use it. Include con
 ## Resources
 
 [TODO: Reference any bundled scripts, references, or assets that matter.]
+
+## Plugin Policy
+
+- This is a self-added TopClaw skill/plugin.
+- If installed in a TopClaw workspace, `topclaw skills list` should show it as `self-added`.
+- Users can disable it with `topclaw skills disable {skill_name}` and re-enable it with `topclaw skills enable {skill_name}`.
 """
 
 EXAMPLE_SCRIPT = '''#!/usr/bin/env python3
@@ -96,6 +102,7 @@ def init_skill(skill_name, path):
     print("1. Edit SKILL.md")
     print("2. Replace or delete example bundled resources")
     print("3. Run quick_validate.py")
+    print("4. If this lives in a TopClaw workspace, manage it with `topclaw skills list|disable|enable|remove`")
     return skill_dir
 
 

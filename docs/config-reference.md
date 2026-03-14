@@ -383,30 +383,27 @@ Notes:
 | `open_skills_enabled` | `false` | Opt-in loading/sync of community `open-skills` repository |
 | `open_skills_dir` | unset | Optional local path for `open-skills` (defaults to `$HOME/open-skills` when enabled) |
 | `prompt_injection_mode` | `compact` | Skill prompt verbosity: `full` (inline instructions/tools) or `compact` (name/description/location only) |
-| `builtin_skills_enabled` | `true` | Enable TopClaw's built-in preloaded skills at runtime |
-| `disabled_builtin_skills` | `[]` | Optional built-in skill names to suppress without disabling all built-ins |
 
 Notes:
 
 - Security-first default: TopClaw does **not** clone or sync `open-skills` unless `open_skills_enabled = true`.
-- Curated built-in skills are installed into the workspace during onboarding when selected.
-- CLI onboarding now separates curated skills into two user-risk groups:
-  - lower-risk starter skills: `find-skills`, `skill-creator`, `local-file-analyzer`, `workspace-search`, `code-explainer`, `change-summary`
-  - higher-risk advanced skills: `safe-web-search`, `self-improving-agent`, `multi-search-engine`, `agent-browser-extension`, `desktop-computer-use`
-- Onboarding selects the lower-risk built-in skills by default. Higher-risk skills remain opt-in.
+- Curated TopClaw skills are installed into the workspace during onboarding when selected.
+- CLI onboarding now presents curated skills in one list with explicit risk labels.
+  - lower-risk starter skills: `find-skills`, `skill-creator`, `local-file-analyzer`, `workspace-search`, `code-explainer`, `change-summary`, `safe-web-search`
+  - higher-risk advanced skills: `self-improving-agent`, `multi-search-engine`, `agent-browser-extension`, `desktop-computer-use`
+- Onboarding keeps every skill optional, preselects the lower-risk entries by default, and leaves higher-risk entries opt-in.
+- Curated installs prefer a local TopClaw repo checkout when available. Bootstrap/install flows seed `TOPCLAW_CURATED_REPO_DIR` automatically; the default fallback location is `$HOME/.topclaw/repositories/topclaw`.
 - Environment overrides:
   - `TOPCLAW_OPEN_SKILLS_ENABLED` accepts `1/0`, `true/false`, `yes/no`, `on/off`.
   - `TOPCLAW_OPEN_SKILLS_DIR` overrides the repository path when non-empty.
   - `TOPCLAW_SKILLS_PROMPT_MODE` accepts `full` or `compact`.
-  - `TOPCLAW_BUILTIN_SKILLS_ENABLED` accepts `1/0`, `true/false`, `yes/no`, `on/off`.
-  - `TOPCLAW_DISABLED_BUILTIN_SKILLS` accepts a comma-separated list such as `find-skills,change-summary`.
+- Optional operational override:
+  - `TOPCLAW_CURATED_REPO_DIR` points curated skill installs at a local TopClaw repo checkout.
 - Precedence for enable flag: `TOPCLAW_OPEN_SKILLS_ENABLED` → `skills.open_skills_enabled` in `config.toml` → default `false`.
-- Set `builtin_skills_enabled = false` to suppress all built-in skills at runtime while leaving user-installed skills untouched.
-- Use `disabled_builtin_skills = ["change-summary"]` to turn off a specific built-in skill without disabling the rest.
 - `prompt_injection_mode = "compact"` is recommended on low-context local models to reduce startup prompt size while keeping skill files available on demand.
 - Skill loading and `topclaw skills install` both apply a structured security audit. Skills are classified as `low`, `medium`, `high`, or `critical` risk. By default, only `low` risk skills are installable; anything higher is rejected.
 - URL-based installs enforce first-seen domain trust. On first download from an unseen domain, TopClaw prompts for trust and persists the decision.
-- The built-in `safe-web-search` skill is intended to pair with the `web_search` tool in low-risk mode: prefer `duckduckgo` or `searxng`, and keep browser automation disabled unless explicitly required.
+- The curated `safe-web-search` skill is intended to pair with the `web_search` tool in low-risk mode: prefer `duckduckgo` or `searxng`, and keep browser automation disabled unless explicitly required.
 - Download-source aliases and trust decisions are stored in `<workspace>/skills/.download-policy.toml`:
   - `aliases`: user-editable source shortcuts.
   - `trusted_domains`: domain allowlist for future URL installs.

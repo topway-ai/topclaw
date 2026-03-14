@@ -288,6 +288,8 @@ Channel runtime also watches `config.toml` and hot-applies updates to:
 - `topclaw skills vet <source_or_name> [--json] [--sandbox docker]`
 - `topclaw skills audit <source_or_name>`
 - `topclaw skills install <source>`
+- `topclaw skills enable <name>`
+- `topclaw skills disable <name>`
 - `topclaw skills remove <name>`
 
 `<source>` accepts:
@@ -303,11 +305,13 @@ Channel runtime also watches `config.toml` and hot-applies updates to:
 - First time a URL-based install hits an unseen domain, TopClaw asks whether you trust that domain.
 - Trust decisions are persisted in `<workspace>/skills/.download-policy.toml`.
 - Trusted domains allow future downloads on the same domain/subdomains; blocked domains are denied automatically.
-- Built-in defaults are transparent: preloaded bundles ship in repository `/skills/` and are copied to `<workspace>/skills/` on initialization.
+- Curated defaults stay transparent: reviewed TopClaw skill sources live under repository `/skills/`, and curated installs prefer a local TopClaw repo checkout when available.
 - To pre-configure behavior, edit:
   - `aliases` (custom source shortcuts)
   - `trusted_domains`
   - `blocked_domains`
+
+`skills list` now shows enabled and disabled skills separately. Disabling a skill moves it to `<workspace>/skills-disabled/` so it behaves like a plugin toggle rather than a delete; `skills enable` moves it back into `<workspace>/skills/`.
 
 `skills vet`, `skills audit`, and `skills install` now emit a structured review with:
 - `files_scanned`

@@ -237,7 +237,7 @@ Examples:
 /// removing reusable capability bundles.
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SkillCommands {
-    /// List all installed skills
+    /// List installed skills and whether each one is enabled or disabled
     List,
     /// Run the full skill vetter against a source directory or installed skill
     Vet {
@@ -259,6 +259,16 @@ pub enum SkillCommands {
     Install {
         /// Source URL or local path
         source: String,
+    },
+    /// Enable a disabled installed skill
+    Enable {
+        /// Skill name to enable
+        name: String,
+    },
+    /// Disable an enabled installed skill without deleting it
+    Disable {
+        /// Skill name to disable
+        name: String,
     },
     /// Remove an installed skill
     Remove {

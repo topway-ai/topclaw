@@ -52,6 +52,33 @@ pick_install_dir() {
   echo "$HOME/.local/bin"
 }
 
+is_topclaw_repo_dir() {
+  local path="$1"
+  [ -f "$path/Cargo.toml" ] && [ -d "$path/skills" ]
+}
+
+ensure_curated_repo_checkout() {
+  local repo_dir
+  repo_dir="${TOPCLAW_CURATED_REPO_DIR:-$HOME/.topclaw/repositories/topclaw}"
+
+  mkdir -p "$(dirname "$repo_dir")"
+
+  if [ -d "$repo_dir/.git" ]; then
+    echo "==> Updating curated TopClaw repo checkout"
+    git -C "$repo_dir" pull --ff-only >/dev/null
+  elif [ ! -e "$repo_dir" ]; then
+    echo "==> Cloning curated TopClaw repo checkout"
+    git clone --depth 1 "https://github.com/${REPO}.git" "$repo_dir" >/dev/null
+  fi
+
+  if ! is_topclaw_repo_dir "$repo_dir"; then
+    echo "error: curated TopClaw repo checkout is missing expected skills/ content: $repo_dir" >&2
+    exit 1
+  fi
+
+  printf '%s\n' "$repo_dir"
+}
+
 NO_ONBOARD=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -140,5 +167,8 @@ if [ "$NO_ONBOARD" -eq 1 ]; then
   exit 0
 fi
 
+need_cmd git
+CURATED_REPO_DIR="$(ensure_curated_repo_checkout)"
+
 echo "==> Starting onboarding"
-exec "$BIN_PATH" bootstrap
+exec env TOPCLAW_CURATED_REPO_DIR="$CURATED_REPO_DIR" "$BIN_PATH" bootstrap

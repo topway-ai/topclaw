@@ -20,10 +20,6 @@ pub fn parse_skills_prompt_injection_mode(raw: &str) -> Option<SkillsPromptInjec
     }
 }
 
-const fn default_builtin_skills_enabled() -> bool {
-    true
-}
-
 /// Skills loading configuration (`[skills]` section).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SkillsConfig {
@@ -40,14 +36,6 @@ pub struct SkillsConfig {
     /// `full` preserves legacy behavior as an opt-in.
     #[serde(default)]
     pub prompt_injection_mode: SkillsPromptInjectionMode,
-    /// Enable TopClaw's built-in preloaded skills.
-    /// Default: `true`.
-    #[serde(default = "default_builtin_skills_enabled")]
-    pub builtin_skills_enabled: bool,
-    /// Optional built-in skill names to suppress at runtime.
-    /// Example: `["find-skills", "change-summary"]`
-    #[serde(default)]
-    pub disabled_builtin_skills: Vec<String>,
 }
 
 impl Default for SkillsConfig {
@@ -56,8 +44,6 @@ impl Default for SkillsConfig {
             open_skills_enabled: false,
             open_skills_dir: None,
             prompt_injection_mode: SkillsPromptInjectionMode::Compact,
-            builtin_skills_enabled: default_builtin_skills_enabled(),
-            disabled_builtin_skills: Vec::new(),
         }
     }
 }

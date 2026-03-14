@@ -99,6 +99,57 @@ have_cmd() {
   command -v "$1" >/dev/null 2>&1
 }
 
+is_topclaw_repo_dir() {
+  local path="${1:-}"
+  [[ -n "$path" && -f "$path/Cargo.toml" && -d "$path/skills" ]]
+}
+
+ensure_curated_repo_checkout() {
+  local repo_dir=""
+
+  if [[ -n "${TOPCLAW_CURATED_REPO_DIR:-}" ]] && is_topclaw_repo_dir "${TOPCLAW_CURATED_REPO_DIR}"; then
+    echo "${TOPCLAW_CURATED_REPO_DIR}"
+    return 0
+  fi
+
+  if is_topclaw_repo_dir "$WORK_DIR"; then
+    echo "$WORK_DIR"
+    return 0
+  fi
+
+  if [[ -z "${HOME:-}" ]]; then
+    return 1
+  fi
+
+  if ! have_cmd git; then
+    warn "git is unavailable; curated skills will fall back to remote sources."
+    return 1
+  fi
+
+  repo_dir="$HOME/.topclaw/repositories/topclaw"
+  mkdir -p "$(dirname "$repo_dir")"
+
+  if [[ -d "$repo_dir/.git" ]]; then
+    if ! git -C "$repo_dir" pull --ff-only >/dev/null 2>&1; then
+      warn "Failed to update curated TopClaw repo checkout at $repo_dir; using existing copy."
+    fi
+  elif [[ ! -e "$repo_dir" ]]; then
+    info "Cloning curated TopClaw repo for reviewed skill installs"
+    git clone --depth 1 "$REPO_URL" "$repo_dir" >/dev/null 2>&1 || {
+      warn "Failed to clone curated TopClaw repo into $repo_dir."
+      return 1
+    }
+  fi
+
+  if is_topclaw_repo_dir "$repo_dir"; then
+    echo "$repo_dir"
+    return 0
+  fi
+
+  warn "Curated TopClaw repo checkout at $repo_dir is incomplete; continuing without local curated skills."
+  return 1
+}
+
 get_total_memory_mb() {
   case "$(uname -s)" in
     Linux)
@@ -1729,12 +1780,25 @@ if [[ "$RUN_ONBOARD" == true ]]; then
     exit 1
   fi
 
+  CURATED_REPO_DIR=""
+  if curated_repo_dir="$(ensure_curated_repo_checkout)"; then
+    CURATED_REPO_DIR="$curated_repo_dir"
+  fi
+
   if [[ "$INTERACTIVE_ONBOARD" == true ]]; then
     info "Running interactive onboarding"
     if input_source="$(guided_input_stream)"; then
-      "$TOPCLAW_BIN" bootstrap --interactive <"$input_source"
+      if [[ -n "$CURATED_REPO_DIR" ]]; then
+        TOPCLAW_CURATED_REPO_DIR="$CURATED_REPO_DIR" "$TOPCLAW_BIN" bootstrap --interactive <"$input_source"
+      else
+        "$TOPCLAW_BIN" bootstrap --interactive <"$input_source"
+      fi
     else
-      "$TOPCLAW_BIN" bootstrap --interactive
+      if [[ -n "$CURATED_REPO_DIR" ]]; then
+        TOPCLAW_CURATED_REPO_DIR="$CURATED_REPO_DIR" "$TOPCLAW_BIN" bootstrap --interactive
+      else
+        "$TOPCLAW_BIN" bootstrap --interactive
+      fi
     fi
   else
     if [[ -z "$API_KEY" ]]; then
@@ -1758,7 +1822,11 @@ MSG
     if [[ -n "$MODEL" ]]; then
       ONBOARD_CMD+=(--model "$MODEL")
     fi
-    "${ONBOARD_CMD[@]}"
+    if [[ -n "$CURATED_REPO_DIR" ]]; then
+      env TOPCLAW_CURATED_REPO_DIR="$CURATED_REPO_DIR" "${ONBOARD_CMD[@]}"
+    else
+      "${ONBOARD_CMD[@]}"
+    fi
   fi
 fi
 
