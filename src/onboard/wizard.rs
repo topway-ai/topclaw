@@ -18,9 +18,11 @@ use crate::providers::{
     is_moonshot_alias, is_qianfan_alias, is_qwen_alias, is_qwen_oauth_alias, is_zai_alias,
     is_zai_cn_alias, list_providers,
 };
+use crate::skills::{CuratedSkillCatalogEntry, CuratedSkillInstallKind, CuratedSkillRisk};
 use anyhow::{bail, Context, Result};
 use console::style;
-use dialoguer::{Confirm, Input, Select};
+use dialoguer::{Confirm, Input, MultiSelect, Select};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -29,11 +31,12 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::fs;
 
-// ── SIMPLIFIED WIZARD: 3 Steps for Newbies ───────────────────────
+// ── SIMPLIFIED WIZARD: 4 Steps for Newbies ───────────────────────
 //
 // Step 1: Workspace - Where to store files
 // Step 2: AI Provider - Choose model and configure provider authentication
-// Step 3: How to reach you - connect one or more channels
+// Step 3: Skills - Select the starter skills to enable or install
+// Step 4: How to reach you - connect one or more channels
 //
 // Everything else (Tunnel, Web tools, Hardware, Memory) can be configured later.
 
@@ -44,6 +47,12 @@ pub struct ProjectContext {
     pub timezone: String,
     pub agent_name: String,
     pub communication_style: String,
+}
+
+#[derive(Debug, Clone, Default)]
+struct SkillOnboardingSelection {
+    enabled_builtin_slugs: Vec<String>,
+    install_optional_slugs: Vec<String>,
 }
 
 // ── Banner ───────────────────────────────────────────────────────
@@ -69,12 +78,157 @@ const MODEL_PREVIEW_LIMIT: usize = 20;
 const MODEL_CACHE_FILE: &str = "models_cache.json";
 const MODEL_CACHE_TTL_SECS: u64 = 12 * 60 * 60;
 const CUSTOM_MODEL_SENTINEL: &str = "__custom_model__";
+const OPENROUTER_ONBOARDING_MODEL_LIMIT: usize = 10;
 
 fn has_launchable_channels(channels: &ChannelsConfig) -> bool {
     channels.channels_except_webhook().iter().any(|(_, ok)| *ok)
 }
 
-// ── Simplified 3-Step Wizard Entry Point ────────────────────────────
+fn default_selected_onboarding_skill(entry: &CuratedSkillCatalogEntry) -> bool {
+    matches!(
+        (entry.install_kind, entry.risk),
+        (
+            CuratedSkillInstallKind::BuiltinPreloaded,
+            CuratedSkillRisk::Lower
+        )
+    )
+}
+
+fn format_onboarding_skill_label(entry: &CuratedSkillCatalogEntry) -> String {
+    let source = match entry.install_kind {
+        CuratedSkillInstallKind::BuiltinPreloaded => "built-in",
+        CuratedSkillInstallKind::OptionalBundle => "optional",
+    };
+    format!("{:<24} {} [{}]", entry.slug, entry.description, source)
+}
+
+fn build_skills_config_from_selection(
+    selection: &SkillOnboardingSelection,
+) -> crate::config::SkillsConfig {
+    let mut skills = crate::config::SkillsConfig::default();
+    let builtin_catalog: Vec<&'static str> = crate::skills::curated_skill_catalog()
+        .iter()
+        .filter(|entry| entry.install_kind == CuratedSkillInstallKind::BuiltinPreloaded)
+        .map(|entry| entry.slug)
+        .collect();
+
+    if selection.enabled_builtin_slugs.is_empty() {
+        skills.builtin_skills_enabled = false;
+        return skills;
+    }
+
+    let enabled: std::collections::HashSet<String> = selection
+        .enabled_builtin_slugs
+        .iter()
+        .map(|slug| slug.trim().to_ascii_lowercase())
+        .collect();
+
+    skills.disabled_builtin_skills = builtin_catalog
+        .into_iter()
+        .filter(|slug| !enabled.contains(&slug.to_ascii_lowercase()))
+        .map(str::to_string)
+        .collect();
+    skills
+}
+
+fn prompt_skill_group_selection(
+    title: &str,
+    help_text: &str,
+    entries: &[&CuratedSkillCatalogEntry],
+) -> Result<Vec<String>> {
+    if entries.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    println!("  {}", style(help_text).dim());
+    let labels: Vec<String> = entries
+        .iter()
+        .map(|entry| format_onboarding_skill_label(entry))
+        .collect();
+    let defaults: Vec<bool> = entries
+        .iter()
+        .map(|entry| default_selected_onboarding_skill(entry))
+        .collect();
+    let selected = MultiSelect::new()
+        .with_prompt(title)
+        .items(&labels)
+        .defaults(&defaults)
+        .interact()
+        .context("failed to read skill selection")?;
+
+    Ok(selected
+        .into_iter()
+        .map(|index| entries[index].slug.to_string())
+        .collect())
+}
+
+fn setup_skills() -> Result<SkillOnboardingSelection> {
+    println!(
+        "  {}",
+        style("Pick starter skills to install into this workspace.").dim()
+    );
+    println!(
+        "  {}",
+        style("Lower-risk skills are recommended. Higher-risk skills reach outside the workspace, drive automation, or write persistent learnings.")
+            .dim()
+    );
+
+    let catalog = crate::skills::curated_skill_catalog();
+    let lower_risk: Vec<&CuratedSkillCatalogEntry> = catalog
+        .iter()
+        .filter(|entry| entry.risk == CuratedSkillRisk::Lower)
+        .collect();
+    let higher_risk: Vec<&CuratedSkillCatalogEntry> = catalog
+        .iter()
+        .filter(|entry| entry.risk == CuratedSkillRisk::Higher)
+        .collect();
+
+    let lower_selected = prompt_skill_group_selection(
+        "Recommended lower-risk skills",
+        "These stay inside repo/workspace analysis or skill-authoring workflows for most users.",
+        &lower_risk,
+    )?;
+    println!();
+    let higher_selected = prompt_skill_group_selection(
+        "Advanced higher-risk skills",
+        "These can query the public web, write durable notes, or automate browsers and desktop apps. They are off by default.",
+        &higher_risk,
+    )?;
+
+    let enabled_builtin_slugs = lower_selected
+        .iter()
+        .chain(higher_selected.iter())
+        .filter_map(|slug| {
+            crate::skills::curated_skill_catalog()
+                .iter()
+                .find(|entry| {
+                    entry.slug == slug
+                        && entry.install_kind == CuratedSkillInstallKind::BuiltinPreloaded
+                })
+                .map(|entry| entry.slug.to_string())
+        })
+        .collect();
+    let install_optional_slugs = lower_selected
+        .iter()
+        .chain(higher_selected.iter())
+        .filter_map(|slug| {
+            crate::skills::curated_skill_catalog()
+                .iter()
+                .find(|entry| {
+                    entry.slug == slug
+                        && entry.install_kind == CuratedSkillInstallKind::OptionalBundle
+                })
+                .map(|entry| entry.slug.to_string())
+        })
+        .collect();
+
+    Ok(SkillOnboardingSelection {
+        enabled_builtin_slugs,
+        install_optional_slugs,
+    })
+}
+
+// ── Simplified 4-Step Wizard Entry Point ────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum InteractiveOnboardingMode {
@@ -103,7 +257,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
     println!();
 
     // ── STEP 1: Workspace ──────────────────────────────────────────
-    println!("  {}", style("[1/3] Where should we work?").cyan().bold());
+    println!("  {}", style("[1/4] Where should we work?").cyan().bold());
     println!("  {}", style("─".repeat(40)).dim());
     let (workspace_dir, config_path) = setup_workspace().await?;
 
@@ -119,7 +273,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
 
     // ── STEP 2: AI Provider & API Key ───────────────────────────────
     println!();
-    println!("  {}", style("[2/3] Connect to an AI").cyan().bold());
+    println!("  {}", style("[2/4] Connect to an AI").cyan().bold());
     println!("  {}", style("─".repeat(40)).dim());
     let (provider, api_key, model, provider_api_url) = setup_provider_simple(
         &workspace_dir,
@@ -128,11 +282,17 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
     )
     .await?;
 
-    // ── STEP 3: How to reach you (Channels) ──────────────────────────
+    // ── STEP 3: Starter skills ────────────────────────────────────────
+    println!();
+    println!("  {}", style("[3/4] Choose starter skills").cyan().bold());
+    println!("  {}", style("─".repeat(40)).dim());
+    let skill_selection = setup_skills()?;
+
+    // ── STEP 4: How to reach you (Channels) ──────────────────────────
     println!();
     println!(
         "  {}",
-        style("[3/3] How do you want to talk to TopClaw?")
+        style("[4/4] How do you want to talk to TopClaw?")
             .cyan()
             .bold()
     );
@@ -166,7 +326,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         coordination: crate::config::CoordinationConfig::default(),
         agent: crate::config::AgentConfig::default(),
         workspaces: crate::config::WorkspacesConfig::default(),
-        skills: crate::config::SkillsConfig::default(),
+        skills: build_skills_config_from_selection(&skill_selection),
         model_routes: Vec::new(),
         embedding_routes: Vec::new(),
         heartbeat: HeartbeatConfig::default(),
@@ -209,6 +369,15 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         style("✓").green().bold(),
         style("SQLite").green()
     );
+    let total_selected_skills =
+        skill_selection.enabled_builtin_slugs.len() + skill_selection.install_optional_slugs.len();
+    println!(
+        "  {} Skills: {} selected ({} built-in, {} optional)",
+        style("✓").green().bold(),
+        style(total_selected_skills).green(),
+        skill_selection.enabled_builtin_slugs.len(),
+        skill_selection.install_optional_slugs.len()
+    );
 
     config.save().await?;
     persist_workspace_selection(&config.config_path).await?;
@@ -221,6 +390,13 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         communication_style: "Be warm, natural, and clear. Use occasional relevant emojis (1-2 max) and avoid robotic phrasing.".into(),
     };
     scaffold_workspace(&workspace_dir, &project_ctx).await?;
+    crate::skills::apply_builtin_skill_selection(
+        &workspace_dir,
+        &skill_selection.enabled_builtin_slugs,
+    )?;
+    for slug in &skill_selection.install_optional_slugs {
+        let _ = crate::skills::install_optional_curated_skill(&workspace_dir, slug)?;
+    }
 
     let service_outcome = ensure_background_service_for_channels(&config)?;
 
@@ -1409,6 +1585,137 @@ fn parse_openai_compatible_model_ids(payload: &Value) -> Vec<String> {
     normalize_model_ids(models)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OpenRouterModelSummary {
+    id: String,
+    name: String,
+}
+
+fn parse_openrouter_model_summaries(payload: &Value) -> Vec<OpenRouterModelSummary> {
+    let entries = payload
+        .get("data")
+        .and_then(Value::as_array)
+        .or_else(|| payload.as_array());
+
+    let Some(entries) = entries else {
+        return Vec::new();
+    };
+
+    let mut unique = BTreeMap::new();
+    for model in entries {
+        let Some(id) = model.get("id").and_then(Value::as_str).map(str::trim) else {
+            continue;
+        };
+        if id.is_empty() {
+            continue;
+        }
+        let name = model
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .unwrap_or(id);
+
+        unique
+            .entry(id.to_ascii_lowercase())
+            .or_insert_with(|| OpenRouterModelSummary {
+                id: id.to_string(),
+                name: name.to_string(),
+            });
+    }
+
+    unique.into_values().collect()
+}
+
+fn normalize_openrouter_ranking_name(name: &str) -> String {
+    let mut normalized = String::with_capacity(name.len());
+    let mut last_was_space = false;
+
+    for ch in name.chars() {
+        let mapped = match ch {
+            ':' | '/' | '-' | '_' => ' ',
+            _ => ch,
+        };
+
+        if mapped.is_ascii_alphanumeric() {
+            normalized.push(mapped.to_ascii_lowercase());
+            last_was_space = false;
+        } else if mapped.is_whitespace() && !last_was_space && !normalized.is_empty() {
+            normalized.push(' ');
+            last_was_space = true;
+        }
+    }
+
+    normalized.trim().to_string()
+}
+
+fn parse_openrouter_rankings_model_names(html: &str, limit: usize) -> Vec<String> {
+    let Some(leaderboard_start) = html.find("LLM Leaderboard") else {
+        return Vec::new();
+    };
+    let leaderboard_html = &html[leaderboard_start..];
+    let link_regex = Regex::new(r#"<a[^>]+href="/[^"/?#]+/[^"?#]+"[^>]*>([^<]+)</a>"#)
+        .expect("valid OpenRouter rankings link regex");
+
+    let mut names = Vec::new();
+    for capture in link_regex.captures_iter(leaderboard_html) {
+        let Some(name) = capture.get(1).map(|value| value.as_str().trim()) else {
+            continue;
+        };
+        if name.is_empty()
+            || name.eq_ignore_ascii_case("Top Apps")
+            || name.eq_ignore_ascii_case("View all")
+        {
+            continue;
+        }
+        if names.iter().any(|existing| existing == name) {
+            continue;
+        }
+        names.push(name.to_string());
+        if names.len() >= limit {
+            break;
+        }
+    }
+
+    names
+}
+
+fn match_openrouter_rankings_to_model_ids(
+    ranked_names: &[String],
+    catalog: &[OpenRouterModelSummary],
+    limit: usize,
+) -> Vec<String> {
+    let mut matched = Vec::new();
+    let mut catalog_by_name = BTreeMap::new();
+    for entry in catalog {
+        catalog_by_name.insert(
+            normalize_openrouter_ranking_name(&entry.name),
+            entry.id.clone(),
+        );
+        catalog_by_name.insert(
+            normalize_openrouter_ranking_name(&entry.id),
+            entry.id.clone(),
+        );
+    }
+
+    for ranked_name in ranked_names {
+        let normalized = normalize_openrouter_ranking_name(ranked_name);
+        if normalized.is_empty() {
+            continue;
+        }
+        if let Some(model_id) = catalog_by_name.get(&normalized) {
+            if !matched.iter().any(|existing| existing == model_id) {
+                matched.push(model_id.clone());
+            }
+        }
+        if matched.len() >= limit {
+            break;
+        }
+    }
+
+    matched
+}
+
 fn parse_gemini_model_ids(payload: &Value) -> Vec<String> {
     let Some(models) = payload.get("models").and_then(Value::as_array) else {
         return Vec::new();
@@ -1491,6 +1798,50 @@ fn fetch_openrouter_models(api_key: Option<&str>) -> Result<Vec<String>> {
         .context("failed to parse OpenRouter model list response")?;
 
     Ok(parse_openai_compatible_model_ids(&payload))
+}
+
+fn fetch_openrouter_top_onboarding_models(api_key: Option<&str>) -> Result<Vec<String>> {
+    let client = build_model_fetch_client()?;
+    let mut models_request = client.get("https://openrouter.ai/api/v1/models");
+    if let Some(api_key) = api_key {
+        models_request = models_request.bearer_auth(api_key);
+    }
+
+    let models_payload: Value = models_request
+        .send()
+        .and_then(reqwest::blocking::Response::error_for_status)
+        .context("model fetch failed: GET https://openrouter.ai/api/v1/models")?
+        .json()
+        .context("failed to parse OpenRouter model list response")?;
+    let catalog = parse_openrouter_model_summaries(&models_payload);
+    if catalog.is_empty() {
+        bail!("OpenRouter returned no models");
+    }
+
+    let rankings_html = client
+        .get("https://openrouter.ai/rankings")
+        .send()
+        .and_then(reqwest::blocking::Response::error_for_status)
+        .context("model fetch failed: GET https://openrouter.ai/rankings")?
+        .text()
+        .context("failed to read OpenRouter rankings page")?;
+
+    let ranked_names =
+        parse_openrouter_rankings_model_names(&rankings_html, OPENROUTER_ONBOARDING_MODEL_LIMIT);
+    if ranked_names.is_empty() {
+        bail!("failed to parse OpenRouter rankings page");
+    }
+
+    let ranked_ids = match_openrouter_rankings_to_model_ids(
+        &ranked_names,
+        &catalog,
+        OPENROUTER_ONBOARDING_MODEL_LIMIT,
+    );
+    if ranked_ids.is_empty() {
+        bail!("failed to match OpenRouter ranking entries to model IDs");
+    }
+
+    Ok(ranked_ids)
 }
 
 fn fetch_anthropic_models(api_key: Option<&str>) -> Result<Vec<String>> {
@@ -2945,6 +3296,57 @@ async fn prompt_for_default_model(
     provider_api_url: Option<&str>,
 ) -> Result<String> {
     let canonical_provider = canonical_provider_name(provider_name);
+    if canonical_provider == "openrouter" {
+        let mut model_options = match fetch_openrouter_top_onboarding_models(
+            (!api_key.trim().is_empty()).then_some(api_key.trim()),
+        ) {
+            Ok(model_ids) => {
+                print_bullet(&format!(
+                    "Fetched the current top {} OpenRouter models.",
+                    model_ids.len()
+                ));
+                build_model_options(model_ids, "OpenRouter top usage")
+            }
+            Err(error) => {
+                print_bullet(&format!(
+                    "Could not fetch OpenRouter top models ({}); using the curated starter list.",
+                    style(error.to_string()).yellow()
+                ));
+                curated_models_for_provider(canonical_provider)
+                    .into_iter()
+                    .take(OPENROUTER_ONBOARDING_MODEL_LIMIT)
+                    .collect()
+            }
+        };
+
+        model_options.truncate(OPENROUTER_ONBOARDING_MODEL_LIMIT);
+        model_options.push((
+            CUSTOM_MODEL_SENTINEL.to_string(),
+            "Custom model ID (type manually)".to_string(),
+        ));
+
+        let model_labels: Vec<String> = model_options
+            .iter()
+            .map(|(model_id, label)| format!("{label} — {}", style(model_id).dim()))
+            .collect();
+
+        let model_idx = Select::new()
+            .with_prompt("  Select your default model")
+            .items(&model_labels)
+            .default(0)
+            .interact()?;
+
+        let selected_model = model_options[model_idx].0.clone();
+        return Ok(if selected_model == CUSTOM_MODEL_SENTINEL {
+            Input::new()
+                .with_prompt("  Enter custom model ID")
+                .default(default_model_for_provider(provider_name))
+                .interact_text()?
+        } else {
+            selected_model
+        });
+    }
+
     let mut model_options: Vec<(String, String)> = curated_models_for_provider(canonical_provider);
 
     let mut live_options: Option<Vec<(String, String)>> = None;
@@ -3826,7 +4228,7 @@ fn setup_memory() -> Result<MemoryConfig> {
     Ok(config)
 }
 
-// ── Step 3: Channels ────────────────────────────────────────────
+// ── Channel setup step ───────────────────────────────────────────
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ChannelMenuChoice {
@@ -3871,7 +4273,14 @@ fn channel_menu_choices() -> &'static [ChannelMenuChoice] {
     CHANNEL_MENU_CHOICES
 }
 
-fn default_channel_menu_index() -> usize {
+fn default_channel_menu_index(config: &ChannelsConfig) -> usize {
+    if config.channels().iter().any(|(_, configured)| *configured) {
+        return channel_menu_choices()
+            .iter()
+            .position(|choice| matches!(choice, ChannelMenuChoice::Done))
+            .unwrap_or(0);
+    }
+
     channel_menu_choices()
         .iter()
         .position(|choice| matches!(choice, ChannelMenuChoice::Telegram))
@@ -4018,7 +4427,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
         let selection = Select::new()
             .with_prompt("  Connect a channel (or Done to continue)")
             .items(&options)
-            .default(default_channel_menu_index())
+            .default(default_channel_menu_index(&config))
             .interact()?;
 
         let choice = menu_choices
@@ -7316,6 +7725,64 @@ mod tests {
     }
 
     #[test]
+    fn parse_openrouter_rankings_model_names_extracts_top_models() {
+        let html = r#"
+            <html>
+              <body>
+                <h2>Top Apps</h2>
+                <a href="/some/app">Ignore app card</a>
+                <h2>LLM Leaderboard</h2>
+                <a href="/anthropic/claude-sonnet-4.6">Claude Sonnet 4.6</a>
+                <a href="/google/gemini-2.5-pro">Gemini 2.5 Pro</a>
+                <a href="/openai/gpt-5">GPT-5</a>
+                <a href="/anthropic/claude-sonnet-4.6">Claude Sonnet 4.6</a>
+              </body>
+            </html>
+        "#;
+
+        assert_eq!(
+            parse_openrouter_rankings_model_names(html, 10),
+            vec![
+                "Claude Sonnet 4.6".to_string(),
+                "Gemini 2.5 Pro".to_string(),
+                "GPT-5".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn match_openrouter_rankings_to_model_ids_resolves_catalog_names() {
+        let ranked_names = vec![
+            "Claude Sonnet 4.6".to_string(),
+            "Gemini 2.5 Pro".to_string(),
+            "GPT-5".to_string(),
+        ];
+        let catalog = vec![
+            OpenRouterModelSummary {
+                id: "anthropic/claude-sonnet-4.6".to_string(),
+                name: "Claude Sonnet 4.6".to_string(),
+            },
+            OpenRouterModelSummary {
+                id: "google/gemini-2.5-pro".to_string(),
+                name: "Gemini 2.5 Pro".to_string(),
+            },
+            OpenRouterModelSummary {
+                id: "openai/gpt-5".to_string(),
+                name: "GPT-5".to_string(),
+            },
+        ];
+
+        assert_eq!(
+            match_openrouter_rankings_to_model_ids(&ranked_names, &catalog, 10),
+            vec![
+                "anthropic/claude-sonnet-4.6".to_string(),
+                "google/gemini-2.5-pro".to_string(),
+                "openai/gpt-5".to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn curated_models_for_bedrock_include_verified_model_ids() {
         let ids: Vec<String> = curated_models_for_provider("bedrock")
             .into_iter()
@@ -7964,9 +8431,69 @@ mod tests {
     #[test]
     fn default_channel_menu_prefers_telegram() {
         let default_choice = channel_menu_choices()
-            .get(default_channel_menu_index())
+            .get(default_channel_menu_index(&ChannelsConfig::default()))
             .copied();
         assert_eq!(default_choice, Some(ChannelMenuChoice::Telegram));
+    }
+
+    #[test]
+    fn default_channel_menu_prefers_done_after_one_channel_is_configured() {
+        let mut channels = ChannelsConfig::default();
+        channels.telegram = Some(TelegramConfig {
+            bot_token: "test-token".into(),
+            allowed_users: vec!["topclaw_user".into()],
+            stream_mode: StreamMode::Off,
+            draft_update_interval_ms: 500,
+            interrupt_on_new_message: false,
+            group_reply: None,
+            base_url: None,
+        });
+
+        let default_choice = channel_menu_choices()
+            .get(default_channel_menu_index(&channels))
+            .copied();
+        assert_eq!(default_choice, Some(ChannelMenuChoice::Done));
+    }
+
+    #[test]
+    fn lower_risk_builtin_skills_are_selected_by_default() {
+        let find_skills = crate::skills::curated_skill_catalog()
+            .iter()
+            .find(|entry| entry.slug == "find-skills")
+            .unwrap();
+        let safe_web_search = crate::skills::curated_skill_catalog()
+            .iter()
+            .find(|entry| entry.slug == "safe-web-search")
+            .unwrap();
+        let desktop_use = crate::skills::curated_skill_catalog()
+            .iter()
+            .find(|entry| entry.slug == "desktop-computer-use")
+            .unwrap();
+
+        assert!(default_selected_onboarding_skill(find_skills));
+        assert!(!default_selected_onboarding_skill(safe_web_search));
+        assert!(!default_selected_onboarding_skill(desktop_use));
+    }
+
+    #[test]
+    fn build_skills_config_from_selection_disables_unselected_builtin_skills() {
+        let selection = SkillOnboardingSelection {
+            enabled_builtin_slugs: vec!["find-skills".into(), "change-summary".into()],
+            install_optional_slugs: vec!["desktop-computer-use".into()],
+        };
+
+        let skills = build_skills_config_from_selection(&selection);
+
+        assert!(skills.builtin_skills_enabled);
+        assert!(skills
+            .disabled_builtin_skills
+            .contains(&"safe-web-search".to_string()));
+        assert!(!skills
+            .disabled_builtin_skills
+            .contains(&"find-skills".to_string()));
+        assert!(!skills
+            .disabled_builtin_skills
+            .contains(&"change-summary".to_string()));
     }
 
     #[test]

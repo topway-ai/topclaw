@@ -1,21 +1,35 @@
-# Preloaded Skills
+# TopClaw Skills
 
-This directory contains preloaded, transparent skill bundles that TopClaw copies into each workspace's `skills/` directory during initialization.
+This directory contains the curated skill bundles that TopClaw can copy into a workspace.
 
-Current preloaded skills:
+On CLI onboarding, TopClaw presents these skills in two risk groups:
 
-- `find-skills` (source: https://skills.sh/vercel-labs/skills/find-skills)
-- `skill-creator` (source: https://clawhub.ai/chindden/skill-creator)
-- `local-file-analyzer` (source: https://github.com/topway-ai/topclaw/tree/main/skills/local-file-analyzer)
-- `workspace-search` (source: https://github.com/topway-ai/topclaw/tree/main/skills/workspace-search)
-- `code-explainer` (source: https://github.com/topway-ai/topclaw/tree/main/skills/code-explainer)
-- `change-summary` (source: https://github.com/topway-ai/topclaw/tree/main/skills/change-summary)
-- `safe-web-search` (source: https://github.com/topway-ai/topclaw/tree/main/skills/safe-web-search)
+## Lower-risk starter skills
 
-These files are committed for reviewability so users can audit exactly what ships by default.
+These are recommended by default because they stay focused on local explanation, read-only analysis, or skill authoring.
 
-Optional audited extension skills in this repository are not preloaded. Install them only after vetting the local source.
+- `find-skills` — discover and install extra skills for recurring tasks
+- `skill-creator` — create, validate, and package reusable skill bundles
+- `local-file-analyzer` — read and summarize local files without editing them
+- `workspace-search` — search code, docs, and config inside the current workspace
+- `code-explainer` — explain modules, control flow, and behavior from existing code
+- `change-summary` — summarize diffs, commits, and release deltas clearly
 
-- `agent-browser-extension`
-  - Review: `topclaw skills vet ./skills/agent-browser-extension --json`
-  - Install: `topclaw skills install ./skills/agent-browser-extension`
+## Higher-risk advanced skills
+
+These remain opt-in because they reach outside the workspace, write durable notes, or automate external surfaces.
+
+- `safe-web-search` — look up current information with low-risk web search tools
+- `self-improving-agent` — write durable learnings and failure notes into the workspace
+- `multi-search-engine` — use specific public search engines and advanced query operators
+- `agent-browser-extension` — drive approved websites with interactive browser automation
+- `desktop-computer-use` — control real desktop apps and windows through computer-use tooling
+
+## Install behavior
+
+- Onboarding installs curated skills into the workspace from their reviewed sources.
+- Lower-risk built-in skills are selected by default during onboarding.
+- Higher-risk built-in and optional skills are shown during onboarding but remain unchecked by default.
+- Optional advanced bundles can still be installed later with `topclaw skills install <source>` after review.
+
+These files are committed for reviewability so users can audit exactly what ships with the repository.

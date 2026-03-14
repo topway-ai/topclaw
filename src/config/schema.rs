@@ -2683,13 +2683,11 @@ fn has_ollama_cloud_credential(config_api_key: Option<&str>) -> bool {
         return true;
     }
 
-    ["OLLAMA_API_KEY", "TOPCLAW_API_KEY"]
-        .iter()
-        .any(|name| {
-            std::env::var(name)
-                .ok()
-                .is_some_and(|value| !value.trim().is_empty())
-        })
+    ["OLLAMA_API_KEY", "TOPCLAW_API_KEY"].iter().any(|name| {
+        std::env::var(name)
+            .ok()
+            .is_some_and(|value| !value.trim().is_empty())
+    })
 }
 
 fn normalize_wire_api(raw: &str) -> Option<&'static str> {

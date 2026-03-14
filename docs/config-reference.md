@@ -389,7 +389,11 @@ Notes:
 Notes:
 
 - Security-first default: TopClaw does **not** clone or sync `open-skills` unless `open_skills_enabled = true`.
-- Built-in skills are local prompt bundles shipped with TopClaw and copied into each workspace `skills/` directory during initialization.
+- Curated built-in skills are installed into the workspace during onboarding when selected.
+- CLI onboarding now separates curated skills into two user-risk groups:
+  - lower-risk starter skills: `find-skills`, `skill-creator`, `local-file-analyzer`, `workspace-search`, `code-explainer`, `change-summary`
+  - higher-risk advanced skills: `safe-web-search`, `self-improving-agent`, `multi-search-engine`, `agent-browser-extension`, `desktop-computer-use`
+- Onboarding selects the lower-risk built-in skills by default. Higher-risk skills remain opt-in.
 - Environment overrides:
   - `TOPCLAW_OPEN_SKILLS_ENABLED` accepts `1/0`, `true/false`, `yes/no`, `on/off`.
   - `TOPCLAW_OPEN_SKILLS_DIR` overrides the repository path when non-empty.
@@ -410,7 +414,7 @@ Notes:
 - Default aliases are preloaded for:
   - `find-skills` → `https://skills.sh/vercel-labs/skills/find-skills`
   - `skill-creator` → `https://skills.sh/anthropics/skills/skill-creator`
-- For transparency, built-in default skill sources are committed under repo `/skills/` and copied into each workspace `skills/` directory during initialization.
+- For transparency, the curated skill sources are committed under repo `/skills/` and can be installed into each workspace during onboarding or later reviewed installation.
 
 ## `[composio]`
 
