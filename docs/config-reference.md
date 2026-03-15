@@ -392,6 +392,12 @@ Notes:
   - recommended starter skills: `find-skills`, `skill-creator`, `local-file-analyzer`, `workspace-search`, `code-explainer`, `change-summary`, `safe-web-search`
   - advanced optional skills: `self-improving-agent`, `multi-search-engine`, `agent-browser-extension`, `desktop-computer-use`
 - Onboarding keeps every skill optional, preselects the recommended starter skills by default, and leaves advanced optional skills unchecked until you opt in.
+- Onboarding also auto-enables the required tool surfaces for selected curated skills:
+  - `find-skills`, `safe-web-search` -> `web_search.enabled = true`
+  - `multi-search-engine` -> `web_fetch.enabled = true`
+  - `agent-browser-extension` -> `browser.enabled = true`, `browser.backend = "agent_browser"`
+  - `desktop-computer-use` -> `browser.enabled = true`, `browser.backend = "computer_use"`
+  - selecting both browser skills together sets `browser.backend = "auto"`
 - Curated installs prefer a local TopClaw repo checkout when available. Bootstrap/install flows seed `TOPCLAW_CURATED_REPO_DIR` automatically; the default fallback location is `$HOME/.topclaw/repositories/topclaw`.
 - Environment overrides:
   - `TOPCLAW_OPEN_SKILLS_ENABLED` accepts `1/0`, `true/false`, `yes/no`, `on/off`.
@@ -501,6 +507,12 @@ Notes:
 
 Notes:
 
+- `browser.allowed_domains` stays deny-by-default even when onboarding enables the browser tool for a selected skill.
+- On the first blocked public `browser` open attempt in an interactive session, TopClaw now offers a narrow approval prompt:
+  - allow the exact host only (recommended)
+  - allow `*.<host>`
+  - deny
+- Non-interactive runs still fail closed and require you to edit `browser.allowed_domains` manually.
 - When `backend = "computer_use"`, the agent delegates browser actions to the sidecar at `computer_use.endpoint`.
 - The sidecar contract is intended to be cross-platform: macOS, Windows, and Linux backends can expose the same TopClaw action surface.
 - `allow_remote_endpoint = false` (default) rejects any non-loopback endpoint to prevent accidental public exposure.

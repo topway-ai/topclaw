@@ -9,12 +9,15 @@ use super::path_resolution::{
     resolve_allowed_parent_and_target, verify_write_target_still_allowed,
 };
 use super::traits::{Tool, ToolResult};
+use crate::config::Config;
 use crate::security::SecurityPolicy;
 use anyhow::Context;
 use async_trait::async_trait;
+use dialoguer::Select;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::io::ErrorKind;
+use std::io::{ErrorKind, IsTerminal};
 use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -65,7 +68,7 @@ impl Default for ComputerUseConfig {
 /// Browser automation tool using pluggable backends.
 pub struct BrowserTool {
     security: Arc<SecurityPolicy>,
-    allowed_domains: Vec<String>,
+    allowed_domains: RwLock<Vec<String>>,
     session_name: Option<String>,
     backend: String,
     native_headless: bool,
@@ -91,6 +94,13 @@ enum ResolvedBackend {
     ComputerUse,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BrowserDomainApprovalChoice {
+    ExactHost,
+    Subdomains,
+    Deny,
+}
+
 impl BrowserBackendKind {
     fn parse(raw: &str) -> anyhow::Result<Self> {
         let key = raw.trim().to_ascii_lowercase().replace('-', "_");
@@ -111,6 +121,24 @@ impl BrowserBackendKind {
             Self::RustNative => "rust_native",
             Self::ComputerUse => "computer_use",
             Self::Auto => "auto",
+        }
+    }
+}
+
+impl BrowserDomainApprovalChoice {
+    fn label(self, host: &str) -> String {
+        match self {
+            Self::ExactHost => format!("Allow `{host}` only (recommended)"),
+            Self::Subdomains => format!("Allow `*.{host}`"),
+            Self::Deny => "Deny".to_string(),
+        }
+    }
+
+    fn approved_domain(self, host: &str) -> Option<String> {
+        match self {
+            Self::ExactHost => Some(host.to_string()),
+            Self::Subdomains => Some(format!("*.{host}")),
+            Self::Deny => None,
         }
     }
 }
@@ -232,7 +260,7 @@ impl BrowserTool {
     ) -> Self {
         Self {
             security,
-            allowed_domains: normalize_domains(allowed_domains),
+            allowed_domains: RwLock::new(normalize_domains(allowed_domains)),
             session_name,
             backend,
             native_headless,
@@ -405,6 +433,15 @@ impl BrowserTool {
 
     /// Validate URL against allowlist
     fn validate_url(&self, url: &str) -> anyhow::Result<()> {
+        let allowed_domains = self.allowed_domains.read().clone();
+        self.validate_url_with_allowlist(url, &allowed_domains)
+    }
+
+    fn validate_url_with_allowlist(
+        &self,
+        url: &str,
+        allowed_domains: &[String],
+    ) -> anyhow::Result<()> {
         let url = url.trim();
 
         if url.is_empty() {
@@ -421,7 +458,7 @@ impl BrowserTool {
             anyhow::bail!("Only http:// and https:// URLs are allowed");
         }
 
-        if self.allowed_domains.is_empty() {
+        if allowed_domains.is_empty() {
             anyhow::bail!(
                 "Browser tool enabled but no allowed_domains configured. \
                 Add [browser].allowed_domains in config.toml"
@@ -434,11 +471,44 @@ impl BrowserTool {
             anyhow::bail!("Blocked local/private host: {host}");
         }
 
-        if !host_matches_allowlist(&host, &self.allowed_domains) {
+        if !host_matches_allowlist(&host, allowed_domains) {
             anyhow::bail!("Host '{host}' not in browser.allowed_domains");
         }
 
         Ok(())
+    }
+
+    async fn ensure_url_allowed(&self, url: &str) -> anyhow::Result<()> {
+        let url = url.trim();
+        if url.is_empty() {
+            anyhow::bail!("URL cannot be empty");
+        }
+        if url.starts_with("file://") {
+            anyhow::bail!("file:// URLs are not allowed in browser automation");
+        }
+        if !url.starts_with("https://") && !url.starts_with("http://") {
+            anyhow::bail!("Only http:// and https:// URLs are allowed");
+        }
+
+        let host = extract_host(url)?;
+        if is_private_host(&host) {
+            anyhow::bail!("Blocked local/private host: {host}");
+        }
+
+        let allowed_domains = self.allowed_domains.read().clone();
+        if !allowed_domains.is_empty() && host_matches_allowlist(&host, &allowed_domains) {
+            return Ok(());
+        }
+
+        let approved_domain = prompt_browser_domain_approval(&host).await?;
+        persist_browser_allowed_domain(&approved_domain).await?;
+
+        let mut updated = self.allowed_domains.read().clone();
+        updated.push(approved_domain);
+        let updated = normalize_domains(updated);
+        *self.allowed_domains.write() = updated;
+
+        self.validate_url(url)
     }
 
     /// Execute an agent-browser command
@@ -766,11 +836,10 @@ impl BrowserTool {
     ) -> anyhow::Result<()> {
         match action {
             "open" => {
-                let url = params
+                params
                     .get("url")
                     .and_then(Value::as_str)
                     .ok_or_else(|| anyhow::anyhow!("Missing 'url' for open action"))?;
-                self.validate_url(url)?;
             }
             "mouse_move" | "mouse_click" => {
                 let x = self.read_required_i64(params, "x")?;
@@ -913,7 +982,7 @@ impl BrowserTool {
             "action": action,
             "params": params,
             "policy": {
-                "allowed_domains": self.allowed_domains,
+                "allowed_domains": self.allowed_domains.read().clone(),
                 "window_allowlist": self.computer_use.window_allowlist,
                 "max_coordinate_x": self.computer_use.max_coordinate_x,
                 "max_coordinate_y": self.computer_use.max_coordinate_y,
@@ -1234,7 +1303,36 @@ impl Tool for BrowserTool {
             });
         }
 
+        let open_url = if action_str == "open" {
+            Some(
+                args.get("url")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'url' for open action"))?,
+            )
+        } else {
+            None
+        };
+
+        if let Some(url) = open_url {
+            if let Err(error) = self.security.enforce_otp_for_url("browser", url, otp_code) {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error),
+                });
+            }
+        }
+
         if backend == ResolvedBackend::ComputerUse {
+            if let Some(url) = open_url {
+                if let Err(error) = self.ensure_url_allowed(url).await {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(error.to_string()),
+                    });
+                }
+            }
             return self.execute_computer_use_action(action_str, &args).await;
         }
 
@@ -1257,16 +1355,6 @@ impl Tool for BrowserTool {
             }
         };
 
-        if let BrowserAction::Open { url } = &action {
-            if let Err(error) = self.security.enforce_otp_for_url("browser", url, otp_code) {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(error),
-                });
-            }
-        }
-
         if let Err(error) = self.security.enforce_sensitive_tool_operation(
             "browser",
             crate::security::policy::ToolOperation::Act,
@@ -1288,6 +1376,16 @@ impl Tool for BrowserTool {
                     success: false,
                     output: String::new(),
                     error: Some(err.to_string()),
+                });
+            }
+        }
+
+        if let Some(url) = open_url {
+            if let Err(error) = self.ensure_url_allowed(url).await {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error.to_string()),
                 });
             }
         }
@@ -2404,6 +2502,55 @@ fn endpoint_reachable(endpoint: &reqwest::Url, timeout: Duration) -> bool {
     std::net::TcpStream::connect_timeout(&addr, timeout).is_ok()
 }
 
+async fn prompt_browser_domain_approval(host: &str) -> anyhow::Result<String> {
+    let interactive = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+    if !interactive {
+        anyhow::bail!(
+            "Host '{host}' is not in browser.allowed_domains. Re-run interactively to approve it, or add it to [browser].allowed_domains in config.toml."
+        );
+    }
+
+    let host = host.to_string();
+    let choice = tokio::task::spawn_blocking({
+        let host = host.clone();
+        move || -> anyhow::Result<BrowserDomainApprovalChoice> {
+            let options = [
+                BrowserDomainApprovalChoice::ExactHost,
+                BrowserDomainApprovalChoice::Subdomains,
+                BrowserDomainApprovalChoice::Deny,
+            ];
+            let labels: Vec<String> = options.iter().map(|choice| choice.label(&host)).collect();
+            let index = Select::new()
+                .with_prompt(format!(
+                    "Browser access to '{host}' is blocked. Choose how to widen browser.allowed_domains"
+                ))
+                .items(&labels)
+                .default(0)
+                .interact()
+                .context("failed to read browser domain approval")?;
+            Ok(options[index])
+        }
+    })
+    .await
+    .context("browser domain approval prompt task failed")??;
+
+    choice.approved_domain(&host).ok_or_else(|| {
+        anyhow::anyhow!("Browser access canceled because the host was not approved.")
+    })
+}
+
+async fn persist_browser_allowed_domain(domain: &str) -> anyhow::Result<()> {
+    let mut config = Config::load_or_init().await?;
+    let mut allowed_domains = config.browser.allowed_domains.clone();
+    allowed_domains.push(domain.to_string());
+    let normalized = normalize_domains(allowed_domains);
+    if normalized == config.browser.allowed_domains {
+        return Ok(());
+    }
+    config.browser.allowed_domains = normalized;
+    config.save().await
+}
+
 fn extract_host(url_str: &str) -> anyhow::Result<String> {
     // Simple host extraction without url crate
     let url = url_str.trim();
@@ -2912,6 +3059,31 @@ mod tests {
         let security = Arc::new(SecurityPolicy::default());
         let tool = BrowserTool::new(security, vec![], None);
         assert!(tool.validate_url("https://example.com").is_err());
+    }
+
+    #[test]
+    fn browser_domain_approval_choice_maps_to_expected_allowlist_entries() {
+        assert_eq!(
+            BrowserDomainApprovalChoice::ExactHost.approved_domain("docs.rs"),
+            Some("docs.rs".to_string())
+        );
+        assert_eq!(
+            BrowserDomainApprovalChoice::Subdomains.approved_domain("docs.rs"),
+            Some("*.docs.rs".to_string())
+        );
+        assert!(BrowserDomainApprovalChoice::Deny
+            .approved_domain("docs.rs")
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn browser_domain_approval_fails_closed_without_interactive_terminal() {
+        let err = prompt_browser_domain_approval("docs.rs")
+            .await
+            .expect_err("non-interactive approval should fail closed");
+        let message = format!("{err:#}");
+        assert!(message.contains("Host 'docs.rs' is not in browser.allowed_domains"));
+        assert!(message.contains("Re-run interactively to approve it"));
     }
 
     #[test]

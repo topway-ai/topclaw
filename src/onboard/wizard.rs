@@ -180,6 +180,36 @@ fn build_skills_config_from_selection(
     crate::config::SkillsConfig::default()
 }
 
+fn apply_onboarding_skill_tool_defaults(config: &mut Config, selection: &SkillOnboardingSelection) {
+    let has_skill = |slug: &str| {
+        selection
+            .selected_curated_slugs
+            .iter()
+            .any(|selected| selected == slug)
+    };
+
+    if has_skill("find-skills") || has_skill("safe-web-search") {
+        config.web_search.enabled = true;
+    }
+
+    if has_skill("multi-search-engine") {
+        config.web_fetch.enabled = true;
+    }
+
+    let wants_browser_extension = has_skill("agent-browser-extension");
+    let wants_desktop_computer_use = has_skill("desktop-computer-use");
+    if wants_browser_extension || wants_desktop_computer_use {
+        config.browser.enabled = true;
+        config.browser.backend = match (wants_browser_extension, wants_desktop_computer_use) {
+            (true, true) => "auto",
+            (true, false) => "agent_browser",
+            (false, true) => "computer_use",
+            (false, false) => unreachable!("checked above"),
+        }
+        .to_string();
+    }
+}
+
 fn prompt_skill_selection(
     title: &str,
     help_text: &str,
@@ -310,7 +340,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
 
     // ── Build config with sensible defaults for everything else ──────
     // Default: SQLite memory, supervised autonomy, native runtime
-    let config = Config {
+    let mut config = Config {
         workspace_dir: workspace_dir.clone(),
         config_path: config_path.clone(),
         api_key: if api_key.is_empty() {
@@ -366,6 +396,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         agents_ipc: crate::config::AgentsIpcConfig::default(),
         model_support_vision: None,
     };
+    apply_onboarding_skill_tool_defaults(&mut config, &skill_selection);
 
     println!();
     println!(
@@ -8647,6 +8678,87 @@ mod tests {
         );
         assert!(!skills.open_skills_enabled);
         assert!(skills.open_skills_dir.is_none());
+    }
+
+    #[test]
+    fn onboarding_skill_selection_enables_required_web_tools() {
+        let selection = SkillOnboardingSelection {
+            selected_curated_slugs: vec![
+                "find-skills".into(),
+                "safe-web-search".into(),
+                "multi-search-engine".into(),
+            ],
+        };
+        let mut config = Config::default();
+
+        apply_onboarding_skill_tool_defaults(&mut config, &selection);
+
+        assert!(config.web_search.enabled);
+        assert!(config.web_fetch.enabled);
+        assert!(!config.browser.enabled);
+    }
+
+    #[test]
+    fn onboarding_skill_selection_sets_browser_backend_for_extension_skill() {
+        let selection = SkillOnboardingSelection {
+            selected_curated_slugs: vec!["agent-browser-extension".into()],
+        };
+        let mut config = Config::default();
+
+        apply_onboarding_skill_tool_defaults(&mut config, &selection);
+
+        assert!(config.browser.enabled);
+        assert_eq!(config.browser.backend, "agent_browser");
+    }
+
+    #[test]
+    fn onboarding_skill_selection_sets_browser_backend_for_desktop_skill() {
+        let selection = SkillOnboardingSelection {
+            selected_curated_slugs: vec!["desktop-computer-use".into()],
+        };
+        let mut config = Config::default();
+
+        apply_onboarding_skill_tool_defaults(&mut config, &selection);
+
+        assert!(config.browser.enabled);
+        assert_eq!(config.browser.backend, "computer_use");
+    }
+
+    #[test]
+    fn onboarding_skill_selection_uses_auto_backend_when_both_browser_skills_are_selected() {
+        let selection = SkillOnboardingSelection {
+            selected_curated_slugs: vec![
+                "agent-browser-extension".into(),
+                "desktop-computer-use".into(),
+            ],
+        };
+        let mut config = Config::default();
+
+        apply_onboarding_skill_tool_defaults(&mut config, &selection);
+
+        assert!(config.browser.enabled);
+        assert_eq!(config.browser.backend, "auto");
+    }
+
+    #[test]
+    fn onboarding_skill_selection_keeps_tools_disabled_for_prompt_only_and_local_skills() {
+        let selection = SkillOnboardingSelection {
+            selected_curated_slugs: vec![
+                "skill-creator".into(),
+                "local-file-analyzer".into(),
+                "workspace-search".into(),
+                "code-explainer".into(),
+                "change-summary".into(),
+                "self-improving-agent".into(),
+            ],
+        };
+        let mut config = Config::default();
+
+        apply_onboarding_skill_tool_defaults(&mut config, &selection);
+
+        assert!(!config.web_search.enabled);
+        assert!(!config.web_fetch.enabled);
+        assert!(!config.browser.enabled);
     }
 
     #[test]
