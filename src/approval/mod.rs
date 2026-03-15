@@ -54,6 +54,16 @@ pub struct PendingNonCliApprovalRequest {
     pub reason: Option<String>,
     pub created_at: String,
     pub expires_at: String,
+    pub resume_request: Option<PendingNonCliResumeRequest>,
+}
+
+/// Original non-CLI request payload to resume automatically after approval.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingNonCliResumeRequest {
+    pub message_id: String,
+    pub content: String,
+    pub timestamp: u64,
+    pub thread_ts: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -407,22 +417,25 @@ impl ApprovalManager {
         requested_by: &str,
         requested_channel: &str,
         requested_reply_target: &str,
+        resume_request: Option<PendingNonCliResumeRequest>,
         reason: Option<String>,
     ) -> PendingNonCliApprovalRequest {
         let mut pending = self.pending_non_cli_requests.lock();
         prune_expired_pending_requests(&mut pending);
 
-        if let Some(existing) = pending
-            .values()
-            .find(|req| {
-                req.tool_name == tool_name
-                    && req.requested_by == requested_by
-                    && req.requested_channel == requested_channel
-                    && req.requested_reply_target == requested_reply_target
-            })
-            .cloned()
-        {
-            return existing;
+        if let Some(existing) = pending.values_mut().find(|req| {
+            req.tool_name == tool_name
+                && req.requested_by == requested_by
+                && req.requested_channel == requested_channel
+                && req.requested_reply_target == requested_reply_target
+        }) {
+            if resume_request.is_some() {
+                existing.resume_request = resume_request;
+            }
+            if reason.is_some() {
+                existing.reason = reason;
+            }
+            return existing.clone();
         }
 
         let now = Utc::now();
@@ -441,6 +454,7 @@ impl ApprovalManager {
             reason,
             created_at: now.to_rfc3339(),
             expires_at: expires.to_rfc3339(),
+            resume_request,
         };
         pending.insert(request_id, req.clone());
         self.resolved_non_cli_requests
@@ -844,7 +858,8 @@ mod tests {
     #[test]
     fn create_and_confirm_pending_non_cli_approval_request() {
         let mgr = ApprovalManager::from_config(&supervised_config());
-        let req = mgr.create_non_cli_pending_request("shell", "alice", "telegram", "chat-1", None);
+        let req =
+            mgr.create_non_cli_pending_request("shell", "alice", "telegram", "chat-1", None, None);
         assert_eq!(req.tool_name, "shell");
         assert!(req.request_id.starts_with("apr-"));
 
@@ -860,7 +875,8 @@ mod tests {
     #[test]
     fn create_and_reject_pending_non_cli_approval_request() {
         let mgr = ApprovalManager::from_config(&supervised_config());
-        let req = mgr.create_non_cli_pending_request("shell", "alice", "telegram", "chat-1", None);
+        let req =
+            mgr.create_non_cli_pending_request("shell", "alice", "telegram", "chat-1", None, None);
 
         let rejected = mgr
             .reject_non_cli_pending_request(&req.request_id, "alice", "telegram", "chat-1")
@@ -872,7 +888,8 @@ mod tests {
     #[test]
     fn pending_non_cli_resolution_is_recorded_and_consumed() {
         let mgr = ApprovalManager::from_config(&supervised_config());
-        let req = mgr.create_non_cli_pending_request("shell", "alice", "telegram", "chat-1", None);
+        let req =
+            mgr.create_non_cli_pending_request("shell", "alice", "telegram", "chat-1", None, None);
 
         mgr.record_non_cli_pending_resolution(&req.request_id, ApprovalResponse::Yes);
         assert_eq!(
@@ -885,7 +902,8 @@ mod tests {
     #[test]
     fn pending_non_cli_approval_requires_same_sender_and_channel() {
         let mgr = ApprovalManager::from_config(&supervised_config());
-        let req = mgr.create_non_cli_pending_request("shell", "alice", "telegram", "chat-1", None);
+        let req =
+            mgr.create_non_cli_pending_request("shell", "alice", "telegram", "chat-1", None, None);
 
         let err = mgr
             .confirm_non_cli_pending_request(&req.request_id, "bob", "telegram", "chat-1")
@@ -911,10 +929,17 @@ mod tests {
     #[test]
     fn list_pending_non_cli_approvals_filters_scope() {
         let mgr = ApprovalManager::from_config(&supervised_config());
-        mgr.create_non_cli_pending_request("shell", "alice", "telegram", "chat-1", None);
-        mgr.create_non_cli_pending_request("file_write", "bob", "telegram", "chat-1", None);
-        mgr.create_non_cli_pending_request("browser_open", "alice", "discord", "chat-9", None);
-        mgr.create_non_cli_pending_request("schedule", "alice", "telegram", "chat-2", None);
+        mgr.create_non_cli_pending_request("shell", "alice", "telegram", "chat-1", None, None);
+        mgr.create_non_cli_pending_request("file_write", "bob", "telegram", "chat-1", None, None);
+        mgr.create_non_cli_pending_request(
+            "browser_open",
+            "alice",
+            "discord",
+            "chat-9",
+            None,
+            None,
+        );
+        mgr.create_non_cli_pending_request("schedule", "alice", "telegram", "chat-2", None, None);
 
         let alice_telegram =
             mgr.list_non_cli_pending_requests(Some("alice"), Some("telegram"), Some("chat-1"));
@@ -929,7 +954,8 @@ mod tests {
     #[test]
     fn pending_non_cli_approval_expiry_is_pruned() {
         let mgr = ApprovalManager::from_config(&supervised_config());
-        let req = mgr.create_non_cli_pending_request("shell", "alice", "telegram", "chat-1", None);
+        let req =
+            mgr.create_non_cli_pending_request("shell", "alice", "telegram", "chat-1", None, None);
 
         {
             let mut pending = mgr.pending_non_cli_requests.lock();

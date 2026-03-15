@@ -639,7 +639,7 @@ impl TelegramChannel {
     fn parse_approval_callback_command(data: &str) -> Option<String> {
         if let Some(request_id) = data.strip_prefix(TELEGRAM_APPROVAL_CALLBACK_APPROVE_PREFIX) {
             if !request_id.trim().is_empty() {
-                return Some(format!("/approve-allow {}", request_id.trim()));
+                return Some(format!("/approve-confirm {}", request_id.trim()));
             }
         }
         if let Some(request_id) = data.strip_prefix(TELEGRAM_APPROVAL_CALLBACK_DENY_PREFIX) {
@@ -3127,12 +3127,12 @@ impl Channel for TelegramChannel {
         let mut body = serde_json::json!({
             "chat_id": chat_id,
             "text": format!(
-                "Approval required for tool `{tool_name}`.\nRequest ID: `{request_id}`\nArgs: `{args_preview}`",
+                "Approval required for tool `{tool_name}`.\nRequest ID: `{request_id}`\nArgs: `{args_preview}`\nApprove to grant supervised access for this tool, then resend the original request.",
             ),
             "reply_markup": {
                 "inline_keyboard": [[
                     {
-                        "text": "Approve",
+                        "text": "Approve + grant",
                         "callback_data": format!("{TELEGRAM_APPROVAL_CALLBACK_APPROVE_PREFIX}{request_id}")
                     },
                     {
@@ -4053,7 +4053,7 @@ mod tests {
     fn parse_approval_callback_command_maps_approve_and_deny() {
         assert_eq!(
             TelegramChannel::parse_approval_callback_command("zcapr:yes:apr-1234"),
-            Some("/approve-allow apr-1234".to_string())
+            Some("/approve-confirm apr-1234".to_string())
         );
         assert_eq!(
             TelegramChannel::parse_approval_callback_command("zcapr:no:apr-5678"),
@@ -4069,7 +4069,7 @@ mod tests {
     fn parse_approval_callback_command_trims_and_rejects_empty_ids() {
         assert_eq!(
             TelegramChannel::parse_approval_callback_command("zcapr:yes:   apr-1234   "),
-            Some("/approve-allow apr-1234".to_string())
+            Some("/approve-confirm apr-1234".to_string())
         );
         assert_eq!(
             TelegramChannel::parse_approval_callback_command("zcapr:no:\tapr-5678  "),
@@ -4111,7 +4111,7 @@ mod tests {
 
         assert_eq!(msg.sender, "alice");
         assert_eq!(msg.reply_target, "-100200300:789");
-        assert_eq!(msg.content, "/approve-allow apr-deadbeef");
+        assert_eq!(msg.content, "/approve-confirm apr-deadbeef");
         assert!(msg.id.starts_with("telegram_cb_-100200300_44_"));
     }
 

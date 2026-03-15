@@ -606,8 +606,15 @@ fn summarize_internal_progress_delta(delta: &str) -> Option<String> {
 
     if trimmed.starts_with("⏳ Still working") || trimmed.starts_with("🤔 Still thinking") {
         Some(format!("{trimmed}\n"))
+    } else if trimmed == "🤔 Thinking..." {
+        Some("Analyzing the request...\n".to_string())
+    } else if let Some(round) = trimmed
+        .strip_prefix("🤔 Thinking (round ")
+        .and_then(|rest| rest.strip_suffix(")..."))
+    {
+        Some(format!("Analyzing the request (round {round})...\n"))
     } else if trimmed.contains("Thinking") {
-        None
+        Some("Analyzing the request...\n".to_string())
     } else if trimmed.starts_with('↻') || trimmed.contains("Retrying:") {
         Some("Retrying the previous step...\n".to_string())
     } else if let Some(rest) = trimmed.strip_prefix("⏳ ") {
@@ -665,7 +672,7 @@ fn contextualize_progress_heartbeat(
         .map(str::trim)
         .filter(|value| !value.is_empty() && !is_generic_progress_heartbeat(value))
     else {
-        return summary.to_string();
+        return "⏳ Still working: Analyzing the request...\n".to_string();
     };
 
     format!(
@@ -773,6 +780,7 @@ fn create_capability_recovery_plan(
                     &msg.sender,
                     &msg.channel,
                     &msg.reply_target,
+                    None,
                     Some(reason.to_string()),
                 );
                 let message = format!(
@@ -1061,6 +1069,7 @@ async fn create_skill_candidate_recovery_plan(
                 &msg.sender,
                 &msg.channel,
                 &msg.reply_target,
+                None,
                 Some(reason.to_string()),
             );
             Some(CapabilityRecoveryPlan {
@@ -1173,6 +1182,7 @@ User request:\n{}",
                 &msg.sender,
                 &msg.channel,
                 &msg.reply_target,
+                None,
                 Some(reason.clone()),
             );
             Some(CapabilityRecoveryPlan {
@@ -1567,7 +1577,7 @@ fn build_providers_help_response(current: &ChannelRouteSelection) -> String {
 }
 
 async fn handle_runtime_command_if_needed(
-    ctx: &ChannelRuntimeContext,
+    ctx: Arc<ChannelRuntimeContext>,
     msg: &traits::ChannelMessage,
     target_channel: Option<&Arc<dyn Channel>>,
 ) -> bool {
@@ -1581,7 +1591,7 @@ async fn handle_runtime_command_if_needed(
     };
 
     let sender_key = conversation_history_key(msg);
-    let mut current = get_route_selection(ctx, &sender_key);
+    let mut current = get_route_selection(ctx.as_ref(), &sender_key);
     let sender = msg.sender.as_str();
     let source_channel = msg.channel.as_str();
     let reply_target = msg.reply_target.as_str();
@@ -1692,30 +1702,33 @@ async fn handle_runtime_command_if_needed(
         }
     }
 
+    let mut auto_resume_message: Option<traits::ChannelMessage> = None;
     let response = match command {
         ChannelRuntimeCommand::ShowProviders => build_providers_help_response(&current),
         ChannelRuntimeCommand::SetProvider(raw_provider) => {
             match resolve_provider_alias(&raw_provider) {
-                Some(provider_name) => match get_or_create_provider(ctx, &provider_name).await {
-                    Ok(_) => {
-                        if provider_name != current.provider {
-                            current.provider = provider_name.clone();
-                            set_route_selection(ctx, &sender_key, current.clone());
-                            clear_sender_history(ctx, &sender_key);
-                        }
+                Some(provider_name) => {
+                    match get_or_create_provider(ctx.as_ref(), &provider_name).await {
+                        Ok(_) => {
+                            if provider_name != current.provider {
+                                current.provider = provider_name.clone();
+                                set_route_selection(ctx.as_ref(), &sender_key, current.clone());
+                                clear_sender_history(ctx.as_ref(), &sender_key);
+                            }
 
-                        format!(
+                            format!(
                             "Provider switched to `{provider_name}` for this sender session. Current model is `{}`.\nUse `/model <model-id>` to set a provider-compatible model.",
                             current.model
                         )
-                    }
-                    Err(err) => {
-                        let safe_err = providers::sanitize_api_error(&err.to_string());
-                        format!(
+                        }
+                        Err(err) => {
+                            let safe_err = providers::sanitize_api_error(&err.to_string());
+                            format!(
                             "Failed to initialize provider `{provider_name}`. Route unchanged.\nDetails: {safe_err}"
                         )
+                        }
                     }
-                },
+                }
                 None => format!(
                     "Unknown provider `{raw_provider}`. Use `/models` to list valid providers."
                 ),
@@ -1730,8 +1743,8 @@ async fn handle_runtime_command_if_needed(
                 "Model ID cannot be empty. Use `/model <model-id>`.".to_string()
             } else {
                 current.model = model.clone();
-                set_route_selection(ctx, &sender_key, current.clone());
-                clear_sender_history(ctx, &sender_key);
+                set_route_selection(ctx.as_ref(), &sender_key, current.clone());
+                clear_sender_history(ctx.as_ref(), &sender_key);
 
                 format!(
                     "Model switched to `{model}` for provider `{}` in this sender session.",
@@ -1740,7 +1753,7 @@ async fn handle_runtime_command_if_needed(
             }
         }
         ChannelRuntimeCommand::NewSession => {
-            clear_sender_history(ctx, &sender_key);
+            clear_sender_history(ctx.as_ref(), &sender_key);
             "Conversation history cleared. Starting fresh.".to_string()
         }
         ChannelRuntimeCommand::RequestAllToolsOnce => {
@@ -1749,6 +1762,7 @@ async fn handle_runtime_command_if_needed(
                 sender,
                 source_channel,
                 reply_target,
+                None,
                 Some("human-confirmed one-time bypass request for all tools/commands".to_string()),
             );
             runtime_trace::record_event(
@@ -1805,6 +1819,7 @@ async fn handle_runtime_command_if_needed(
                     sender,
                     source_channel,
                     reply_target,
+                    None,
                     None,
                 );
                 runtime_trace::record_event(
@@ -1891,7 +1906,8 @@ async fn handle_runtime_command_if_needed(
                     Ok(req) => {
                         ctx.approval_manager
                             .record_non_cli_pending_resolution(&request_id, ApprovalResponse::Yes);
-                        let tool_name = req.tool_name;
+                        let tool_name = req.tool_name.clone();
+                        let resume_request = req.resume_request.clone();
                         let approval_message = if tool_name == APPROVAL_ALL_TOOLS_ONCE_TOKEN {
                             let remaining = ctx.approval_manager.grant_non_cli_allow_all_once();
                             format!(
@@ -1901,7 +1917,7 @@ async fn handle_runtime_command_if_needed(
                             ctx.approval_manager.grant_non_cli_session(&tool_name);
                             ctx.approval_manager
                                 .apply_persistent_runtime_grant(&tool_name);
-                            match persist_non_cli_approval_to_config(ctx, &tool_name).await {
+                            match persist_non_cli_approval_to_config(ctx.as_ref(), &tool_name).await {
                                 Ok(Some(path)) => format!(
                                     "Approved supervised execution for `{tool_name}` from request `{request_id}`.\nPersisted to `{}` so future channel sessions (including after restart) remain approved.",
                                     path.display()
@@ -1930,8 +1946,20 @@ async fn handle_runtime_command_if_needed(
                             }),
                         );
 
+                        if let Some(resume_request) = resume_request {
+                            auto_resume_message = Some(traits::ChannelMessage {
+                                id: resume_request.message_id,
+                                sender: req.requested_by.clone(),
+                                reply_target: req.requested_reply_target.clone(),
+                                content: resume_request.content,
+                                channel: req.requested_channel.clone(),
+                                timestamp: resume_request.timestamp,
+                                thread_ts: resume_request.thread_ts,
+                            });
+                        }
+
                         if tool_name != APPROVAL_ALL_TOOLS_ONCE_TOKEN
-                            && is_non_cli_tool_excluded(ctx, &tool_name)
+                            && is_non_cli_tool_excluded(ctx.as_ref(), &tool_name)
                         {
                             format!(
                                 "{approval_message}\nNote: `{tool_name}` is currently listed in `autonomy.non_cli_excluded_tools` for this runtime. Remove it from config; the channel runtime auto-reloads this list from disk."
@@ -2148,7 +2176,7 @@ async fn handle_runtime_command_if_needed(
                 ctx.approval_manager.grant_non_cli_session(&tool_name);
                 ctx.approval_manager
                     .apply_persistent_runtime_grant(&tool_name);
-                let persistence_message = match persist_non_cli_approval_to_config(ctx, &tool_name).await {
+                let persistence_message = match persist_non_cli_approval_to_config(ctx.as_ref(), &tool_name).await {
                     Ok(Some(path)) => format!(
                         "Approved supervised execution for `{tool_name}`.\nPersisted to `{}` so future channel sessions (including after restart) remain approved.",
                         path.display()
@@ -2161,7 +2189,7 @@ async fn handle_runtime_command_if_needed(
                     ),
                 };
 
-                if is_non_cli_tool_excluded(ctx, &tool_name) {
+                if is_non_cli_tool_excluded(ctx.as_ref(), &tool_name) {
                     format!(
                         "{persistence_message}\nRuntime pending requests cleared: {cleared_pending}.\nNote: `{tool_name}` is currently listed in `autonomy.non_cli_excluded_tools` for this runtime. Remove it from config; the channel runtime auto-reloads this list from disk."
                     )
@@ -2182,7 +2210,7 @@ async fn handle_runtime_command_if_needed(
                 let removed_pending = ctx
                     .approval_manager
                     .clear_non_cli_pending_requests_for_tool(&tool_name);
-                match remove_non_cli_approval_from_config(ctx, &tool_name).await {
+                match remove_non_cli_approval_from_config(ctx.as_ref(), &tool_name).await {
                     Ok(Some((path, removed_persistent))) => format!(
                         "Persistent approval removed for `{tool_name}`: {}.\nRuntime effective auto_approve removed: {}.\nRuntime pending requests cleared: {}.\nConfig path: `{}`.\nRuntime session grant removed: {}.",
                         if removed_persistent { "yes" } else { "no (not present)" },
@@ -2204,11 +2232,11 @@ async fn handle_runtime_command_if_needed(
         }
         ChannelRuntimeCommand::ListApprovals => {
             match describe_non_cli_approvals(
-                ctx,
+                ctx.as_ref(),
                 sender,
                 source_channel,
                 reply_target,
-                &snapshot_non_cli_excluded_tools(ctx),
+                &snapshot_non_cli_excluded_tools(ctx.as_ref()),
             )
             .await
             {
@@ -2226,6 +2254,33 @@ async fn handle_runtime_command_if_needed(
             "Failed to send runtime command response on {}: {err}",
             channel.name()
         );
+    }
+
+    if let Some(resume_msg) = auto_resume_message {
+        runtime_trace::record_event(
+            "approval_request_auto_resume_started",
+            Some(source_channel),
+            None,
+            None,
+            None,
+            Some(true),
+            Some("resuming original non-cli request after approval"),
+            serde_json::json!({
+                "approval_message_id": msg.id,
+                "resumed_message_id": resume_msg.id.clone(),
+                "sender": resume_msg.sender.clone(),
+                "channel": resume_msg.channel.clone(),
+            }),
+        );
+        Box::pin(process_channel_message_with_options(
+            Arc::clone(&ctx),
+            resume_msg,
+            CancellationToken::new(),
+            ProcessChannelMessageOptions {
+                resume_existing_user_turn: true,
+            },
+        ))
+        .await;
     }
 
     true
@@ -2686,10 +2741,30 @@ fn spawn_progress_heartbeat_task(
     })
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+struct ProcessChannelMessageOptions {
+    resume_existing_user_turn: bool,
+}
+
 async fn process_channel_message(
     ctx: Arc<ChannelRuntimeContext>,
     msg: traits::ChannelMessage,
     cancellation_token: CancellationToken,
+) {
+    process_channel_message_with_options(
+        ctx,
+        msg,
+        cancellation_token,
+        ProcessChannelMessageOptions::default(),
+    )
+    .await;
+}
+
+async fn process_channel_message_with_options(
+    ctx: Arc<ChannelRuntimeContext>,
+    msg: traits::ChannelMessage,
+    cancellation_token: CancellationToken,
+    options: ProcessChannelMessageOptions,
 ) {
     if cancellation_token.is_cancelled() {
         return;
@@ -2734,7 +2809,7 @@ async fn process_channel_message(
     if let Err(err) = maybe_apply_runtime_config_update(ctx.as_ref()).await {
         tracing::warn!("Failed to apply runtime config update: {err}");
     }
-    if handle_runtime_command_if_needed(ctx.as_ref(), &msg, target_channel.as_ref()).await {
+    if handle_runtime_command_if_needed(Arc::clone(&ctx), &msg, target_channel.as_ref()).await {
         return;
     }
 
@@ -2849,7 +2924,10 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
             return;
         }
     };
-    if ctx.auto_save_memory && msg.content.chars().count() >= AUTOSAVE_MIN_MESSAGE_CHARS {
+    if !options.resume_existing_user_turn
+        && ctx.auto_save_memory
+        && msg.content.chars().count() >= AUTOSAVE_MIN_MESSAGE_CHARS
+    {
         let autosave_key = conversation_memory_key(&msg);
         let _ = ctx
             .memory
@@ -3031,13 +3109,16 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
     ));
     let canary_guard = crate::security::CanaryGuard::new(canary_enabled_for_turn);
     let (system_prompt, turn_canary_token) = canary_guard.inject_turn_token(&system_prompt);
-    if let Err(err) = lossless_context.record_raw_message(&ChatMessage::user(&timestamped_content))
-    {
-        tracing::warn!(
-            channel = %msg.channel,
-            sender = %msg.sender,
-            "failed to persist channel user turn into lossless context: {err}"
-        );
+    if !options.resume_existing_user_turn {
+        if let Err(err) =
+            lossless_context.record_raw_message(&ChatMessage::user(&timestamped_content))
+        {
+            tracing::warn!(
+                channel = %msg.channel,
+                sender = %msg.sender,
+                "failed to persist channel user turn into lossless context: {err}"
+            );
+        }
     }
     let mut history = match lossless_context
         .rebuild_active_history(
@@ -3064,7 +3145,9 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
                     .cloned()
                     .unwrap_or_default(),
             );
-            fallback.push(ChatMessage::user(&timestamped_content));
+            if !options.resume_existing_user_turn {
+                fallback.push(ChatMessage::user(&timestamped_content));
+            }
             fallback
         }
     };
@@ -3264,6 +3347,10 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
         Some(NonCliApprovalContext {
             sender: msg.sender.clone(),
             reply_target: msg.reply_target.clone(),
+            message_id: msg.id.clone(),
+            content: msg.content.clone(),
+            timestamp: msg.timestamp,
+            thread_ts: msg.thread_ts.clone(),
             prompt_tx: approval_prompt_tx.clone(),
         })
     };
@@ -3628,16 +3715,6 @@ semantic_match={:.2} (threshold {:.2}), category={}.",
                         "tool_name": pending.tool_name,
                     }),
                 );
-                append_sender_turn(
-                    ctx.as_ref(),
-                    &history_key,
-                    ChatMessage::assistant(
-                        "[Task paused awaiting approval — confirm the pending request, then resend the message]",
-                    ),
-                );
-                let _ = lossless_context.record_raw_message(&ChatMessage::assistant(
-                    "[Task paused awaiting approval — confirm the pending request, then resend the message]",
-                ));
                 if let Some(channel) = target_channel.as_ref() {
                     if let Some(ref draft_id) = draft_message_id {
                         let _ = channel.cancel_draft(&msg.reply_target, draft_id).await;
@@ -7632,6 +7709,147 @@ BTC is currently around $65,000 based on latest tool output."#
     }
 
     #[tokio::test]
+    async fn process_channel_message_confirm_auto_resumes_original_request() {
+        let channel_impl = Arc::new(TelegramRecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let temp = tempfile::TempDir::new().expect("temp dir");
+        let config_path = temp.path().join("config.toml");
+        let workspace_dir = temp.path().join("workspace");
+        std::fs::create_dir_all(&workspace_dir).expect("workspace dir");
+        let provider: Arc<dyn Provider> = Arc::new(ToolCallingProvider);
+        let mut provider_cache_seed: HashMap<String, Arc<dyn Provider>> = HashMap::new();
+        provider_cache_seed.insert("test-provider".to_string(), Arc::clone(&provider));
+        let mut persisted = Config::default();
+        persisted.config_path = config_path.clone();
+        persisted.workspace_dir = workspace_dir.clone();
+        persisted.autonomy.always_ask = vec!["mock_price".to_string()];
+        persisted.save().await.expect("save config");
+
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            channels_by_name: Arc::new(channels_by_name),
+            provider,
+            default_provider: Arc::new("test-provider".to_string()),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![Box::new(MockPriceTool)]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test-system-prompt".to_string()),
+            model: Arc::new("test-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
+            route_overrides: Arc::new(Mutex::new(HashMap::new())),
+            api_key: None,
+            api_url: None,
+            reliability: Arc::new(crate::config::ReliabilityConfig::default()),
+            provider_runtime_options: providers::ProviderRuntimeOptions {
+                topclaw_dir: Some(temp.path().to_path_buf()),
+                ..providers::ProviderRuntimeOptions::default()
+            },
+            workspace_dir: Arc::new(workspace_dir),
+            message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
+            interrupt_on_new_message: false,
+            non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
+            approval_manager: Arc::new(ApprovalManager::from_config(
+                &crate::config::AutonomyConfig {
+                    always_ask: vec!["mock_price".to_string()],
+                    ..crate::config::AutonomyConfig::default()
+                },
+            )),
+            multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
+        });
+        runtime_ctx
+            .route_overrides
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                "telegram_alice".to_string(),
+                ChannelRouteSelection {
+                    provider: "test-provider".to_string(),
+                    model: "test-model".to_string(),
+                },
+            );
+
+        Box::pin(process_channel_message(
+            runtime_ctx.clone(),
+            traits::ChannelMessage {
+                id: "msg-auto-resume-1".to_string(),
+                sender: "alice".to_string(),
+                reply_target: "chat-1".to_string(),
+                content: "What is the BTC price now?".to_string(),
+                channel: "telegram".to_string(),
+                timestamp: 1,
+                thread_ts: None,
+            },
+            CancellationToken::new(),
+        ))
+        .await;
+
+        let request_id = {
+            let sent = channel_impl.sent_messages.lock().await;
+            assert_eq!(sent.len(), 1);
+            assert!(sent[0].contains("Approval required for tool `mock_price`."));
+            let request_line = sent[0]
+                .lines()
+                .find(|line| line.starts_with("Request ID: `"))
+                .expect("request line");
+            request_line
+                .trim_start_matches("Request ID: `")
+                .trim_end_matches('`')
+                .to_string()
+        };
+
+        Box::pin(process_channel_message(
+            runtime_ctx.clone(),
+            traits::ChannelMessage {
+                id: "msg-auto-resume-2".to_string(),
+                sender: "alice".to_string(),
+                reply_target: "chat-1".to_string(),
+                content: format!("/approve-confirm {request_id}"),
+                channel: "telegram".to_string(),
+                timestamp: 2,
+                thread_ts: None,
+            },
+            CancellationToken::new(),
+        ))
+        .await;
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let sent = channel_impl.sent_messages.lock().await;
+                if sent
+                    .iter()
+                    .any(|entry| entry.contains("BTC is currently around $65,000"))
+                {
+                    break;
+                }
+                drop(sent);
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("auto-resumed request should finish");
+
+        let sent = channel_impl.sent_messages.lock().await;
+        assert!(sent
+            .iter()
+            .any(|entry| entry.contains("Approved supervised execution for `mock_price`")));
+        assert!(sent
+            .iter()
+            .any(|entry| entry
+                .contains("BTC is currently around $65,000 based on latest tool output.")));
+    }
+
+    #[tokio::test]
     async fn process_channel_message_all_tools_once_requires_confirm_and_stays_runtime_only() {
         let channel_impl = Arc::new(TelegramRecordingChannel::default());
         let channel: Arc<dyn Channel> = channel_impl.clone();
@@ -10256,7 +10474,14 @@ Done reminder set for 1:38 AM."#;
 
     #[test]
     fn summarize_internal_progress_delta_sanitizes_internal_updates() {
-        assert_eq!(summarize_internal_progress_delta("🤔 Thinking...\n"), None);
+        assert_eq!(
+            summarize_internal_progress_delta("🤔 Thinking...\n"),
+            Some("Analyzing the request...\n".to_string())
+        );
+        assert_eq!(
+            summarize_internal_progress_delta("🤔 Thinking (round 2)...\n"),
+            Some("Analyzing the request (round 2)...\n".to_string())
+        );
         assert_eq!(
             summarize_internal_progress_delta("⏳ shell: ls -la\n"),
             Some("Using `shell`: ls -la\n".to_string())
@@ -10299,7 +10524,7 @@ Done reminder set for 1:38 AM."#;
     fn contextualize_progress_heartbeat_leaves_generic_update_without_context() {
         assert_eq!(
             contextualize_progress_heartbeat("⏳ Still working (15s)...\n", None),
-            "⏳ Still working (15s)...\n".to_string()
+            "⏳ Still working: Analyzing the request...\n".to_string()
         );
     }
 

@@ -159,6 +159,10 @@ pub(crate) struct NonCliApprovalPrompt {
 pub(crate) struct NonCliApprovalContext {
     pub sender: String,
     pub reply_target: String,
+    pub message_id: String,
+    pub content: String,
+    pub timestamp: u64,
+    pub thread_ts: Option<String>,
     pub prompt_tx: tokio::sync::mpsc::UnboundedSender<NonCliApprovalPrompt>,
 }
 
@@ -1006,6 +1010,12 @@ pub(crate) async fn run_tool_call_loop(
                                 &ctx.sender,
                                 channel_name,
                                 &ctx.reply_target,
+                                Some(crate::approval::PendingNonCliResumeRequest {
+                                    message_id: ctx.message_id.clone(),
+                                    content: ctx.content.clone(),
+                                    timestamp: ctx.timestamp,
+                                    thread_ts: ctx.thread_ts.clone(),
+                                }),
                                 approval_reason,
                             );
 
@@ -3064,6 +3074,10 @@ mod tests {
             Some(NonCliApprovalContext {
                 sender: "alice".to_string(),
                 reply_target: "chat-approval".to_string(),
+                message_id: "msg-approval".to_string(),
+                content: "run shell".to_string(),
+                timestamp: 1,
+                thread_ts: None,
                 prompt_tx,
             }),
             &crate::config::MultimodalConfig::default(),
@@ -3194,6 +3208,10 @@ mod tests {
             Some(NonCliApprovalContext {
                 sender: "alice".to_string(),
                 reply_target: "chat-investigation".to_string(),
+                message_id: "msg-investigation".to_string(),
+                content: "run shell".to_string(),
+                timestamp: 1,
+                thread_ts: None,
                 prompt_tx,
             }),
             &crate::config::MultimodalConfig::default(),
@@ -3261,6 +3279,10 @@ mod tests {
                 Some(NonCliApprovalContext {
                     sender: "alice".to_string(),
                     reply_target: "chat-shell".to_string(),
+                    message_id: "msg-shell".to_string(),
+                    content: "run shell".to_string(),
+                    timestamp: 1,
+                    thread_ts: None,
                     prompt_tx,
                 }),
                 &crate::config::MultimodalConfig::default(),
