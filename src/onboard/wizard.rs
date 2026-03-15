@@ -20,8 +20,8 @@ use crate::providers::{
 };
 use crate::skills::{CuratedSkillCatalogEntry, CuratedSkillRisk};
 use anyhow::{bail, Context, Result};
-use console::style;
-use dialoguer::{Confirm, Input, MultiSelect, Select};
+use console::{style, Key, Term};
+use dialoguer::{Confirm, Input, Select};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -115,14 +115,7 @@ fn format_onboarding_skill_label(entry: &CuratedSkillCatalogEntry) -> String {
 fn print_onboarding_skill_controls() {
     println!(
         "  {}",
-        style(
-            "Use Up/Down to navigate, Space to select or unselect, and Return/Enter to continue."
-        )
-        .dim()
-    );
-    println!(
-        "  {}",
-        style("Tip: Press 'a' to toggle all items in the list.").dim()
+        style("Up/Down navigate, Space toggles, Return/Enter continues, 'a' toggles all, 'c' clears all.").dim()
     );
 }
 
@@ -159,19 +152,12 @@ fn prompt_skill_selection_report(
 }
 
 fn prompt_skill_selection_instruction(
-    title: &str,
+    _title: &str,
     help_text: &str,
     _entries: &[&CuratedSkillCatalogEntry],
 ) {
     println!("  {}", style(help_text).dim());
     print_onboarding_skill_controls();
-    println!(
-        "  {}",
-        style(format!(
-            "Select entries for {title}. The list uses short labels to reduce terminal redraw artifacts on narrow screens."
-        ))
-        .dim()
-    );
 }
 
 fn build_skills_config_from_selection(
@@ -228,12 +214,7 @@ fn prompt_skill_selection(
         .iter()
         .map(|entry| default_selected_onboarding_skill(entry))
         .collect();
-    let selected = MultiSelect::new()
-        .with_prompt(title)
-        .items(&labels)
-        .defaults(&defaults)
-        .report(false)
-        .interact()
+    let selected = interact_onboarding_skill_selection(title, &labels, &defaults)
         .context("failed to read skill selection")?;
     prompt_skill_selection_report(title, entries, &selected);
 
@@ -243,22 +224,111 @@ fn prompt_skill_selection(
         .collect())
 }
 
+fn render_onboarding_skill_selection(
+    term: &Term,
+    title: &str,
+    labels: &[String],
+    checked: &[bool],
+    active: usize,
+) -> Result<usize> {
+    term.write_line(&format!("{title}:"))?;
+    for (index, label) in labels.iter().enumerate() {
+        let prefix = match (checked[index], active == index) {
+            (true, true) => "> [x]",
+            (true, false) => "  [x]",
+            (false, true) => "> [ ]",
+            (false, false) => "  [ ]",
+        };
+        term.write_line(&format!("{prefix} {label}"))?;
+    }
+    Ok(labels.len() + 1)
+}
+
+fn apply_onboarding_skill_selection_key(
+    key: Key,
+    checked: &mut [bool],
+    active: &mut usize,
+) -> bool {
+    match key {
+        Key::ArrowDown | Key::Tab | Key::Char('j') => {
+            *active = (*active + 1) % checked.len();
+        }
+        Key::ArrowUp | Key::BackTab | Key::Char('k') => {
+            *active = (*active + checked.len() - 1) % checked.len();
+        }
+        Key::Char(' ') => {
+            checked[*active] = !checked[*active];
+        }
+        Key::Char('a') => {
+            if checked.iter().all(|item_checked| *item_checked) {
+                checked.fill(false);
+            } else {
+                checked.fill(true);
+            }
+        }
+        Key::Char('c') => {
+            checked.fill(false);
+        }
+        Key::Enter => return true,
+        _ => {}
+    }
+
+    false
+}
+
+fn interact_onboarding_skill_selection(
+    title: &str,
+    labels: &[String],
+    defaults: &[bool],
+) -> Result<Vec<usize>> {
+    let term = Term::stderr();
+    if !term.is_term() {
+        anyhow::bail!("not a terminal");
+    }
+    if labels.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut checked = defaults.to_vec();
+    let mut active = 0usize;
+    term.hide_cursor()?;
+
+    let result = (|| -> Result<Vec<usize>> {
+        let mut rendered_lines =
+            render_onboarding_skill_selection(&term, title, labels, &checked, active)?;
+        loop {
+            let submit =
+                apply_onboarding_skill_selection_key(term.read_key()?, &mut checked, &mut active);
+            if submit {
+                term.clear_last_lines(rendered_lines)?;
+                return Ok(checked
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, selected)| selected.then_some(index))
+                    .collect());
+            }
+
+            term.clear_last_lines(rendered_lines)?;
+            rendered_lines =
+                render_onboarding_skill_selection(&term, title, labels, &checked, active)?;
+        }
+    })();
+
+    term.show_cursor()?;
+    result
+}
+
 fn setup_skills() -> Result<SkillOnboardingSelection> {
     println!(
         "  {}",
-        style("Pick starter skills to install into this workspace.").dim()
-    );
-    println!(
-        "  {}",
-        style("Everything in this list is optional. Recommended starter skills are selected by default.")
-            .dim()
+        style("Optional starter skills. Recommended ones are preselected.").dim()
     );
 
     let catalog = crate::skills::curated_skill_catalog();
     let ordered_entries: Vec<&CuratedSkillCatalogEntry> = catalog.iter().collect();
     let selected = prompt_skill_selection(
         "Starter skills",
-        "Review the list below and choose the skills you want to install.",
+        "Choose the skills you want to install.",
         &ordered_entries,
     )?;
 
@@ -8658,6 +8728,41 @@ mod tests {
             format_onboarding_skill_label(browser_extension),
             "agent-browser-extension — browser automation"
         );
+    }
+
+    #[test]
+    fn onboarding_skill_selection_key_handler_supports_clear_all() {
+        let mut checked = vec![true, true, false];
+        let mut active = 1usize;
+
+        assert!(!apply_onboarding_skill_selection_key(
+            Key::Char('c'),
+            &mut checked,
+            &mut active
+        ));
+
+        assert_eq!(checked, vec![false, false, false]);
+        assert_eq!(active, 1);
+    }
+
+    #[test]
+    fn onboarding_skill_selection_key_handler_keeps_toggle_all_behavior() {
+        let mut checked = vec![true, false, false];
+        let mut active = 0usize;
+
+        assert!(!apply_onboarding_skill_selection_key(
+            Key::Char('a'),
+            &mut checked,
+            &mut active
+        ));
+        assert_eq!(checked, vec![true, true, true]);
+
+        assert!(!apply_onboarding_skill_selection_key(
+            Key::Char('a'),
+            &mut checked,
+            &mut active
+        ));
+        assert_eq!(checked, vec![false, false, false]);
     }
 
     #[test]
