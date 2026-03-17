@@ -44,7 +44,7 @@ env:
 jobs:
     prepare:
         name: Prepare Release Context
-        if: github.event_name != 'push' || !contains(github.ref_name, '-')
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         runs-on: ubuntu-22.04
         outputs:
             release_ref: ${{ steps.vars.outputs.release_ref }}
@@ -67,7 +67,11 @@ jobs:
                   if [[ "$event_name" == "push" ]]; then
                     release_ref="${GITHUB_REF_NAME}"
                     release_tag="${GITHUB_REF_NAME}"
-                    publish_release="true"
+                    if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+                      publish_release="true"
+                    else
+                      publish_release="false"
+                    fi
                   elif [[ "$event_name" == "workflow_dispatch" ]]; then
                     release_ref="${{ inputs.release_ref }}"
                     publish_release="${{ inputs.publish_release }}"
