@@ -9,6 +9,32 @@
 //! The subsystem manages per-sender conversation history, concurrent message processing
 //! with configurable parallelism, and exponential-backoff reconnection for resilience.
 //!
+//! # Feature-Gated Channels
+//!
+//! Some channels are compiled conditionally based on feature flags to reduce binary size:
+//! - `channel-telegram` - Telegram bot support
+//! - `channel-discord` - Discord bot support
+//! - `channel-slack` - Slack bot support
+//! - `channel-whatsapp` - WhatsApp Business API
+//! - `channel-signal` - Signal messenger
+//! - `channel-email` - Email via IMAP/SMTP
+//! - `channel-irc` - IRC support
+//! - `channel-nostr` - Nostr protocol
+//! - `channel-qq` - QQ/Tencent QQ
+//! - `channel-mattermost` - Mattermost
+//! - `channel-dingtalk` - DingTalk
+//! - `channel-linq` - Linq
+//! - `channel-wati` - Wati
+//! - `channel-nextcloud-talk` - Nextcloud Talk
+//! - `channel-imessage` - iMessage (macOS only)
+//! - `channel-clawdtalk` - ClawdTalk
+//! - `channel-lark` - Lark/Feishu (飞书)
+//! - `channel-matrix` - Matrix
+//! - `whatsapp-web` - WhatsApp Web client
+//!
+//! Use `--no-default-features --features minimal` for smallest binary,
+//! or `--features all-channels` to compile all channels.
+//!
 //! # Extension
 //!
 //! To add a new channel, implement [`Channel`] in a new submodule and wire it into

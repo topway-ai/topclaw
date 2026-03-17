@@ -1,7 +1,14 @@
-use crate::channels::{
-    Channel, DiscordChannel, EmailChannel, MattermostChannel, QQChannel, SendMessage, SlackChannel,
-    TelegramChannel,
-};
+use crate::channels::{Channel, SendMessage, TelegramChannel};
+#[cfg(feature = "channel-discord")]
+use crate::channels::DiscordChannel;
+#[cfg(feature = "channel-email")]
+use crate::channels::EmailChannel;
+#[cfg(feature = "channel-mattermost")]
+use crate::channels::MattermostChannel;
+#[cfg(feature = "channel-qq")]
+use crate::channels::QQChannel;
+#[cfg(feature = "channel-slack")]
+use crate::channels::SlackChannel;
 use crate::config::Config;
 use crate::cron::{
     due_jobs, next_run_for_schedule, record_last_run, record_run, remove_job, reschedule_after_run,
@@ -328,6 +335,7 @@ pub(crate) async fn deliver_announcement(
     output: &str,
 ) -> Result<()> {
     match channel.to_ascii_lowercase().as_str() {
+        #[cfg(feature = "channel-telegram")]
         "telegram" => {
             let tg = config
                 .channels_config
@@ -342,6 +350,7 @@ pub(crate) async fn deliver_announcement(
             .with_workspace_dir(config.workspace_dir.clone());
             channel.send(&SendMessage::new(output, target)).await?;
         }
+        #[cfg(feature = "channel-discord")]
         "discord" => {
             let dc = config
                 .channels_config
@@ -358,6 +367,7 @@ pub(crate) async fn deliver_announcement(
             .with_workspace_dir(config.workspace_dir.clone());
             channel.send(&SendMessage::new(output, target)).await?;
         }
+        #[cfg(feature = "channel-slack")]
         "slack" => {
             let sl = config
                 .channels_config
@@ -371,6 +381,7 @@ pub(crate) async fn deliver_announcement(
             );
             channel.send(&SendMessage::new(output, target)).await?;
         }
+        #[cfg(feature = "channel-mattermost")]
         "mattermost" => {
             let mm = config
                 .channels_config
@@ -384,9 +395,11 @@ pub(crate) async fn deliver_announcement(
                 mm.allowed_users.clone(),
                 mm.thread_replies.unwrap_or(true),
                 mm.effective_group_reply_mode().requires_mention(),
-            );
+            )
+            .with_workspace_dir(config.workspace_dir.clone());
             channel.send(&SendMessage::new(output, target)).await?;
         }
+        #[cfg(feature = "channel-qq")]
         "qq" => {
             let qq = config
                 .channels_config
@@ -397,9 +410,11 @@ pub(crate) async fn deliver_announcement(
                 qq.app_id.clone(),
                 qq.app_secret.clone(),
                 qq.allowed_users.clone(),
-            );
+            )
+            .with_workspace_dir(config.workspace_dir.clone());
             channel.send(&SendMessage::new(output, target)).await?;
         }
+        #[cfg(feature = "channel-email")]
         "email" => {
             let email = config
                 .channels_config

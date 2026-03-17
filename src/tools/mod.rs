@@ -17,10 +17,12 @@
 
 pub mod agents_ipc;
 pub mod apply_patch;
+#[cfg(feature = "browser-native")]
 pub mod browser;
 pub mod browser_open;
 pub mod channel_runtime_context;
 pub mod cli_discovery;
+#[cfg(feature = "tool-composio")]
 pub mod composio;
 pub mod content_search;
 pub mod cron_add;
@@ -31,6 +33,7 @@ pub mod cron_runs;
 pub mod cron_update;
 pub mod delegate;
 pub mod delegate_coordination_status;
+#[cfg(feature = "tool-discord")]
 pub mod discord_history_fetch;
 pub mod file_edit;
 pub mod file_read;
@@ -74,8 +77,10 @@ pub mod web_fetch;
 pub mod web_search_tool;
 
 pub use apply_patch::ApplyPatchTool;
+#[cfg(feature = "browser-native")]
 pub use browser::{BrowserTool, ComputerUseConfig};
 pub use browser_open::BrowserOpenTool;
+#[cfg(feature = "tool-composio")]
 pub use composio::ComposioTool;
 pub use content_search::ContentSearchTool;
 pub use cron_add::CronAddTool;
@@ -86,6 +91,7 @@ pub use cron_runs::CronRunsTool;
 pub use cron_update::CronUpdateTool;
 pub use delegate::DelegateTool;
 pub use delegate_coordination_status::DelegateCoordinationStatusTool;
+#[cfg(feature = "tool-discord")]
 pub use discord_history_fetch::DiscordHistoryFetchTool;
 pub use file_edit::FileEditTool;
 pub use file_read::FileReadTool;
@@ -346,24 +352,28 @@ pub fn all_tools_with_runtime(
             )));
         }
         // Add full browser automation tool (pluggable backend)
-        tool_arcs.push(Arc::new(BrowserTool::new_with_backend(
-            security.clone(),
-            browser_config.allowed_domains.clone(),
-            browser_config.session_name.clone(),
-            browser_config.backend.clone(),
-            browser_config.native_headless,
-            browser_config.native_webdriver_url.clone(),
-            browser_config.native_chrome_path.clone(),
-            ComputerUseConfig {
-                endpoint: browser_config.computer_use.endpoint.clone(),
-                api_key: browser_config.computer_use.api_key.clone(),
-                timeout_ms: browser_config.computer_use.timeout_ms,
-                allow_remote_endpoint: browser_config.computer_use.allow_remote_endpoint,
-                window_allowlist: browser_config.computer_use.window_allowlist.clone(),
-                max_coordinate_x: browser_config.computer_use.max_coordinate_x,
-                max_coordinate_y: browser_config.computer_use.max_coordinate_y,
-            },
-        )));
+        #[cfg(feature = "browser-native")]
+        {
+            use crate::tools::browser::ComputerUseConfig;
+            tool_arcs.push(Arc::new(BrowserTool::new_with_backend(
+                security.clone(),
+                browser_config.allowed_domains.clone(),
+                browser_config.session_name.clone(),
+                browser_config.backend.clone(),
+                browser_config.native_headless,
+                browser_config.native_webdriver_url.clone(),
+                browser_config.native_chrome_path.clone(),
+                ComputerUseConfig {
+                    endpoint: browser_config.computer_use.endpoint.clone(),
+                    api_key: browser_config.computer_use.api_key.clone(),
+                    timeout_ms: browser_config.computer_use.timeout_ms,
+                    allow_remote_endpoint: browser_config.computer_use.allow_remote_endpoint,
+                    window_allowlist: browser_config.computer_use.window_allowlist.clone(),
+                    max_coordinate_x: browser_config.computer_use.max_coordinate_x,
+                    max_coordinate_y: browser_config.computer_use.max_coordinate_y,
+                },
+            )));
+        }
     }
 
     if http_config.enabled {

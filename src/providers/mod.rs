@@ -28,8 +28,12 @@ pub mod openai_codex;
 pub mod openrouter;
 pub mod reliable;
 pub mod router;
+#[cfg(feature = "provider-telnyx")]
 pub mod telnyx;
 pub mod traits;
+
+#[cfg(feature = "provider-glm")]
+pub mod glm;
 
 #[allow(unused_imports)]
 pub use traits::{
@@ -1087,6 +1091,7 @@ fn create_provider_with_url_and_options(
                 options.auth_profile_override.clone(),
             )))
         }
+        #[cfg(feature = "provider-telnyx")]
         "telnyx" => Ok(Box::new(telnyx::TelnyxProvider::new(key))),
 
         // ── OpenAI-compatible providers ──────────────────────
@@ -1133,12 +1138,19 @@ fn create_provider_with_url_and_options(
             AuthStyle::Bearer,
         ))),
         name if glm_base_url(name).is_some() => {
-            Ok(Box::new(OpenAiCompatibleProvider::new_no_responses_fallback(
-                "GLM",
-                glm_base_url(name).expect("checked in guard"),
-                key,
-                AuthStyle::Bearer,
-            )))
+            #[cfg(feature = "provider-glm")]
+            {
+                Ok(Box::new(OpenAiCompatibleProvider::new_no_responses_fallback(
+                    "GLM",
+                    glm_base_url(name).expect("checked in guard"),
+                    key,
+                    AuthStyle::Bearer,
+                )))
+            }
+            #[cfg(not(feature = "provider-glm"))]
+            {
+                anyhow::bail!("glm provider requires the `provider-glm` feature flag")
+            }
         }
         name if minimax_base_url(name).is_some() => Ok(Box::new(
             OpenAiCompatibleProvider::new_merge_system_into_user(
@@ -1148,6 +1160,7 @@ fn create_provider_with_url_and_options(
                 AuthStyle::Bearer,
             )
         )),
+        #[cfg(feature = "provider-bedrock")]
         "bedrock" | "aws-bedrock" => Ok(Box::new(bedrock::BedrockProvider::new())),
         name if is_qwen_oauth_alias(name) => {
             let base_url = api_url
@@ -1694,7 +1707,10 @@ pub fn list_providers() -> Vec<ProviderInfo> {
         ProviderInfo {
             name: "glm",
             display_name: "GLM (Zhipu)",
-            aliases: &["zhipu"],
+            #[cfg(feature = "provider-glm")]
+            aliases: &["zhipu", "glm-cn", "glm-global", "bigmodel"],
+            #[cfg(not(feature = "provider-glm"))]
+            aliases: &[],
             local: false,
         },
         ProviderInfo {
@@ -1713,6 +1729,7 @@ pub fn list_providers() -> Vec<ProviderInfo> {
             ],
             local: false,
         },
+        #[cfg(feature = "provider-bedrock")]
         ProviderInfo {
             name: "bedrock",
             display_name: "Amazon Bedrock",

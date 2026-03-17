@@ -4446,7 +4446,43 @@ const CHANNEL_MENU_CHOICES: &[ChannelMenuChoice] = &[
 ];
 
 fn channel_menu_choices() -> &'static [ChannelMenuChoice] {
-    CHANNEL_MENU_CHOICES
+    // Build channel menu choices based on compiled-in features
+    // This ensures the wizard only shows channels that are actually available
+    let mut choices: Vec<ChannelMenuChoice> = Vec::new();
+
+    #[cfg(feature = "channel-telegram")]
+    choices.push(ChannelMenuChoice::Telegram);
+    #[cfg(feature = "channel-discord")]
+    choices.push(ChannelMenuChoice::Discord);
+    #[cfg(feature = "channel-slack")]
+    choices.push(ChannelMenuChoice::Slack);
+    #[cfg(feature = "channel-imessage")]
+    choices.push(ChannelMenuChoice::IMessage);
+    #[cfg(feature = "channel-matrix")]
+    choices.push(ChannelMenuChoice::Matrix);
+    #[cfg(feature = "channel-signal")]
+    choices.push(ChannelMenuChoice::Signal);
+    #[cfg(feature = "channel-whatsapp")]
+    choices.push(ChannelMenuChoice::WhatsApp);
+    #[cfg(feature = "channel-linq")]
+    choices.push(ChannelMenuChoice::Linq);
+    #[cfg(feature = "channel-irc")]
+    choices.push(ChannelMenuChoice::Irc);
+    // Webhook is always available (it's the generic webhook)
+    choices.push(ChannelMenuChoice::Webhook);
+    #[cfg(feature = "channel-nextcloud-talk")]
+    choices.push(ChannelMenuChoice::NextcloudTalk);
+    #[cfg(feature = "channel-dingtalk")]
+    choices.push(ChannelMenuChoice::DingTalk);
+    #[cfg(feature = "channel-qq")]
+    choices.push(ChannelMenuChoice::QqOfficial);
+    #[cfg(feature = "channel-lark")]
+    choices.push(ChannelMenuChoice::LarkFeishu);
+    #[cfg(feature = "channel-nostr")]
+    choices.push(ChannelMenuChoice::Nostr);
+
+    choices.push(ChannelMenuChoice::Done);
+    Box::leak(choices.into_boxed_slice())
 }
 
 fn default_channel_menu_index(config: &ChannelsConfig) -> usize {
@@ -4465,22 +4501,38 @@ fn default_channel_menu_index(config: &ChannelsConfig) -> usize {
 
 fn channel_choice_is_configured(config: &ChannelsConfig, choice: ChannelMenuChoice) -> bool {
     match choice {
+        #[cfg(feature = "channel-telegram")]
         ChannelMenuChoice::Telegram => config.telegram.is_some(),
+        #[cfg(feature = "channel-discord")]
         ChannelMenuChoice::Discord => config.discord.is_some(),
+        #[cfg(feature = "channel-slack")]
         ChannelMenuChoice::Slack => config.slack.is_some(),
+        #[cfg(feature = "channel-imessage")]
         ChannelMenuChoice::IMessage => config.imessage.is_some(),
+        #[cfg(feature = "channel-matrix")]
         ChannelMenuChoice::Matrix => config.matrix.is_some(),
+        #[cfg(feature = "channel-signal")]
         ChannelMenuChoice::Signal => config.signal.is_some(),
+        #[cfg(feature = "channel-whatsapp")]
         ChannelMenuChoice::WhatsApp => config.whatsapp.is_some(),
+        #[cfg(feature = "channel-linq")]
         ChannelMenuChoice::Linq => config.linq.is_some(),
+        #[cfg(feature = "channel-irc")]
         ChannelMenuChoice::Irc => config.irc.is_some(),
         ChannelMenuChoice::Webhook => config.webhook.is_some(),
+        #[cfg(feature = "channel-nextcloud-talk")]
         ChannelMenuChoice::NextcloudTalk => config.nextcloud_talk.is_some(),
+        #[cfg(feature = "channel-dingtalk")]
         ChannelMenuChoice::DingTalk => config.dingtalk.is_some(),
+        #[cfg(feature = "channel-qq")]
         ChannelMenuChoice::QqOfficial => config.qq.is_some(),
+        #[cfg(feature = "channel-lark")]
         ChannelMenuChoice::LarkFeishu => config.lark.is_some() || config.feishu.is_some(),
+        #[cfg(feature = "channel-nostr")]
         ChannelMenuChoice::Nostr => config.nostr.is_some(),
         ChannelMenuChoice::Done => false,
+        // Catch-all for variants that may not be compiled in
+        _ => false,
     }
 }
 
@@ -4618,6 +4670,8 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     }
                 ),
                 ChannelMenuChoice::Done => "Done — finish setup".to_string(),
+                // This should never be reached since menu choices are filtered by compiled features
+                _ => "".to_string(),
             })
             .collect();
 
@@ -6175,6 +6229,8 @@ fn setup_channels() -> Result<ChannelsConfig> {
                 );
             }
             ChannelMenuChoice::Done => break,
+            // This should never be reached since menu choices are filtered by compiled features
+            _ => {}
         }
 
         if channel_choice_is_configured(&config, choice) {

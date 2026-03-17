@@ -653,7 +653,8 @@ pub struct ChannelsConfig {
     /// Nextcloud Talk bot channel configuration.
     pub nextcloud_talk: Option<NextcloudTalkConfig>,
     /// Email channel configuration.
-    pub email: Option<crate::channels::email_channel::EmailConfig>,
+    #[serde(default)]
+    pub email: Option<EmailConfig>,
     /// IRC channel configuration.
     pub irc: Option<IrcConfig>,
     /// Lark channel configuration.
@@ -666,7 +667,8 @@ pub struct ChannelsConfig {
     pub qq: Option<QQConfig>,
     pub nostr: Option<NostrConfig>,
     /// ClawdTalk voice channel configuration.
-    pub clawdtalk: Option<crate::channels::clawdtalk::ClawdTalkConfig>,
+    #[serde(default)]
+    pub clawdtalk: Option<ClawdTalkConfig>,
     /// Base timeout in seconds for processing a single channel message (LLM + tools).
     /// Runtime uses this as a per-turn budget that scales with tool-loop depth
     /// (up to 4x, capped) so one slow/retried model call does not consume the
@@ -1762,6 +1764,92 @@ pub fn default_nostr_relays() -> Vec<String> {
         "wss://relay.primal.net".to_string(),
         "wss://relay.snort.social".to_string(),
     ]
+}
+
+/// Email channel configuration.
+/// Note: The email channel implementation requires the `channel-email` feature.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct EmailConfig {
+    /// IMAP server hostname
+    pub imap_host: String,
+    /// IMAP server port (default: 993 for TLS)
+    #[serde(default = "default_imap_port")]
+    pub imap_port: u16,
+    /// IMAP folder to poll (default: INBOX)
+    #[serde(default = "default_imap_folder")]
+    pub imap_folder: String,
+    /// SMTP server hostname
+    pub smtp_host: String,
+    /// SMTP server port (default: 465 for TLS)
+    #[serde(default = "default_smtp_port")]
+    pub smtp_port: u16,
+    /// Use TLS for SMTP (default: true)
+    #[serde(default = "default_true")]
+    pub smtp_tls: bool,
+    /// Email username for authentication
+    pub username: String,
+    /// Email password for authentication
+    pub password: String,
+    /// From address for outgoing emails
+    pub from_address: String,
+    /// IDLE timeout in seconds before re-establishing connection (default: 1740 = 29 minutes)
+    #[serde(default = "default_idle_timeout")]
+    pub idle_timeout_secs: u64,
+    /// Allowed sender email addresses or domains (default: allow all)
+    #[serde(default)]
+    pub allowed_senders: Vec<String>,
+}
+
+impl crate::config::traits::ChannelConfig for EmailConfig {
+    fn name() -> &'static str {
+        "Email"
+    }
+    fn desc() -> &'static str {
+        "Email over IMAP/SMTP"
+    }
+}
+
+pub fn default_imap_port() -> u16 {
+    993
+}
+
+pub fn default_imap_folder() -> String {
+    "INBOX".to_string()
+}
+
+pub fn default_smtp_port() -> u16 {
+    465
+}
+
+pub fn default_idle_timeout() -> u64 {
+    1740
+}
+
+/// ClawdTalk (Telnyx) voice channel configuration.
+/// Note: The clawdtalk channel implementation requires the `channel-clawdtalk` feature.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ClawdTalkConfig {
+    /// Telnyx API key
+    pub api_key: String,
+    /// Telnyx connection ID for SIP
+    pub connection_id: String,
+    /// Phone number to call from (E.164 format)
+    pub from_number: String,
+    /// Allowed destination numbers or patterns
+    #[serde(default)]
+    pub allowed_destinations: Vec<String>,
+    /// Webhook secret for signature verification
+    #[serde(default)]
+    pub webhook_secret: Option<String>,
+}
+
+impl crate::config::traits::ChannelConfig for ClawdTalkConfig {
+    fn name() -> &'static str {
+        "ClawdTalk"
+    }
+    fn desc() -> &'static str {
+        "ClawdTalk Channel"
+    }
 }
 
 // ── Config impl ──────────────────────────────────────────────────

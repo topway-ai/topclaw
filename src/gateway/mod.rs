@@ -18,6 +18,7 @@ use crate::channels::{
     Channel, LinqChannel, NextcloudTalkChannel, QQChannel, SendMessage, WatiChannel,
     WhatsAppChannel,
 };
+
 use crate::config::Config;
 use crate::cost::CostTracker;
 use crate::memory::{self, Memory, MemoryCategory};
@@ -453,17 +454,26 @@ pub struct AppState {
     pub(crate) trusted_proxy_cidrs: Arc<Vec<TrustedProxyCidr>>,
     pub rate_limiter: Arc<GatewayRateLimiter>,
     pub idempotency_store: Arc<IdempotencyStore>,
+    #[cfg(feature = "channel-whatsapp")]
     pub whatsapp: Option<Arc<WhatsAppChannel>>,
     /// `WhatsApp` app secret for webhook signature verification (`X-Hub-Signature-256`)
+    #[cfg(feature = "channel-whatsapp")]
     pub whatsapp_app_secret: Option<Arc<str>>,
+    #[cfg(feature = "channel-linq")]
     pub linq: Option<Arc<LinqChannel>>,
     /// Linq webhook signing secret for signature verification
+    #[cfg(feature = "channel-linq")]
     pub linq_signing_secret: Option<Arc<str>>,
+    #[cfg(feature = "channel-nextcloud-talk")]
     pub nextcloud_talk: Option<Arc<NextcloudTalkChannel>>,
     /// Nextcloud Talk webhook secret for signature verification
+    #[cfg(feature = "channel-nextcloud-talk")]
     pub nextcloud_talk_webhook_secret: Option<Arc<str>>,
+    #[cfg(feature = "channel-wati")]
     pub wati: Option<Arc<WatiChannel>>,
+    #[cfg(feature = "channel-qq")]
     pub qq: Option<Arc<QQChannel>>,
+    #[cfg(feature = "channel-qq")]
     pub qq_webhook_enabled: bool,
     /// Observability backend for metrics scraping
     pub observer: Arc<dyn crate::observability::Observer>,
@@ -623,6 +633,9 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
                 wa.allowed_numbers.clone(),
             ))
         });
+
+    #[cfg(not(feature = "channel-whatsapp"))]
+    let whatsapp_channel: Option<Arc<WhatsAppChannel>> = None;
 
     // WhatsApp app secret for webhook signature verification
     // Priority: environment variable > config file
@@ -854,14 +867,23 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         )?),
         rate_limiter,
         idempotency_store,
+        #[cfg(feature = "channel-whatsapp")]
         whatsapp: whatsapp_channel,
+        #[cfg(feature = "channel-whatsapp")]
         whatsapp_app_secret,
+        #[cfg(feature = "channel-linq")]
         linq: linq_channel,
+        #[cfg(feature = "channel-linq")]
         linq_signing_secret,
+        #[cfg(feature = "channel-nextcloud-talk")]
         nextcloud_talk: nextcloud_talk_channel,
+        #[cfg(feature = "channel-nextcloud-talk")]
         nextcloud_talk_webhook_secret,
+        #[cfg(feature = "channel-wati")]
         wati: wati_channel,
+        #[cfg(feature = "channel-qq")]
         qq: qq_channel,
+        #[cfg(feature = "channel-qq")]
         qq_webhook_enabled,
         observer: broadcast_observer,
         tools_registry,
@@ -927,6 +949,43 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
             enforce_gateway_http_auth,
         ));
 
+    // Build channel webhook routers conditionally based on features
+    let mut channel_routes: Router<AppState> = Router::new();
+
+    // ── WhatsApp ─────────────────────────────────────────────────────────────
+    #[cfg(feature = "channel-whatsapp")]
+    {
+        channel_routes = channel_routes
+            .route("/whatsapp", get(handle_whatsapp_verify))
+            .route("/whatsapp", post(handle_whatsapp_message));
+    }
+
+    // ── Linq ─────────────────────────────────────────────────────────────
+    #[cfg(feature = "channel-linq")]
+    {
+        channel_routes = channel_routes.route("/linq", post(handle_linq_webhook));
+    }
+
+    // ── Wati ─────────────────────────────────────────────────────────────
+    #[cfg(feature = "channel-wati")]
+    {
+        channel_routes = channel_routes
+            .route("/wati", get(handle_wati_verify))
+            .route("/wati", post(handle_wati_webhook));
+    }
+
+    // ── Nextcloud Talk ─────────────────────────────────────────────────────────────
+    #[cfg(feature = "channel-nextcloud-talk")]
+    {
+        channel_routes = channel_routes.route("/nextcloud-talk", post(handle_nextcloud_talk_webhook));
+    }
+
+    // ── QQ ─────────────────────────────────────────────────────────────
+    #[cfg(feature = "channel-qq")]
+    {
+        channel_routes = channel_routes.route("/qq", post(handle_qq_webhook));
+    }
+
     // Build router with middleware
     let app = Router::new()
         // ── Existing routes ──
@@ -934,13 +993,8 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/metrics", get(handle_metrics))
         .route("/pair", post(handle_pair))
         .route("/webhook", post(handle_webhook))
-        .route("/whatsapp", get(handle_whatsapp_verify))
-        .route("/whatsapp", post(handle_whatsapp_message))
-        .route("/linq", post(handle_linq_webhook))
-        .route("/wati", get(handle_wati_verify))
-        .route("/wati", post(handle_wati_webhook))
-        .route("/nextcloud-talk", post(handle_nextcloud_talk_webhook))
-        .route("/qq", post(handle_qq_webhook))
+        // ── Channel webhook routes (conditional) ──
+        .merge(channel_routes)
         .merge(authenticated_router)
         // ── WebSocket agent chat ──
         .route("/ws/chat", get(ws::handle_ws_chat))
@@ -1534,6 +1588,7 @@ pub struct WhatsAppVerifyQuery {
 }
 
 /// GET /whatsapp — Meta webhook verification
+#[cfg(feature = "channel-whatsapp")]
 async fn handle_whatsapp_verify(
     State(state): State<AppState>,
     Query(params): Query<WhatsAppVerifyQuery>,
@@ -1587,6 +1642,7 @@ pub fn verify_whatsapp_signature(app_secret: &str, body: &[u8], signature_header
 }
 
 /// POST /whatsapp — incoming message webhook
+#[cfg(feature = "channel-whatsapp")]
 async fn handle_whatsapp_message(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1684,6 +1740,7 @@ async fn handle_whatsapp_message(
 }
 
 /// POST /linq — incoming message webhook (iMessage/RCS/SMS via Linq)
+#[cfg(feature = "channel-linq")]
 async fn handle_linq_webhook(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1803,6 +1860,7 @@ async fn handle_linq_webhook(
 }
 
 /// GET /wati — WATI webhook verification (echoes hub.challenge)
+#[cfg(feature = "channel-wati")]
 async fn handle_wati_verify(
     State(state): State<AppState>,
     Query(params): Query<WatiVerifyQuery>,
@@ -1827,6 +1885,7 @@ pub struct WatiVerifyQuery {
 }
 
 /// POST /wati — incoming WATI WhatsApp message webhook
+#[cfg(feature = "channel-wati")]
 async fn handle_wati_webhook(State(state): State<AppState>, body: Bytes) -> impl IntoResponse {
     let Some(ref wati) = state.wati else {
         return (
@@ -1897,6 +1956,7 @@ async fn handle_wati_webhook(State(state): State<AppState>, body: Bytes) -> impl
 }
 
 /// POST /nextcloud-talk — incoming message webhook (Nextcloud Talk bot API)
+#[cfg(feature = "channel-nextcloud-talk")]
 async fn handle_nextcloud_talk_webhook(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2001,6 +2061,7 @@ async fn handle_nextcloud_talk_webhook(
 }
 
 /// POST /qq — incoming QQ Bot webhook (validation + events)
+#[cfg(feature = "channel-qq")]
 async fn handle_qq_webhook(
     State(state): State<AppState>,
     headers: HeaderMap,

@@ -192,11 +192,61 @@ rppal = { version = "0.22", optional = true }
 landlock = { version = "0.4", optional = true }
 
 [features]
-default = ["channel-lark", "web-fetch-html2md"]
-builtin-preloaded-skills = []
-hardware = ["nusb", "tokio-serial"]
+# Provider feature flags - gate heavier/niche providers
+# Core providers (openai, anthropic, openrouter, ollama, gemini) are always included
+provider-bedrock = []
+provider-telnyx = []
+provider-glm = []
+
+# Default: include most common channels for out-of-box experience
+# Use: cargo build (default) or cargo build --no-default-features --features minimal
+default = ["channel-lark", "channel-telegram", "channel-discord", "channel-slack", "web-fetch-html2md", "provider-glm", "tool-composio", "tool-discord"]
+
+# Minimal: only essential channels and core providers (smallest binary)
+minimal = ["channel-telegram"]
+
+# All: all channels + all providers (largest binary)
+all = [
+    "channel-telegram", "channel-discord", "channel-slack", "channel-whatsapp",
+    "channel-signal", "channel-email", "channel-irc", "channel-nostr",
+    "channel-qq", "channel-mattermost", "channel-dingtalk", "channel-linq",
+    "channel-wati", "channel-nextcloud-talk", "channel-imessage", "channel-clawdtalk",
+    "channel-lark", "channel-matrix", "whatsapp-web",
+    "provider-bedrock", "provider-telnyx", "provider-glm"
+]
+
+# Legacy alias
+all-channels = [
+    "channel-telegram", "channel-discord", "channel-slack", "channel-whatsapp",
+    "channel-signal", "channel-email", "channel-irc", "channel-nostr",
+    "channel-qq", "channel-mattermost", "channel-dingtalk", "channel-linq",
+    "channel-wati", "channel-nextcloud-talk", "channel-imessage", "channel-clawdtalk",
+    "channel-lark", "channel-matrix", "whatsapp-web"
+]
+
+# Channel feature flags - only compile channels you need
+# This significantly reduces binary size for users who only need a few channels
+channel-telegram = []
+channel-discord = []
+channel-slack = []
+channel-whatsapp = []
+channel-signal = []
+channel-email = []
+channel-irc = []
+channel-nostr = []
+channel-qq = []
+channel-mattermost = []
+channel-dingtalk = []
+channel-linq = []
+channel-wati = []
+channel-nextcloud-talk = []
+channel-imessage = []
+channel-clawdtalk = []
 channel-matrix = ["dep:matrix-sdk"]
 channel-lark = ["dep:prost"]
+
+builtin-preloaded-skills = []
+hardware = ["nusb", "tokio-serial"]
 memory-postgres = ["dep:postgres", "dep:tokio-postgres-rustls"]
 memory-mariadb = ["dep:mysql"]
 observability-otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp"]
@@ -205,6 +255,12 @@ web-fetch-plaintext = ["dep:nanohtml2text"]
 firecrawl = []
 peripheral-rpi = ["rppal"]
 browser-native = ["dep:fantoccini"]
+
+# Tool feature flags - gate heavier tools
+# These reduce binary size when not needed
+tool-composio = []
+tool-discord = []
+
 # In-process WASM runtime (capability-based sandbox)
 runtime-wasm = ["dep:wasmi"]
 sandbox-landlock = ["dep:landlock"]

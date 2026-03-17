@@ -1,14 +1,11 @@
 mod cloudflare;
 mod custom;
 mod ngrok;
-mod none;
 mod tailscale;
 
 pub use cloudflare::CloudflareTunnel;
 pub use custom::CustomTunnel;
 pub use ngrok::NgrokTunnel;
-#[allow(unused_imports)]
-pub use none::NoneTunnel;
 pub use tailscale::TailscaleTunnel;
 
 use crate::config::{TailscaleTunnelConfig, TunnelConfig};
@@ -248,31 +245,6 @@ mod tests {
         let t = create_tunnel(&cfg).unwrap();
         assert!(t.is_some());
         assert_eq!(t.unwrap().name(), "custom");
-    }
-
-    #[test]
-    fn none_tunnel_name() {
-        let t = NoneTunnel;
-        assert_eq!(t.name(), "none");
-    }
-
-    #[test]
-    fn none_tunnel_public_url_is_none() {
-        let t = NoneTunnel;
-        assert!(t.public_url().is_none());
-    }
-
-    #[tokio::test]
-    async fn none_tunnel_health_always_true() {
-        let t = NoneTunnel;
-        assert!(t.health_check().await);
-    }
-
-    #[tokio::test]
-    async fn none_tunnel_start_returns_local() {
-        let t = NoneTunnel;
-        let url = t.start("127.0.0.1", 8080).await.unwrap();
-        assert_eq!(url, "http://127.0.0.1:8080");
     }
 
     #[test]
