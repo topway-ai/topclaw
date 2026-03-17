@@ -40,6 +40,10 @@
 //! To add a new channel, implement [`Channel`] in a new submodule and wire it into
 //! [`start_channels`]. See `AGENTS.md` §7.2 for the full change playbook.
 
+// ============================================================================
+// SECTION 1: Imports and Type Aliases
+// ============================================================================
+
 pub mod bridge;
 mod capability_detection;
 pub mod clawdtalk;
@@ -227,6 +231,10 @@ struct ModelCacheEntry {
 
 const SYSTEMD_STATUS_ARGS: [&str; 3] = ["--user", "is-active", "topclaw.service"];
 const SYSTEMD_RESTART_ARGS: [&str; 3] = ["--user", "restart", "topclaw.service"];
+// ============================================================================
+// SECTION 2: Constants and Helper Functions
+// ============================================================================
+
 const OPENRC_STATUS_ARGS: [&str; 2] = ["topclaw", "status"];
 const OPENRC_RESTART_ARGS: [&str; 2] = ["topclaw", "restart"];
 
@@ -2772,6 +2780,10 @@ struct ProcessChannelMessageOptions {
     resume_existing_user_turn: bool,
 }
 
+// ============================================================================
+// SECTION 3: Message Processing
+// ============================================================================
+
 async fn process_channel_message(
     ctx: Arc<ChannelRuntimeContext>,
     msg: traits::ChannelMessage,
@@ -4123,6 +4135,10 @@ fn load_bootstrap_files(
 ///
 /// Daily memory files (`memory/*.md`) are NOT injected — they are accessed
 /// on-demand via `memory_recall` / `memory_search` tools.
+// ============================================================================
+// SECTION 4: System Prompt Building
+// ============================================================================
+
 pub fn build_system_prompt(
     workspace_dir: &std::path::Path,
     model_name: &str,
@@ -4507,6 +4523,10 @@ fn maybe_restart_managed_daemon_service() -> Result<bool> {
 
     Ok(false)
 }
+
+// ============================================================================
+// SECTION 5: CLI Commands and Channel Startup
+// ============================================================================
 
 pub async fn handle_command(command: crate::ChannelCommands, config: &Config) -> Result<()> {
     match command {
