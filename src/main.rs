@@ -86,7 +86,7 @@ use main_handlers::{
 // Re-export so binary modules can use crate::<CommandEnum> while keeping a single source of truth.
 pub use topclaw::{
     BackupCommands, ChannelCommands, CronCommands, HardwareCommands, IntegrationCommands,
-    MemoryCommands, MigrateCommands, PeripheralCommands, ServiceCommands, SkillCommands,
+    MemoryCommands, PeripheralCommands, ServiceCommands, SkillCommands,
 };
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
