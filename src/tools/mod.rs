@@ -303,6 +303,7 @@ pub fn all_tools_with_runtime(
     if let Some(discord) = root_config.channels_config.discord.as_ref() {
         let token = discord.bot_token.trim();
         if !token.is_empty() {
+            #[cfg(feature = "tool-discord")]
             tool_arcs.push(Arc::new(DiscordHistoryFetchTool::new(
                 security.clone(),
                 token.to_string(),
@@ -432,6 +433,7 @@ pub fn all_tools_with_runtime(
 
     if let Some(key) = composio_key {
         if !key.is_empty() {
+            #[cfg(feature = "tool-composio")]
             tool_arcs.push(Arc::new(ComposioTool::new(
                 key,
                 composio_entity_id,
