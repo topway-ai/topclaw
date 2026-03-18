@@ -172,7 +172,6 @@ probe-rs = { version = "0.31", optional = true }
 
 # PDF extraction for datasheet RAG (optional, enable with --features rag-pdf)
 pdf-extract = { version = "0.10", optional = true }
-tempfile = "3.27"
 
 # Terminal QR rendering for WhatsApp Web pairing flow.
 qrcode = { version = "0.14", optional = true }
@@ -198,11 +197,15 @@ provider-bedrock = []
 provider-telnyx = []
 provider-glm = []
 
-# Default: include most common channels for out-of-box experience
-# Use: cargo build (default) or cargo build --no-default-features --features minimal
-default = ["channel-lark", "channel-telegram", "channel-discord", "channel-slack", "web-fetch-html2md", "provider-glm", "tool-composio", "tool-discord"]
+# Default: minimal set for smallest binary
+# Use: cargo build (default) for minimal binary
+# For full out-of-box experience: cargo build --features standard
+default = ["channel-telegram"]
 
-# Minimal: only essential channels and core providers (smallest binary)
+# Standard: most common channels and tools for out-of-box experience
+standard = ["channel-lark", "channel-telegram", "channel-discord", "channel-slack", "web-fetch-html2md", "provider-glm", "tool-composio", "tool-discord"]
+
+# Minimal: only essential channel (alias for default)
 minimal = ["channel-telegram"]
 
 # All: all channels + all providers (largest binary)

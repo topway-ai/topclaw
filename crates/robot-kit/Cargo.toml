@@ -21,9 +21,6 @@ lidar = []            # LIDAR support
 vision = []           # Camera + vision model
 
 [dependencies]
-# Re-use topclaw's tool trait (optional - can also be standalone)
-# topclaw = { path = "../..", optional = true }
-
 # Async runtime
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "time", "sync", "process", "fs", "io-util"] }
 

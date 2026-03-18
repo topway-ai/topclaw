@@ -369,6 +369,10 @@ fn parse_proxy_enabled(raw: &str) -> Option<bool> {
 }
 // ── Memory ───────────────────────────────────────────────────
 
+// ═══════════════════════════════════════════════════════════════════════════
+// SECTION 1: Storage & Memory Configs
+// ═══════════════════════════════════════════════════════════════════════════
+
 /// Persistent storage configuration (`[storage]` section).
 #[derive(Debug, Clone, Serialize, Deserialize, Default, JsonSchema)]
 pub struct StorageConfig {
@@ -811,6 +815,10 @@ impl Default for ChannelsConfig {
         }
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SECTION 2: Channel Configs
+// ═══════════════════════════════════════════════════════════════════════════
 
 /// Streaming mode for channels that support progressive message updates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, JsonSchema)]
@@ -1471,6 +1479,10 @@ impl FeishuConfig {
         clone_group_reply_allowed_sender_ids(self.group_reply.as_ref())
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SECTION 3: Security Config
+// ═══════════════════════════════════════════════════════════════════════════
 
 // ── Security Config ─────────────────────────────────────────────────
 
@@ -3844,6 +3856,10 @@ async fn sync_directory(path: &Path) -> Result<()> {
         Ok(())
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SECTION 4: Tests
+// ═══════════════════════════════════════════════════════════════════════════
 
 #[cfg(test)]
 mod tests {
