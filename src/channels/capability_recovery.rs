@@ -1,0 +1,687 @@
+use super::capability_detection::{
+    extract_json_object, looks_like_file_read_task, looks_like_file_write_task,
+    looks_like_remote_repo_review_request, looks_like_shell_task,
+    looks_like_skill_candidate_request, looks_like_web_task, should_try_llm_capability_recovery,
+};
+use super::runtime_config::runtime_config_path;
+use super::{traits, ChannelRuntimeContext};
+use crate::approval::ApprovalManager;
+use crate::config::Config;
+use crate::providers::Provider;
+use crate::tools::Tool;
+use crate::util::truncate_with_ellipsis;
+use anyhow::{Context, Result};
+use serde::Deserialize;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CapabilityRecoveryKind {
+    WebAccess,
+    ShellAccess,
+    FileReadAccess,
+    FileWriteAccess,
+    SkillCandidate,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CapabilityState {
+    Available,
+    NeedsApproval,
+    Excluded,
+    Missing,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CapabilityToolCandidate {
+    tool_name: &'static str,
+    setup_hint: &'static str,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct CapabilityRecoveryPlan {
+    pub(super) kind: CapabilityRecoveryKind,
+    pub(super) tool_name: String,
+    pub(super) state: CapabilityState,
+    pub(super) reason: String,
+    pub(super) message: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct LlmCapabilityRecoverySuggestion {
+    #[serde(default)]
+    need_recovery: bool,
+    #[serde(default)]
+    tool_name: Option<String>,
+    #[serde(default)]
+    reason: Option<String>,
+    #[serde(default)]
+    queue_skill_candidate: bool,
+}
+
+fn tool_is_registered(tools_registry: &[Box<dyn Tool>], tool_name: &str) -> bool {
+    tools_registry.iter().any(|tool| tool.name() == tool_name)
+}
+
+pub(super) fn capability_tool_state(
+    tools_registry: &[Box<dyn Tool>],
+    excluded_tools: &[String],
+    approval_manager: &ApprovalManager,
+    tool_name: &str,
+) -> CapabilityState {
+    if !tool_is_registered(tools_registry, tool_name) {
+        return CapabilityState::Missing;
+    }
+
+    let excluded = excluded_tools
+        .iter()
+        .map(|tool| tool.trim().to_ascii_lowercase())
+        .collect::<std::collections::HashSet<_>>();
+
+    if excluded.contains(&tool_name.trim().to_ascii_lowercase()) {
+        CapabilityState::Excluded
+    } else if approval_manager.is_non_cli_session_granted(tool_name) {
+        CapabilityState::Available
+    } else if approval_manager.needs_approval(tool_name) {
+        CapabilityState::NeedsApproval
+    } else {
+        CapabilityState::Available
+    }
+}
+
+fn create_capability_recovery_plan(
+    ctx: &ChannelRuntimeContext,
+    msg: &traits::ChannelMessage,
+    excluded_tools: &[String],
+    kind: CapabilityRecoveryKind,
+    candidates: &[CapabilityToolCandidate],
+    reason: &'static str,
+) -> Option<CapabilityRecoveryPlan> {
+    let mut first_missing: Option<CapabilityToolCandidate> = None;
+    let mut first_excluded: Option<CapabilityToolCandidate> = None;
+
+    for candidate in candidates {
+        match capability_tool_state(
+            ctx.tools_registry.as_ref(),
+            excluded_tools,
+            ctx.approval_manager.as_ref(),
+            candidate.tool_name,
+        ) {
+            CapabilityState::Available => return None,
+            CapabilityState::NeedsApproval => {
+                let req = ctx.approval_manager.create_non_cli_pending_request(
+                    candidate.tool_name,
+                    &msg.sender,
+                    &msg.channel,
+                    &msg.reply_target,
+                    None,
+                    Some(reason.to_string()),
+                );
+                let message = format!(
+                    "I can finish this, but I need supervised access to `{}` first.\nRequest ID: `{}`\nConfirm with `/approve-confirm {}` from this same chat/channel, then send the request again.",
+                    candidate.tool_name, req.request_id, req.request_id
+                );
+                return Some(CapabilityRecoveryPlan {
+                    kind,
+                    tool_name: candidate.tool_name.to_string(),
+                    state: CapabilityState::NeedsApproval,
+                    reason: reason.to_string(),
+                    message,
+                });
+            }
+            CapabilityState::Excluded => {
+                if first_excluded.is_none() {
+                    first_excluded = Some(*candidate);
+                }
+            }
+            CapabilityState::Missing => {
+                if first_missing.is_none() {
+                    first_missing = Some(*candidate);
+                }
+            }
+        }
+    }
+
+    if let Some(candidate) = first_excluded {
+        return Some(CapabilityRecoveryPlan {
+            kind,
+            tool_name: candidate.tool_name.to_string(),
+            state: CapabilityState::Excluded,
+            reason: reason.to_string(),
+            message: format!(
+                "I can’t use `{}` in this chat because it is currently blocked by `autonomy.non_cli_excluded_tools`.\nRemove it from that config list, let the channel runtime reload, then retry.\n{}",
+                candidate.tool_name, candidate.setup_hint
+            ),
+        });
+    }
+
+    first_missing.map(|candidate| CapabilityRecoveryPlan {
+        kind,
+        tool_name: candidate.tool_name.to_string(),
+        state: CapabilityState::Missing,
+        reason: reason.to_string(),
+        message: candidate.setup_hint.to_string(),
+    })
+}
+
+pub(super) fn infer_capability_recovery_plan(
+    ctx: &ChannelRuntimeContext,
+    msg: &traits::ChannelMessage,
+    excluded_tools: &[String],
+) -> Option<CapabilityRecoveryPlan> {
+    // Requests asking to expose commands/tool calls already used in this turn
+    // should stay on the normal response path instead of being misclassified
+    // as a fresh shell-capability deficit.
+    if should_expose_internal_tool_details(&msg.content) {
+        return None;
+    }
+
+    if looks_like_web_task(&msg.content) {
+        // Repo-review prompts often include a remote origin URL even when the
+        // local workspace is the authoritative source. More broadly, when no
+        // remote-web tool is actually registered, let the normal agent path
+        // continue so the model can choose an available local/tool-less path
+        // instead of hard-failing before tool selection begins.
+        if looks_like_remote_repo_review_request(&msg.content) {
+            return None;
+        }
+        let plan = create_capability_recovery_plan(
+            ctx,
+            msg,
+            excluded_tools,
+            CapabilityRecoveryKind::WebAccess,
+            &[
+                CapabilityToolCandidate {
+                    tool_name: "web_fetch",
+                    setup_hint: "I can’t inspect that link from this chat yet because channel web access is not enabled.\nEnable `web_fetch`, `web_search_tool`, `http_request`, or `browser` for channel use, or send me local files/workspace content instead.",
+                },
+                CapabilityToolCandidate {
+                    tool_name: "web_search_tool",
+                    setup_hint: "I can’t search the web for this from this chat yet because web-search tooling is not enabled.\nEnable `web_search_tool`, `web_fetch`, `http_request`, or `browser` for channel use, or give me the relevant local material.",
+                },
+                CapabilityToolCandidate {
+                    tool_name: "http_request",
+                    setup_hint: "I can’t retrieve that remote content from this chat yet because channel HTTP access is not enabled.\nEnable `http_request`, `web_fetch`, `web_search_tool`, or `browser` for channel use, or give me the relevant local material.",
+                },
+                CapabilityToolCandidate {
+                    tool_name: "browser",
+                    setup_hint: "I can’t open that remote page from this chat yet because channel browser access is not enabled.\nEnable `browser`, `web_fetch`, `web_search_tool`, or `http_request` for channel use, or give me the relevant local material.",
+                },
+            ],
+            "user request appears to require remote web access in a non-CLI channel",
+        );
+        return match plan {
+            Some(plan) if matches!(plan.state, CapabilityState::Missing) => None,
+            other => other,
+        };
+    }
+
+    if looks_like_shell_task(&msg.content) {
+        return create_capability_recovery_plan(
+            ctx,
+            msg,
+            excluded_tools,
+            CapabilityRecoveryKind::ShellAccess,
+            &[CapabilityToolCandidate {
+                tool_name: "shell",
+                setup_hint: "I can’t run terminal commands for this chat right now.\nEnable the `shell` tool for channel use, or run the command locally and send me the output to continue.",
+            }],
+            "user request appears to require shell or terminal execution in a non-CLI channel",
+        );
+    }
+
+    if looks_like_file_write_task(&msg.content) {
+        return create_capability_recovery_plan(
+            ctx,
+            msg,
+            excluded_tools,
+            CapabilityRecoveryKind::FileWriteAccess,
+            &[
+                CapabilityToolCandidate {
+                    tool_name: "file_edit",
+                    setup_hint: "I can’t edit files for this chat right now.\nEnable `file_edit` or `file_write` for channel use, or switch to the local workspace flow.",
+                },
+                CapabilityToolCandidate {
+                    tool_name: "file_write",
+                    setup_hint: "I can’t write files for this chat right now.\nEnable `file_write` or `file_edit` for channel use, or switch to the local workspace flow.",
+                },
+            ],
+            "user request appears to require file modification in a non-CLI channel",
+        );
+    }
+
+    if looks_like_file_read_task(&msg.content) {
+        return create_capability_recovery_plan(
+            ctx,
+            msg,
+            excluded_tools,
+            CapabilityRecoveryKind::FileReadAccess,
+            &[CapabilityToolCandidate {
+                tool_name: "file_read",
+                setup_hint: "I can’t read local files for this chat right now.\nEnable `file_read` for channel use, or paste the file contents directly.",
+            }],
+            "user request appears to require local file inspection in a non-CLI channel",
+        );
+    }
+
+    None
+}
+
+fn map_tool_to_capability_kind(tool_name: &str) -> Option<CapabilityRecoveryKind> {
+    match tool_name {
+        "web_fetch" | "web_search_tool" | "http_request" | "browser" => {
+            Some(CapabilityRecoveryKind::WebAccess)
+        }
+        "shell" => Some(CapabilityRecoveryKind::ShellAccess),
+        "file_read" => Some(CapabilityRecoveryKind::FileReadAccess),
+        "file_edit" | "file_write" => Some(CapabilityRecoveryKind::FileWriteAccess),
+        "self_improvement_task" => Some(CapabilityRecoveryKind::SkillCandidate),
+        _ => None,
+    }
+}
+
+async fn load_runtime_config(ctx: &ChannelRuntimeContext) -> Result<Config> {
+    let Some(config_path) = runtime_config_path(ctx) else {
+        anyhow::bail!("runtime config path is unavailable")
+    };
+
+    let contents = tokio::fs::read_to_string(&config_path)
+        .await
+        .with_context(|| format!("Failed to read {}", config_path.display()))?;
+    let mut parsed: Config = toml::from_str(&contents)
+        .with_context(|| format!("Failed to parse {}", config_path.display()))?;
+    parsed.config_path = config_path;
+    parsed.apply_env_overrides();
+    Ok(parsed)
+}
+
+pub(super) async fn create_skill_candidate_recovery_plan(
+    ctx: &ChannelRuntimeContext,
+    msg: &traits::ChannelMessage,
+    excluded_tools: &[String],
+    reason: &str,
+    explicit_user_request: bool,
+) -> Option<CapabilityRecoveryPlan> {
+    let tool_name = "self_improvement_task";
+    let state = capability_tool_state(
+        ctx.tools_registry.as_ref(),
+        excluded_tools,
+        ctx.approval_manager.as_ref(),
+        tool_name,
+    );
+
+    if explicit_user_request
+        && matches!(
+            state,
+            CapabilityState::Available | CapabilityState::NeedsApproval
+        )
+    {
+        let config = match load_runtime_config(ctx).await {
+            Ok(config) => config,
+            Err(err) => {
+                return Some(CapabilityRecoveryPlan {
+                    kind: CapabilityRecoveryKind::SkillCandidate,
+                    tool_name: tool_name.to_string(),
+                    state: CapabilityState::Missing,
+                    reason: "self-improvement runtime config could not be loaded".to_string(),
+                    message: format!(
+                        "I identified this as a TopClaw skill/capability candidate, but I couldn’t load the runtime config to queue it automatically.\nDetails: {err}"
+                    ),
+                });
+            }
+        };
+
+        let manager = crate::self_improvement::SelfImprovementManager::new(&config.workspace_dir);
+        let title = truncate_with_ellipsis(
+            &format!("Skill candidate: {}", msg.content.replace('\n', " ")),
+            96,
+        );
+        let problem = format!(
+            "Channel request flagged for capability recovery.\n\nUser request:\n{}\n\nRecovery rationale:\n{}",
+            msg.content, reason
+        );
+        let evidence = Some(format!(
+            "channel={} sender={} reply_target={} message_id={}",
+            msg.channel, msg.sender, msg.reply_target, msg.id
+        ));
+        return match manager
+            .enqueue_task(
+                &config,
+                &title,
+                &problem,
+                evidence,
+                Some(msg.sender.clone()),
+                Some(msg.channel.clone()),
+            )
+            .await
+        {
+            Ok(task) => {
+                let sync = crate::self_improvement::sync_scheduled_job(&config)
+                    .await
+                    .unwrap_or(crate::self_improvement::SyncOutcome {
+                        action: "idle".to_string(),
+                        reason: Some("failed to sync self-improvement scheduler".to_string()),
+                        task_id: Some(task.id.clone()),
+                        job_id: None,
+                    });
+                let scheduler_status = match sync.reason {
+                    Some(reason) => format!("{} ({reason})", sync.action),
+                    None => sync.action,
+                };
+                Some(CapabilityRecoveryPlan {
+                    kind: CapabilityRecoveryKind::SkillCandidate,
+                    tool_name: tool_name.to_string(),
+                    state: CapabilityState::Available,
+                    reason:
+                        "queued a TopClaw self-improvement candidate for generated-skill flow"
+                            .to_string(),
+                    message: format!(
+                        "Queued this as a TopClaw skill/capability candidate.\nTask ID: `{}`\nNext path: research with web tools when available, draft the minimal skill candidate, run skill vetting, and prepare a candidate PR.\nScheduler: `{}`.",
+                        task.id, scheduler_status
+                    ),
+                })
+            }
+            Err(err) => Some(CapabilityRecoveryPlan {
+                kind: CapabilityRecoveryKind::SkillCandidate,
+                tool_name: tool_name.to_string(),
+                state: CapabilityState::Missing,
+                reason: "failed to queue TopClaw self-improvement candidate".to_string(),
+                message: format!(
+                    "I identified this as a TopClaw skill/capability candidate, but I couldn’t queue it automatically.\nDetails: {err}"
+                ),
+            }),
+        };
+    }
+
+    match state {
+        CapabilityState::Available => {
+            unreachable!("explicit-user-request capability queue path should have returned above")
+        }
+        CapabilityState::NeedsApproval => {
+            let req = ctx.approval_manager.create_non_cli_pending_request(
+                tool_name,
+                &msg.sender,
+                &msg.channel,
+                &msg.reply_target,
+                None,
+                Some(reason.to_string()),
+            );
+            Some(CapabilityRecoveryPlan {
+                kind: CapabilityRecoveryKind::SkillCandidate,
+                tool_name: tool_name.to_string(),
+                state,
+                reason: "queueing this TopClaw skill candidate requires supervised approval"
+                    .to_string(),
+                message: format!(
+                    "I can queue this as a TopClaw skill/capability candidate, but I need supervised access to `{}` first.\nRequest ID: `{}`\nConfirm with `/approve-confirm {}` from this same chat/channel, then resend the request.",
+                    tool_name, req.request_id, req.request_id
+                ),
+            })
+        }
+        CapabilityState::Excluded => Some(CapabilityRecoveryPlan {
+            kind: CapabilityRecoveryKind::SkillCandidate,
+            tool_name: tool_name.to_string(),
+            state,
+            reason: "self-improvement queue tool is excluded in this non-CLI runtime".to_string(),
+            message: "I identified this as a TopClaw skill/capability candidate, but `self_improvement_task` is blocked by `autonomy.non_cli_excluded_tools`.\nRemove it from that list, let the runtime reload, then retry.".to_string(),
+        }),
+        CapabilityState::Missing => Some(CapabilityRecoveryPlan {
+            kind: CapabilityRecoveryKind::SkillCandidate,
+            tool_name: tool_name.to_string(),
+            state,
+            reason: "self-improvement queue tool is not available in this runtime".to_string(),
+            message: "I identified this as a TopClaw skill/capability candidate, but the runtime does not currently expose `self_improvement_task`.\nEnable self-improvement support for this runtime if you want the bot to queue, vet, and prepare candidate PRs automatically.".to_string(),
+        }),
+    }
+}
+
+pub(super) async fn try_llm_capability_recovery_plan(
+    provider: &dyn Provider,
+    ctx: &ChannelRuntimeContext,
+    msg: &traits::ChannelMessage,
+    model: &str,
+    temperature: f64,
+    excluded_tools: &[String],
+) -> Option<CapabilityRecoveryPlan> {
+    if !should_try_llm_capability_recovery(&msg.content) {
+        return None;
+    }
+
+    let available_tools = ctx
+        .tools_registry
+        .iter()
+        .map(|tool| tool.name().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let prompt = format!(
+        "Classify whether this non-CLI request is blocked by a missing or gated capability.\n\
+Return JSON only with keys: need_recovery (bool), tool_name (string), reason (string), queue_skill_candidate (bool).\n\
+Allowed tool_name values: web_fetch, web_search_tool, http_request, browser, shell, file_read, file_edit, file_write, self_improvement_task, none.\n\
+The user's current task takes priority over creating reusable skills.\n\
+Set queue_skill_candidate=true only when the primary user goal is to extend TopClaw itself with a reusable new capability/skill candidate, not merely to finish the current task.\n\
+Available runtime tools: {available_tools}\n\
+Excluded runtime tools: {}\n\
+User request:\n{}",
+        if excluded_tools.is_empty() {
+            "(none)".to_string()
+        } else {
+            excluded_tools.join(", ")
+        },
+        msg.content
+    );
+
+    let raw = provider
+        .chat_with_system(
+            Some(
+                "You are a strict capability-recovery classifier. Output valid JSON only. Do not explain.",
+            ),
+            &prompt,
+            model,
+            temperature,
+        )
+        .await
+        .ok()?;
+    let json = extract_json_object(&raw)?;
+    let suggestion: LlmCapabilityRecoverySuggestion = serde_json::from_str(json).ok()?;
+    if !suggestion.need_recovery {
+        return None;
+    }
+
+    if suggestion.queue_skill_candidate || looks_like_skill_candidate_request(&msg.content) {
+        let reason = suggestion
+            .reason
+            .as_deref()
+            .unwrap_or("LLM classifier recommended queueing a TopClaw skill candidate");
+        return create_skill_candidate_recovery_plan(ctx, msg, excluded_tools, reason, false).await;
+    }
+
+    let tool_name = suggestion.tool_name.as_deref()?.trim();
+    if tool_name.is_empty() || tool_name.eq_ignore_ascii_case("none") {
+        return None;
+    }
+    let kind = map_tool_to_capability_kind(tool_name)?;
+    let reason = suggestion
+        .reason
+        .unwrap_or_else(|| "LLM classifier identified a likely missing capability".to_string());
+    let state = capability_tool_state(
+        ctx.tools_registry.as_ref(),
+        excluded_tools,
+        ctx.approval_manager.as_ref(),
+        tool_name,
+    );
+    match state {
+        CapabilityState::Available => None,
+        CapabilityState::NeedsApproval => {
+            let req = ctx.approval_manager.create_non_cli_pending_request(
+                tool_name,
+                &msg.sender,
+                &msg.channel,
+                &msg.reply_target,
+                None,
+                Some(reason.clone()),
+            );
+            Some(CapabilityRecoveryPlan {
+                kind,
+                tool_name: tool_name.to_string(),
+                state,
+                reason,
+                message: format!(
+                    "I can finish this, but I need supervised access to `{}` first.\nRequest ID: `{}`\nConfirm with `/approve-confirm {}` from this same chat/channel, then send the request again.",
+                    tool_name, req.request_id, req.request_id
+                ),
+            })
+        }
+        CapabilityState::Excluded => Some(CapabilityRecoveryPlan {
+            kind,
+            tool_name: tool_name.to_string(),
+            state,
+            reason,
+            message: format!(
+                "I identified `{}` as the missing capability for this request, but it is currently blocked by `autonomy.non_cli_excluded_tools`.\nRemove it from that config list, let the runtime reload, then retry.",
+                tool_name
+            ),
+        }),
+        CapabilityState::Missing => Some(CapabilityRecoveryPlan {
+            kind,
+            tool_name: tool_name.to_string(),
+            state,
+            reason,
+            message: format!(
+                "I identified `{}` as the missing capability for this request, but this runtime does not currently expose it.\nEnable that tool for channel use, or provide the needed material manually so I can continue.",
+                tool_name
+            ),
+        }),
+    }
+}
+
+pub(super) fn should_expose_internal_tool_details(user_message: &str) -> bool {
+    let trimmed = user_message.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let mentions_internal_details_en = lower.contains("command")
+        || lower.contains("tool call")
+        || lower.contains("function call")
+        || lower.contains("execution trace")
+        || lower.contains("internal step");
+    let mentions_internal_details_cjk = trimmed.contains("命令")
+        || trimmed.contains("工具调用")
+        || trimmed.contains("函数调用")
+        || trimmed.contains("执行过程");
+
+    // Fail closed for negated phrasing ("don't show commands", "不要显示命令").
+    const ENGLISH_NEGATIVE_HINTS: [&str; 18] = [
+        "don't show command",
+        "don't show commands",
+        "do not show command",
+        "do not show commands",
+        "don't output command",
+        "do not output command",
+        "without command",
+        "without commands",
+        "no command output",
+        "hide command",
+        "hide commands",
+        "omit command",
+        "omit commands",
+        "skip command",
+        "skip commands",
+        "don't show tool call",
+        "do not show tool call",
+        "do not show function call",
+    ];
+    if mentions_internal_details_en
+        && ENGLISH_NEGATIVE_HINTS
+            .iter()
+            .any(|hint| lower.contains(hint))
+    {
+        return false;
+    }
+
+    const CJK_NEGATIVE_HINTS: [&str; 22] = [
+        "不要输出命令",
+        "不要显示命令",
+        "不要展示命令",
+        "不要带上命令",
+        "不要附上命令",
+        "别输出命令",
+        "别显示命令",
+        "别展示命令",
+        "不要输出工具调用",
+        "不要显示工具调用",
+        "不要展示工具调用",
+        "别输出工具调用",
+        "别显示工具调用",
+        "不要输出函数调用",
+        "不要显示函数调用",
+        "不要展示函数调用",
+        "别输出函数调用",
+        "别显示函数调用",
+        "不要执行过程",
+        "不要过程",
+        "不要内部步骤",
+        "别把命令",
+    ];
+    if mentions_internal_details_cjk && CJK_NEGATIVE_HINTS.iter().any(|hint| trimmed.contains(hint))
+    {
+        return false;
+    }
+
+    const ENGLISH_HINTS: [&str; 20] = [
+        "show command",
+        "show commands",
+        "output command",
+        "output commands",
+        "print command",
+        "print commands",
+        "include command",
+        "include commands",
+        "with command",
+        "with commands",
+        "show tool call",
+        "show tool calls",
+        "show function call",
+        "show function calls",
+        "reveal tool call",
+        "reveal function call",
+        "tool call json",
+        "function call json",
+        "execution trace",
+        "internal steps",
+    ];
+    if ENGLISH_HINTS.iter().any(|hint| lower.contains(hint)) {
+        return true;
+    }
+
+    const ENGLISH_VERBS: [&str; 7] = [
+        "show", "output", "print", "include", "reveal", "display", "share",
+    ];
+    if mentions_internal_details_en && ENGLISH_VERBS.iter().any(|verb| lower.contains(verb)) {
+        return true;
+    }
+
+    const CJK_HINTS: [&str; 14] = [
+        "输出命令",
+        "显示命令",
+        "展示命令",
+        "命令发给我",
+        "带上命令",
+        "输出工具调用",
+        "显示工具调用",
+        "展示工具调用",
+        "输出函数调用",
+        "显示函数调用",
+        "展示函数调用",
+        "函数指令",
+        "工具指令",
+        "执行过程",
+    ];
+    if CJK_HINTS.iter().any(|hint| trimmed.contains(hint)) {
+        return true;
+    }
+
+    const CJK_VERBS: [&str; 9] = [
+        "输出", "显示", "展示", "发我", "给我", "带上", "附上", "贴出", "列出",
+    ];
+    mentions_internal_details_cjk && CJK_VERBS.iter().any(|verb| trimmed.contains(verb))
+}

@@ -14,10 +14,7 @@ pub mod static_files;
 mod webhook_ingress;
 pub mod ws;
 
-use crate::channels::{
-    LinqChannel, NextcloudTalkChannel, QQChannel, WatiChannel,
-    WhatsAppChannel,
-};
+use crate::channels::{LinqChannel, NextcloudTalkChannel, QQChannel, WatiChannel, WhatsAppChannel};
 
 use crate::config::Config;
 use crate::cost::CostTracker;
@@ -61,24 +58,11 @@ fn webhook_memory_key() -> String {
     format!("webhook_msg_{}", Uuid::new_v4())
 }
 
-fn whatsapp_memory_key(msg: &crate::channels::traits::ChannelMessage) -> String {
-    format!("whatsapp_{}_{}", msg.sender, msg.id)
-}
-
-fn linq_memory_key(msg: &crate::channels::traits::ChannelMessage) -> String {
-    format!("linq_{}_{}", msg.sender, msg.id)
-}
-
-fn wati_memory_key(msg: &crate::channels::traits::ChannelMessage) -> String {
-    format!("wati_{}_{}", msg.sender, msg.id)
-}
-
-fn nextcloud_talk_memory_key(msg: &crate::channels::traits::ChannelMessage) -> String {
-    format!("nextcloud_talk_{}_{}", msg.sender, msg.id)
-}
-
-fn qq_memory_key(msg: &crate::channels::traits::ChannelMessage) -> String {
-    format!("qq_{}_{}", msg.sender, msg.id)
+fn channel_message_memory_key(
+    prefix: &str,
+    msg: &crate::channels::traits::ChannelMessage,
+) -> String {
+    format!("{prefix}_{}_{}", msg.sender, msg.id)
 }
 
 fn hash_webhook_secret(value: &str) -> String {
@@ -975,7 +959,8 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     // ── Nextcloud Talk ─────────────────────────────────────────────────────────────
     #[cfg(feature = "channel-nextcloud-talk")]
     {
-        channel_routes = channel_routes.route("/nextcloud-talk", post(handle_nextcloud_talk_webhook));
+        channel_routes =
+            channel_routes.route("/nextcloud-talk", post(handle_nextcloud_talk_webhook));
     }
 
     // ── QQ ─────────────────────────────────────────────────────────────
@@ -1702,7 +1687,7 @@ async fn handle_whatsapp_message(
 
         // Auto-save to memory
         if state.auto_save {
-            let key = whatsapp_memory_key(msg);
+            let key = channel_message_memory_key("whatsapp", msg);
             let _ = state
                 .mem
                 .store(&key, &msg.content, MemoryCategory::Conversation, None)
@@ -1821,7 +1806,7 @@ async fn handle_linq_webhook(
 
         // Auto-save to memory
         if state.auto_save {
-            let key = linq_memory_key(msg);
+            let key = channel_message_memory_key("linq", msg);
             let _ = state
                 .mem
                 .store(&key, &msg.content, MemoryCategory::Conversation, None)
@@ -1917,7 +1902,7 @@ async fn handle_wati_webhook(State(state): State<AppState>, body: Bytes) -> impl
 
         // Auto-save to memory
         if state.auto_save {
-            let key = wati_memory_key(msg);
+            let key = channel_message_memory_key("wati", msg);
             let _ = state
                 .mem
                 .store(&key, &msg.content, MemoryCategory::Conversation, None)
@@ -2025,7 +2010,7 @@ async fn handle_nextcloud_talk_webhook(
         );
 
         if state.auto_save {
-            let key = nextcloud_talk_memory_key(msg);
+            let key = channel_message_memory_key("nextcloud_talk", msg);
             let _ = state
                 .mem
                 .store(&key, &msg.content, MemoryCategory::Conversation, None)
@@ -2117,7 +2102,7 @@ async fn handle_qq_webhook(
         );
 
         if state.auto_save {
-            let key = qq_memory_key(msg);
+            let key = channel_message_memory_key("qq", msg);
             let _ = state
                 .mem
                 .store(&key, &msg.content, MemoryCategory::Conversation, None)
@@ -2159,7 +2144,6 @@ async fn handle_qq_webhook(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::Bytes;
     use crate::channels::traits::ChannelMessage;
     use crate::memory::{Memory, MemoryCategory, MemoryEntry};
     use crate::providers::Provider;
@@ -2807,6 +2791,22 @@ mod tests {
     }
 
     #[test]
+    fn channel_message_memory_key_uses_prefix_sender_and_message_id() {
+        let msg = ChannelMessage {
+            id: "msg-123".into(),
+            sender: "sender-42".into(),
+            reply_target: "sender-42".into(),
+            content: "hello".into(),
+            channel: "wati".into(),
+            timestamp: 1,
+            thread_ts: None,
+        };
+
+        let key = channel_message_memory_key("wati", &msg);
+        assert_eq!(key, "wati_sender-42_msg-123");
+    }
+
+    #[test]
     fn whatsapp_memory_key_includes_sender_and_message_id() {
         let msg = ChannelMessage {
             id: "wamid-123".into(),
@@ -2818,7 +2818,7 @@ mod tests {
             thread_ts: None,
         };
 
-        let key = whatsapp_memory_key(&msg);
+        let key = channel_message_memory_key("whatsapp", &msg);
         assert_eq!(key, "whatsapp_+1234567890_wamid-123");
     }
 
@@ -2834,7 +2834,7 @@ mod tests {
             thread_ts: Some("msg-123".into()),
         };
 
-        let key = qq_memory_key(&msg);
+        let key = channel_message_memory_key("qq", &msg);
         assert_eq!(key, "qq_user_openid_msg-123");
     }
 
@@ -3715,7 +3715,7 @@ Reminder set successfully."#;
         let response = Box::pin(handle_nextcloud_talk_webhook(
             State(state),
             HeaderMap::new(),
-            Bytes::from_static(br#"{"type":"message"}"#),
+            bytes::Bytes::from_static(br#"{"type":"message"}"#),
         ))
         .await
         .into_response();
@@ -3786,7 +3786,7 @@ Reminder set successfully."#;
         let response = Box::pin(handle_nextcloud_talk_webhook(
             State(state),
             headers,
-            Bytes::from(body),
+            bytes::Bytes::from(body),
         ))
         .await
         .into_response();
@@ -3843,7 +3843,7 @@ Reminder set successfully."#;
         let response = Box::pin(handle_qq_webhook(
             State(state),
             HeaderMap::new(),
-            Bytes::from_static(br#"{"op":13,"d":{"plain_token":"p","event_ts":"1"}}"#),
+            bytes::Bytes::from_static(br#"{"op":13,"d":{"plain_token":"p","event_ts":"1"}}"#),
         ))
         .await
         .into_response();
@@ -3899,7 +3899,7 @@ Reminder set successfully."#;
         let response = Box::pin(handle_qq_webhook(
             State(state),
             headers,
-            Bytes::from_static(
+            bytes::Bytes::from_static(
                 br#"{"op":13,"d":{"plain_token":"Arq0D5A61EgUu4OxUvOp","event_ts":"1725442341"}}"#,
             ),
         ))

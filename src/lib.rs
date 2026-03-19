@@ -125,7 +125,7 @@ pub mod security;
 pub mod self_improvement;
 pub mod service;
 pub mod skills;
-#[cfg(test)]
+#[doc(hidden)]
 pub mod test_capabilities;
 pub mod tools;
 #[cfg(feature = "tunnel")]

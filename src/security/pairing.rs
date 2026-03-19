@@ -189,7 +189,7 @@ impl PairingGuard {
     /// Attempt to pair with the given code. Returns a bearer token on success.
     /// Returns `Err(lockout_seconds)` if locked out due to brute force.
     /// `client_id` identifies the client for per-client lockout accounting.
-    pub async fn try_pair(&self, code: &str, client_id: &str) -> Result<Option<String>, u64> {
+    pub fn try_pair(&self, code: &str, client_id: &str) -> Result<Option<String>, u64> {
         self.try_pair_blocking(code, client_id)
     }
 
@@ -384,7 +384,7 @@ mod tests {
     async fn try_pair_correct_code() {
         let guard = PairingGuard::new(true, &[]);
         let code = guard.pairing_code().unwrap().to_string();
-        let token = guard.try_pair(&code, "test_client").await.unwrap().unwrap();
+        let token = guard.try_pair(&code, "test_client").unwrap().unwrap();
         assert!(!token.is_empty());
         assert!(token.starts_with("zc_"));
         assert!(guard.is_paired());
@@ -393,7 +393,7 @@ mod tests {
     #[test]
     async fn try_pair_wrong_code() {
         let guard = PairingGuard::new(true, &[]);
-        let result = guard.try_pair("000000", "test_client").await.unwrap();
+        let result = guard.try_pair("000000", "test_client").unwrap();
         // Might succeed if code happens to be 000000, but extremely unlikely
         // Just check it returns Ok(None) normally
         let _ = result;
@@ -402,7 +402,7 @@ mod tests {
     #[test]
     async fn try_pair_empty_code() {
         let guard = PairingGuard::new(true, &[]);
-        assert!(guard.try_pair("", "test_client").await.unwrap().is_none());
+        assert!(guard.try_pair("", "test_client").unwrap().is_none());
     }
 
     #[test]
@@ -450,7 +450,7 @@ mod tests {
     async fn pair_then_authenticate() {
         let guard = PairingGuard::new(true, &[]);
         let code = guard.pairing_code().unwrap().to_string();
-        let token = guard.try_pair(&code, "test_client").await.unwrap().unwrap();
+        let token = guard.try_pair(&code, "test_client").unwrap().unwrap();
         assert!(guard.is_authenticated(&token));
         assert!(!guard.is_authenticated("wrong"));
     }
@@ -564,11 +564,11 @@ mod tests {
         let client = "attacker_client";
         // Exhaust all attempts with wrong codes
         for i in 0..MAX_PAIR_ATTEMPTS {
-            let result = guard.try_pair(&format!("wrong_{i}"), client).await;
+            let result = guard.try_pair(&format!("wrong_{i}"), client);
             assert!(result.is_ok(), "Attempt {i} should not be locked out yet");
         }
         // Next attempt should be locked out
-        let result = guard.try_pair("another_wrong", client).await;
+        let result = guard.try_pair("another_wrong", client);
         assert!(
             result.is_err(),
             "Should be locked out after {MAX_PAIR_ATTEMPTS} attempts"
@@ -588,10 +588,10 @@ mod tests {
         let client = "test_client";
         // Fail a few times
         for _ in 0..3 {
-            let _ = guard.try_pair("wrong", client).await;
+            let _ = guard.try_pair("wrong", client);
         }
         // Correct code should still work (under MAX_PAIR_ATTEMPTS)
-        let result = guard.try_pair(&code, client).await.unwrap();
+        let result = guard.try_pair(&code, client).unwrap();
         assert!(result.is_some(), "Correct code should work before lockout");
     }
 
@@ -600,9 +600,9 @@ mod tests {
         let guard = PairingGuard::new(true, &[]);
         let client = "test_client";
         for _ in 0..MAX_PAIR_ATTEMPTS {
-            let _ = guard.try_pair("wrong", client).await;
+            let _ = guard.try_pair("wrong", client);
         }
-        let err = guard.try_pair("wrong", client).await.unwrap_err();
+        let err = guard.try_pair("wrong", client).unwrap_err();
         // Should be close to PAIR_LOCKOUT_SECS (within a second)
         assert!(
             err >= PAIR_LOCKOUT_SECS - 1,
@@ -619,12 +619,12 @@ mod tests {
 
         // Both clients fail a few times
         for _ in 0..3 {
-            let _ = guard.try_pair("wrong", client_a).await;
-            let _ = guard.try_pair("wrong", client_b).await;
+            let _ = guard.try_pair("wrong", client_a);
+            let _ = guard.try_pair("wrong", client_b);
         }
 
         // client_a pairs successfully — only its state should reset
-        let result = guard.try_pair(&code, client_a).await.unwrap();
+        let result = guard.try_pair(&code, client_a).unwrap();
         assert!(result.is_some(), "client_a should pair successfully");
 
         // client_b's failed count should still be intact (3 failures recorded)
@@ -669,7 +669,7 @@ mod tests {
         }
 
         // A new client triggers an attempt — should prune stale entries and fit
-        let result = guard.try_pair("wrong", "new_client").await;
+        let result = guard.try_pair("wrong", "new_client");
         assert!(result.is_ok(), "New client should not be blocked");
 
         let state = guard.failed_attempts.lock();
@@ -713,7 +713,7 @@ mod tests {
         }
 
         // Any attempt triggers sweep
-        let _ = guard.try_pair("wrong", "fresh_client").await;
+        let _ = guard.try_pair("wrong", "fresh_client");
 
         let state = guard.failed_attempts.lock();
         assert!(
@@ -734,13 +734,13 @@ mod tests {
 
         // Attacker exhausts attempts
         for i in 0..MAX_PAIR_ATTEMPTS {
-            let _ = guard.try_pair(&format!("wrong_{i}"), attacker).await;
+            let _ = guard.try_pair(&format!("wrong_{i}"), attacker);
         }
         // Attacker is locked out
-        assert!(guard.try_pair("wrong", attacker).await.is_err());
+        assert!(guard.try_pair("wrong", attacker).is_err());
 
         // Legitimate client is NOT locked out
-        let result = guard.try_pair("wrong", legitimate).await;
+        let result = guard.try_pair("wrong", legitimate);
         assert!(
             result.is_ok(),
             "Legitimate client should not be locked out by attacker"

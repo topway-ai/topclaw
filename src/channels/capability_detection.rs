@@ -280,6 +280,26 @@ pub(crate) fn should_try_llm_capability_recovery(user_message: &str) -> bool {
     cjk_hints.iter().any(|hint| trimmed.contains(hint))
 }
 
+pub(crate) fn extract_json_object(text: &str) -> Option<&str> {
+    let trimmed = text.trim();
+    if let Some(stripped) = trimmed
+        .strip_prefix("```json")
+        .or_else(|| trimmed.strip_prefix("```"))
+    {
+        return stripped
+            .trim()
+            .strip_suffix("```")
+            .map(str::trim)
+            .filter(|inner| inner.starts_with('{') && inner.ends_with('}'));
+    }
+
+    if trimmed.starts_with('{') && trimmed.ends_with('}') {
+        Some(trimmed)
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{contains_make_command_hint, looks_like_shell_task};
@@ -298,25 +318,5 @@ mod tests {
         assert!(!looks_like_shell_task(
             "https://github.com/topway-ai/topclaw This is your codebase, tell me what improvements you can do make yourself better and smarter?"
         ));
-    }
-}
-
-pub(crate) fn extract_json_object(text: &str) -> Option<&str> {
-    let trimmed = text.trim();
-    if let Some(stripped) = trimmed
-        .strip_prefix("```json")
-        .or_else(|| trimmed.strip_prefix("```"))
-    {
-        return stripped
-            .trim()
-            .strip_suffix("```")
-            .map(str::trim)
-            .filter(|inner| inner.starts_with('{') && inner.ends_with('}'));
-    }
-
-    if trimmed.starts_with('{') && trimmed.ends_with('}') {
-        Some(trimmed)
-    } else {
-        None
     }
 }

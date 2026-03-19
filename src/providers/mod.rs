@@ -1655,6 +1655,13 @@ pub fn list_providers() -> Vec<ProviderInfo> {
             aliases: &["google", "google-gemini"],
             local: false,
         },
+        #[cfg(feature = "provider-telnyx")]
+        ProviderInfo {
+            name: "telnyx",
+            display_name: "Telnyx",
+            aliases: &[],
+            local: false,
+        },
         // ── OpenAI-compatible providers ──────────────────────
         ProviderInfo {
             name: "venice",
@@ -1704,13 +1711,11 @@ pub fn list_providers() -> Vec<ProviderInfo> {
             aliases: &["z.ai"],
             local: false,
         },
+        #[cfg(feature = "provider-glm")]
         ProviderInfo {
             name: "glm",
             display_name: "GLM (Zhipu)",
-            #[cfg(feature = "provider-glm")]
             aliases: &["zhipu", "glm-cn", "glm-global", "bigmodel"],
-            #[cfg(not(feature = "provider-glm"))]
-            aliases: &[],
             local: false,
         },
         ProviderInfo {
@@ -2222,8 +2227,17 @@ mod tests {
 
     #[test]
     fn factory_telnyx() {
-        assert!(create_provider("telnyx", Some("test-key")).is_ok());
-        assert!(create_provider("telnyx", None).is_ok());
+        #[cfg(feature = "provider-telnyx")]
+        {
+            assert!(create_provider("telnyx", Some("test-key")).is_ok());
+            assert!(create_provider("telnyx", None).is_ok());
+        }
+
+        #[cfg(not(feature = "provider-telnyx"))]
+        {
+            assert!(create_provider("telnyx", Some("test-key")).is_err());
+            assert!(create_provider("telnyx", None).is_err());
+        }
     }
 
     // ── OpenAI-compatible providers ──────────────────────────
@@ -2293,12 +2307,24 @@ mod tests {
 
     #[test]
     fn factory_glm() {
-        assert!(create_provider("glm", Some("key")).is_ok());
-        assert!(create_provider("zhipu", Some("key")).is_ok());
-        assert!(create_provider("glm-cn", Some("key")).is_ok());
-        assert!(create_provider("zhipu-cn", Some("key")).is_ok());
-        assert!(create_provider("glm-global", Some("key")).is_ok());
-        assert!(create_provider("bigmodel", Some("key")).is_ok());
+        #[cfg(feature = "provider-glm")]
+        {
+            assert!(create_provider("glm", Some("key")).is_ok());
+            assert!(create_provider("zhipu", Some("key")).is_ok());
+            assert!(create_provider("glm-cn", Some("key")).is_ok());
+            assert!(create_provider("zhipu-cn", Some("key")).is_ok());
+            assert!(create_provider("glm-global", Some("key")).is_ok());
+            assert!(create_provider("bigmodel", Some("key")).is_ok());
+        }
+
+        #[cfg(not(feature = "provider-glm"))]
+        {
+            let error = match create_provider("glm", Some("key")) {
+                Ok(_) => panic!("glm should be gated"),
+                Err(error) => error,
+            };
+            assert!(error.to_string().contains("provider-glm"));
+        }
     }
 
     #[test]
@@ -2327,11 +2353,21 @@ mod tests {
 
     #[test]
     fn factory_bedrock() {
-        // Bedrock uses AWS env vars for credentials, not API key.
-        assert!(create_provider("bedrock", None).is_ok());
-        assert!(create_provider("aws-bedrock", None).is_ok());
-        // Passing an api_key is harmless (ignored).
-        assert!(create_provider("bedrock", Some("ignored")).is_ok());
+        #[cfg(feature = "provider-bedrock")]
+        {
+            // Bedrock uses AWS env vars for credentials, not API key.
+            assert!(create_provider("bedrock", None).is_ok());
+            assert!(create_provider("aws-bedrock", None).is_ok());
+            // Passing an api_key is harmless (ignored).
+            assert!(create_provider("bedrock", Some("ignored")).is_ok());
+        }
+
+        #[cfg(not(feature = "provider-bedrock"))]
+        {
+            assert!(create_provider("bedrock", None).is_err());
+            assert!(create_provider("aws-bedrock", None).is_err());
+            assert!(create_provider("bedrock", Some("ignored")).is_err());
+        }
     }
 
     #[test]
@@ -2855,7 +2891,8 @@ mod tests {
 
     #[test]
     fn factory_all_providers_create_successfully() {
-        let providers = [
+        #[allow(unused_mut)]
+        let mut providers = vec![
             "openrouter",
             "anthropic",
             "openai",
@@ -2873,11 +2910,8 @@ mod tests {
             "opencode",
             "zai",
             "zai-cn",
-            "glm",
-            "glm-cn",
             "minimax",
             "minimax-cn",
-            "bedrock",
             "qianfan",
             "doubao",
             "qwen",
@@ -2890,7 +2924,6 @@ mod tests {
             "sglang",
             "vllm",
             "osaurus",
-            "telnyx",
             "groq",
             "mistral",
             "xai",
@@ -2904,6 +2937,12 @@ mod tests {
             "astrai",
             "ovhcloud",
         ];
+        #[cfg(feature = "provider-glm")]
+        providers.extend(["glm", "glm-cn"]);
+        #[cfg(feature = "provider-bedrock")]
+        providers.push("bedrock");
+        #[cfg(feature = "provider-telnyx")]
+        providers.push("telnyx");
         for name in providers {
             assert!(
                 create_provider(name, Some("test-key")).is_ok(),

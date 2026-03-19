@@ -31,11 +31,13 @@ use tokio_rustls::TlsConnector;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use crate::config::schema::{
-    default_idle_timeout, default_imap_folder, default_imap_port, default_smtp_port, default_true,
-};
-pub use crate::config::schema::EmailConfig;
 use super::traits::{Channel, ChannelMessage, SendMessage};
+#[cfg(test)]
+use crate::config::schema::default_true;
+pub use crate::config::schema::EmailConfig;
+use crate::config::schema::{
+    default_idle_timeout, default_imap_folder, default_imap_port, default_smtp_port,
+};
 
 impl Default for EmailConfig {
     fn default() -> Self {

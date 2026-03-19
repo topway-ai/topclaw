@@ -58,10 +58,27 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+#[path = "schema_runtime_dirs.rs"]
+mod runtime_dirs;
+#[path = "schema_provider_profiles.rs"]
+mod schema_provider_profiles;
+#[path = "schema_secrets.rs"]
+mod schema_secrets;
+#[path = "schema_telegram_allowed_users.rs"]
+mod schema_telegram_allowed_users;
 #[cfg(unix)]
 use tokio::fs::File;
 use tokio::fs::{self, OpenOptions};
 use tokio::io::AsyncWriteExt;
+
+use runtime_dirs::{default_config_and_workspace_dirs, resolve_runtime_config_dirs};
+pub(crate) use runtime_dirs::{
+    persist_active_workspace_config_dir, resolve_config_dir_for_workspace,
+    resolve_runtime_dirs_for_onboarding,
+};
+#[cfg(test)]
+use runtime_dirs::{ActiveWorkspaceState, ConfigResolutionSource, ACTIVE_WORKSPACE_STATE_FILE};
+use schema_telegram_allowed_users::resolve_telegram_allowed_users_env_refs;
 
 pub(crate) const fn default_true() -> bool {
     true
@@ -1927,891 +1944,12 @@ impl Default for Config {
     }
 }
 
-fn default_config_and_workspace_dirs() -> Result<(PathBuf, PathBuf)> {
-    let config_dir = default_config_dir()?;
-    Ok((config_dir.clone(), config_dir.join("workspace")))
-}
-
-const ACTIVE_WORKSPACE_STATE_FILE: &str = "active_workspace.toml";
-
-#[derive(Debug, Serialize, Deserialize)]
-struct ActiveWorkspaceState {
-    config_dir: String,
-}
-
-fn default_config_dir() -> Result<PathBuf> {
-    let home = UserDirs::new()
-        .map(|u| u.home_dir().to_path_buf())
-        .context("Could not find home directory")?;
-    Ok(home.join(".topclaw"))
-}
-
-fn active_workspace_state_path(marker_root: &Path) -> PathBuf {
-    marker_root.join(ACTIVE_WORKSPACE_STATE_FILE)
-}
-
-/// Returns `true` if `path` lives under the OS temp directory.
-fn is_temp_directory(path: &Path) -> bool {
-    let temp = std::env::temp_dir();
-    // Canonicalize when possible to handle symlinks (macOS /var → /private/var)
-    let canon_temp = temp.canonicalize().unwrap_or_else(|_| temp.clone());
-    let canon_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    canon_path.starts_with(&canon_temp)
-}
-
-async fn load_persisted_workspace_dirs(
-    default_config_dir: &Path,
-) -> Result<Option<(PathBuf, PathBuf)>> {
-    let state_path = active_workspace_state_path(default_config_dir);
-    if !state_path.exists() {
-        return Ok(None);
-    }
-
-    let contents = match fs::read_to_string(&state_path).await {
-        Ok(contents) => contents,
-        Err(error) => {
-            tracing::warn!(
-                "Failed to read active workspace marker {}: {error}",
-                state_path.display()
-            );
-            return Ok(None);
-        }
-    };
-
-    let state: ActiveWorkspaceState = match toml::from_str(&contents) {
-        Ok(state) => state,
-        Err(error) => {
-            tracing::warn!(
-                "Failed to parse active workspace marker {}: {error}",
-                state_path.display()
-            );
-            return Ok(None);
-        }
-    };
-
-    let raw_config_dir = state.config_dir.trim();
-    if raw_config_dir.is_empty() {
-        tracing::warn!(
-            "Ignoring active workspace marker {} because config_dir is empty",
-            state_path.display()
-        );
-        return Ok(None);
-    }
-
-    let parsed_dir = PathBuf::from(raw_config_dir);
-    let config_dir = if parsed_dir.is_absolute() {
-        parsed_dir
-    } else {
-        default_config_dir.join(parsed_dir)
-    };
-    Ok(Some((config_dir.clone(), config_dir.join("workspace"))))
-}
-
-async fn remove_active_workspace_marker(marker_root: &Path) -> Result<()> {
-    let state_path = active_workspace_state_path(marker_root);
-    if !state_path.exists() {
-        return Ok(());
-    }
-
-    fs::remove_file(&state_path).await.with_context(|| {
-        format!(
-            "Failed to clear active workspace marker: {}",
-            state_path.display()
-        )
-    })?;
-
-    if marker_root.exists() {
-        sync_directory(marker_root).await?;
-    }
-    Ok(())
-}
-
-async fn write_active_workspace_marker(marker_root: &Path, config_dir: &Path) -> Result<()> {
-    fs::create_dir_all(marker_root).await.with_context(|| {
-        format!(
-            "Failed to create active workspace marker root: {}",
-            marker_root.display()
-        )
-    })?;
-
-    let state = ActiveWorkspaceState {
-        config_dir: config_dir.to_string_lossy().into_owned(),
-    };
-    let serialized =
-        toml::to_string_pretty(&state).context("Failed to serialize active workspace marker")?;
-
-    let temp_path = marker_root.join(format!(
-        ".{ACTIVE_WORKSPACE_STATE_FILE}.tmp-{}",
-        uuid::Uuid::new_v4()
-    ));
-    fs::write(&temp_path, serialized).await.with_context(|| {
-        format!(
-            "Failed to write temporary active workspace marker: {}",
-            temp_path.display()
-        )
-    })?;
-
-    let state_path = active_workspace_state_path(marker_root);
-    if let Err(error) = fs::rename(&temp_path, &state_path).await {
-        let _ = fs::remove_file(&temp_path).await;
-        anyhow::bail!(
-            "Failed to atomically persist active workspace marker {}: {error}",
-            state_path.display()
-        );
-    }
-
-    sync_directory(marker_root).await?;
-    Ok(())
-}
-
-pub(crate) async fn persist_active_workspace_config_dir(config_dir: &Path) -> Result<()> {
-    let default_config_dir = default_config_dir()?;
-
-    // Guard: never persist a temp-directory path as the active workspace.
-    // This prevents transient test runs or one-off invocations from hijacking
-    // the daemon's config resolution.
-    #[cfg(not(test))]
-    if is_temp_directory(config_dir) {
-        tracing::warn!(
-            path = %config_dir.display(),
-            "Refusing to persist temp directory as active workspace marker"
-        );
-        return Ok(());
-    }
-
-    if config_dir == default_config_dir {
-        remove_active_workspace_marker(&default_config_dir).await?;
-        return Ok(());
-    }
-
-    // Primary marker lives with the selected config root to keep custom-home
-    // layouts self-contained and writable in restricted environments.
-    write_active_workspace_marker(config_dir, config_dir).await?;
-
-    // Mirror into the default HOME-scoped root as a best-effort pointer for
-    // later auto-discovery. Failure here must not break onboarding/update flows.
-    if let Err(error) = write_active_workspace_marker(&default_config_dir, config_dir).await {
-        tracing::warn!(
-            selected_config_dir = %config_dir.display(),
-            default_config_dir = %default_config_dir.display(),
-            "Failed to mirror active workspace marker to default HOME config root; continuing with selected-root marker only: {error}"
-        );
-    }
-
-    Ok(())
-}
-
-pub(crate) fn resolve_config_dir_for_workspace(workspace_dir: &Path) -> (PathBuf, PathBuf) {
-    let workspace_config_dir = workspace_dir.to_path_buf();
-    if workspace_config_dir.join("config.toml").exists() {
-        return (
-            workspace_config_dir.clone(),
-            workspace_config_dir.join("workspace"),
-        );
-    }
-
-    let legacy_config_dir = workspace_dir.parent().map(|parent| parent.join(".topclaw"));
-    if let Some(legacy_dir) = legacy_config_dir {
-        if legacy_dir.join("config.toml").exists() {
-            return (legacy_dir, workspace_config_dir);
-        }
-
-        if workspace_dir
-            .file_name()
-            .is_some_and(|name| name == std::ffi::OsStr::new("workspace"))
-        {
-            return (legacy_dir, workspace_config_dir);
-        }
-    }
-
-    (
-        workspace_config_dir.clone(),
-        workspace_config_dir.join("workspace"),
-    )
-}
-
-/// Resolve the current runtime config/workspace directories for onboarding flows.
-///
-/// This mirrors the same precedence used by `Config::load_or_init()`:
-/// `TOPCLAW_CONFIG_DIR` > `TOPCLAW_WORKSPACE` > active workspace marker > defaults.
-pub(crate) async fn resolve_runtime_dirs_for_onboarding() -> Result<(PathBuf, PathBuf)> {
-    let (default_topclaw_dir, default_workspace_dir) = default_config_and_workspace_dirs()?;
-    let (config_dir, workspace_dir, _) =
-        resolve_runtime_config_dirs(&default_topclaw_dir, &default_workspace_dir).await?;
-    Ok((config_dir, workspace_dir))
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ConfigResolutionSource {
-    EnvConfigDir,
-    EnvWorkspace,
-    ActiveWorkspaceMarker,
-    DefaultConfigDir,
-}
-
-impl ConfigResolutionSource {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::EnvConfigDir => "TOPCLAW_CONFIG_DIR",
-            Self::EnvWorkspace => "TOPCLAW_WORKSPACE",
-            Self::ActiveWorkspaceMarker => "active_workspace.toml",
-            Self::DefaultConfigDir => "default",
-        }
-    }
-}
-
-async fn resolve_runtime_config_dirs(
-    default_topclaw_dir: &Path,
-    default_workspace_dir: &Path,
-) -> Result<(PathBuf, PathBuf, ConfigResolutionSource)> {
-    if let Ok(custom_config_dir) = std::env::var("TOPCLAW_CONFIG_DIR") {
-        let custom_config_dir = custom_config_dir.trim();
-        if !custom_config_dir.is_empty() {
-            let topclaw_dir = PathBuf::from(custom_config_dir);
-            return Ok((
-                topclaw_dir.clone(),
-                topclaw_dir.join("workspace"),
-                ConfigResolutionSource::EnvConfigDir,
-            ));
-        }
-    }
-
-    if let Ok(custom_workspace) = std::env::var("TOPCLAW_WORKSPACE") {
-        if !custom_workspace.is_empty() {
-            let (topclaw_dir, workspace_dir) =
-                resolve_config_dir_for_workspace(&PathBuf::from(custom_workspace));
-            return Ok((
-                topclaw_dir,
-                workspace_dir,
-                ConfigResolutionSource::EnvWorkspace,
-            ));
-        }
-    }
-
-    if let Some((topclaw_dir, workspace_dir)) =
-        load_persisted_workspace_dirs(default_topclaw_dir).await?
-    {
-        return Ok((
-            topclaw_dir,
-            workspace_dir,
-            ConfigResolutionSource::ActiveWorkspaceMarker,
-        ));
-    }
-
-    Ok((
-        default_topclaw_dir.to_path_buf(),
-        default_workspace_dir.to_path_buf(),
-        ConfigResolutionSource::DefaultConfigDir,
-    ))
-}
-
-fn decrypt_optional_secret(
-    store: &crate::security::SecretStore,
-    value: &mut Option<String>,
-    field_name: &str,
-) -> Result<()> {
-    if let Some(raw) = value.clone() {
-        if crate::security::SecretStore::is_encrypted(&raw) {
-            *value = Some(
-                store
-                    .decrypt(&raw)
-                    .with_context(|| format!("Failed to decrypt {field_name}"))?,
-            );
-        }
-    }
-    Ok(())
-}
-
-fn decrypt_secret(
-    store: &crate::security::SecretStore,
-    value: &mut String,
-    field_name: &str,
-) -> Result<()> {
-    if crate::security::SecretStore::is_encrypted(value) {
-        *value = store
-            .decrypt(value)
-            .with_context(|| format!("Failed to decrypt {field_name}"))?;
-    }
-    Ok(())
-}
-
-fn decrypt_vec_secrets(
-    store: &crate::security::SecretStore,
-    values: &mut [String],
-    field_name: &str,
-) -> Result<()> {
-    for (idx, value) in values.iter_mut().enumerate() {
-        if crate::security::SecretStore::is_encrypted(value) {
-            *value = store
-                .decrypt(value)
-                .with_context(|| format!("Failed to decrypt {field_name}[{idx}]"))?;
-        }
-    }
-    Ok(())
-}
-
-fn decrypt_map_secrets(
-    store: &crate::security::SecretStore,
-    values: &mut std::collections::HashMap<String, String>,
-    field_name: &str,
-) -> Result<()> {
-    for (key, value) in values.iter_mut() {
-        if crate::security::SecretStore::is_encrypted(value) {
-            *value = store
-                .decrypt(value)
-                .with_context(|| format!("Failed to decrypt {field_name}.{key}"))?;
-        }
-    }
-    Ok(())
-}
-
-fn encrypt_optional_secret(
-    store: &crate::security::SecretStore,
-    value: &mut Option<String>,
-    field_name: &str,
-) -> Result<()> {
-    if let Some(raw) = value.clone() {
-        if !crate::security::SecretStore::is_encrypted(&raw) {
-            *value = Some(
-                store
-                    .encrypt(&raw)
-                    .with_context(|| format!("Failed to encrypt {field_name}"))?,
-            );
-        }
-    }
-    Ok(())
-}
-
-fn encrypt_secret(
-    store: &crate::security::SecretStore,
-    value: &mut String,
-    field_name: &str,
-) -> Result<()> {
-    if !crate::security::SecretStore::is_encrypted(value) {
-        *value = store
-            .encrypt(value)
-            .with_context(|| format!("Failed to encrypt {field_name}"))?;
-    }
-    Ok(())
-}
-
-fn encrypt_vec_secrets(
-    store: &crate::security::SecretStore,
-    values: &mut [String],
-    field_name: &str,
-) -> Result<()> {
-    for (idx, value) in values.iter_mut().enumerate() {
-        if !crate::security::SecretStore::is_encrypted(value) {
-            *value = store
-                .encrypt(value)
-                .with_context(|| format!("Failed to encrypt {field_name}[{idx}]"))?;
-        }
-    }
-    Ok(())
-}
-
-fn encrypt_map_secrets(
-    store: &crate::security::SecretStore,
-    values: &mut std::collections::HashMap<String, String>,
-    field_name: &str,
-) -> Result<()> {
-    for (key, value) in values.iter_mut() {
-        if !crate::security::SecretStore::is_encrypted(value) {
-            *value = store
-                .encrypt(value)
-                .with_context(|| format!("Failed to encrypt {field_name}.{key}"))?;
-        }
-    }
-    Ok(())
-}
-
-fn decrypt_channel_secrets(
-    store: &crate::security::SecretStore,
-    channels: &mut ChannelsConfig,
-) -> Result<()> {
-    if let Some(ref mut telegram) = channels.telegram {
-        decrypt_secret(
-            store,
-            &mut telegram.bot_token,
-            "config.channels_config.telegram.bot_token",
-        )?;
-    }
-    if let Some(ref mut discord) = channels.discord {
-        decrypt_secret(
-            store,
-            &mut discord.bot_token,
-            "config.channels_config.discord.bot_token",
-        )?;
-    }
-    if let Some(ref mut slack) = channels.slack {
-        decrypt_secret(
-            store,
-            &mut slack.bot_token,
-            "config.channels_config.slack.bot_token",
-        )?;
-        decrypt_optional_secret(
-            store,
-            &mut slack.app_token,
-            "config.channels_config.slack.app_token",
-        )?;
-    }
-    if let Some(ref mut mattermost) = channels.mattermost {
-        decrypt_secret(
-            store,
-            &mut mattermost.bot_token,
-            "config.channels_config.mattermost.bot_token",
-        )?;
-    }
-    if let Some(ref mut webhook) = channels.webhook {
-        decrypt_optional_secret(
-            store,
-            &mut webhook.secret,
-            "config.channels_config.webhook.secret",
-        )?;
-    }
-    if let Some(ref mut bridge) = channels.bridge {
-        if !bridge.auth_token.trim().is_empty() {
-            decrypt_secret(
-                store,
-                &mut bridge.auth_token,
-                "config.channels_config.bridge.auth_token",
-            )?;
-        }
-    }
-    if let Some(ref mut matrix) = channels.matrix {
-        decrypt_secret(
-            store,
-            &mut matrix.access_token,
-            "config.channels_config.matrix.access_token",
-        )?;
-    }
-    if let Some(ref mut whatsapp) = channels.whatsapp {
-        decrypt_optional_secret(
-            store,
-            &mut whatsapp.access_token,
-            "config.channels_config.whatsapp.access_token",
-        )?;
-        decrypt_optional_secret(
-            store,
-            &mut whatsapp.app_secret,
-            "config.channels_config.whatsapp.app_secret",
-        )?;
-        decrypt_optional_secret(
-            store,
-            &mut whatsapp.verify_token,
-            "config.channels_config.whatsapp.verify_token",
-        )?;
-    }
-    if let Some(ref mut linq) = channels.linq {
-        decrypt_secret(
-            store,
-            &mut linq.api_token,
-            "config.channels_config.linq.api_token",
-        )?;
-        decrypt_optional_secret(
-            store,
-            &mut linq.signing_secret,
-            "config.channels_config.linq.signing_secret",
-        )?;
-    }
-    if let Some(ref mut nextcloud) = channels.nextcloud_talk {
-        decrypt_secret(
-            store,
-            &mut nextcloud.app_token,
-            "config.channels_config.nextcloud_talk.app_token",
-        )?;
-        decrypt_optional_secret(
-            store,
-            &mut nextcloud.webhook_secret,
-            "config.channels_config.nextcloud_talk.webhook_secret",
-        )?;
-    }
-    if let Some(ref mut irc) = channels.irc {
-        decrypt_optional_secret(
-            store,
-            &mut irc.server_password,
-            "config.channels_config.irc.server_password",
-        )?;
-        decrypt_optional_secret(
-            store,
-            &mut irc.nickserv_password,
-            "config.channels_config.irc.nickserv_password",
-        )?;
-        decrypt_optional_secret(
-            store,
-            &mut irc.sasl_password,
-            "config.channels_config.irc.sasl_password",
-        )?;
-    }
-    if let Some(ref mut lark) = channels.lark {
-        decrypt_secret(
-            store,
-            &mut lark.app_secret,
-            "config.channels_config.lark.app_secret",
-        )?;
-        decrypt_optional_secret(
-            store,
-            &mut lark.encrypt_key,
-            "config.channels_config.lark.encrypt_key",
-        )?;
-        decrypt_optional_secret(
-            store,
-            &mut lark.verification_token,
-            "config.channels_config.lark.verification_token",
-        )?;
-    }
-    if let Some(ref mut dingtalk) = channels.dingtalk {
-        decrypt_secret(
-            store,
-            &mut dingtalk.client_secret,
-            "config.channels_config.dingtalk.client_secret",
-        )?;
-    }
-    if let Some(ref mut qq) = channels.qq {
-        decrypt_secret(
-            store,
-            &mut qq.app_secret,
-            "config.channels_config.qq.app_secret",
-        )?;
-    }
-    if let Some(ref mut nostr) = channels.nostr {
-        decrypt_secret(
-            store,
-            &mut nostr.private_key,
-            "config.channels_config.nostr.private_key",
-        )?;
-    }
-    if let Some(ref mut clawdtalk) = channels.clawdtalk {
-        decrypt_secret(
-            store,
-            &mut clawdtalk.api_key,
-            "config.channels_config.clawdtalk.api_key",
-        )?;
-        decrypt_optional_secret(
-            store,
-            &mut clawdtalk.webhook_secret,
-            "config.channels_config.clawdtalk.webhook_secret",
-        )?;
-    }
-    Ok(())
-}
-
-fn parse_telegram_allowed_users_env_value(
-    raw_value: &str,
-    env_name: &str,
-    field_name: &str,
-) -> Result<Vec<String>> {
-    let trimmed = raw_value.trim();
-    if trimmed.is_empty() {
-        anyhow::bail!("{field_name} env reference ${{env:{env_name}}} resolved to an empty value");
-    }
-
-    let mut resolved: Vec<String> = Vec::new();
-    if trimmed.starts_with('[') {
-        let parsed: serde_json::Value = serde_json::from_str(trimmed).with_context(|| {
-            format!(
-                "{field_name} env reference ${{env:{env_name}}} must be valid JSON array or comma-separated list"
-            )
-        })?;
-        let items = parsed.as_array().with_context(|| {
-            format!("{field_name} env reference ${{env:{env_name}}} must be a JSON array")
-        })?;
-        for (idx, item) in items.iter().enumerate() {
-            let candidate = match item {
-                serde_json::Value::String(v) => v.trim().to_string(),
-                serde_json::Value::Number(v) => v.to_string(),
-                _ => {
-                    anyhow::bail!(
-                        "{field_name} env reference ${{env:{env_name}}}[{idx}] must be string or number"
-                    );
-                }
-            };
-            if !candidate.is_empty() {
-                resolved.push(candidate);
-            }
-        }
-    } else {
-        resolved.extend(
-            trimmed
-                .split(',')
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToString::to_string),
-        );
-    }
-
-    if resolved.is_empty() {
-        anyhow::bail!("{field_name} env reference ${{env:{env_name}}} produced no user IDs");
-    }
-
-    Ok(resolved)
-}
-
-fn resolve_telegram_allowed_users_env_refs(channels: &mut ChannelsConfig) -> Result<()> {
-    let Some(telegram) = channels.telegram.as_mut() else {
-        return Ok(());
-    };
-
-    let field_name = "config.channels_config.telegram.allowed_users";
-    let mut expanded_allowed_users: Vec<String> = Vec::new();
-    for (idx, raw_entry) in telegram.allowed_users.drain(..).enumerate() {
-        let entry = raw_entry.trim();
-        if entry.is_empty() {
-            continue;
-        }
-
-        if let Some(env_expr) = entry
-            .strip_prefix("${env:")
-            .and_then(|value| value.strip_suffix('}'))
-        {
-            let env_name = env_expr.trim();
-            if !is_valid_env_var_name(env_name) {
-                anyhow::bail!(
-                    "{field_name}[{idx}] has invalid env var name ({env_name}); expected [A-Za-z_][A-Za-z0-9_]*"
-                );
-            }
-            let env_value = std::env::var(env_name).with_context(|| {
-                format!("{field_name}[{idx}] references unset environment variable {env_name}")
-            })?;
-            let mut parsed =
-                parse_telegram_allowed_users_env_value(&env_value, env_name, field_name)?;
-            expanded_allowed_users.append(&mut parsed);
-        } else {
-            expanded_allowed_users.push(entry.to_string());
-        }
-    }
-
-    telegram.allowed_users = expanded_allowed_users;
-    Ok(())
-}
-
-fn encrypt_channel_secrets(
-    store: &crate::security::SecretStore,
-    channels: &mut ChannelsConfig,
-) -> Result<()> {
-    if let Some(ref mut telegram) = channels.telegram {
-        encrypt_secret(
-            store,
-            &mut telegram.bot_token,
-            "config.channels_config.telegram.bot_token",
-        )?;
-    }
-    if let Some(ref mut discord) = channels.discord {
-        encrypt_secret(
-            store,
-            &mut discord.bot_token,
-            "config.channels_config.discord.bot_token",
-        )?;
-    }
-    if let Some(ref mut slack) = channels.slack {
-        encrypt_secret(
-            store,
-            &mut slack.bot_token,
-            "config.channels_config.slack.bot_token",
-        )?;
-        encrypt_optional_secret(
-            store,
-            &mut slack.app_token,
-            "config.channels_config.slack.app_token",
-        )?;
-    }
-    if let Some(ref mut mattermost) = channels.mattermost {
-        encrypt_secret(
-            store,
-            &mut mattermost.bot_token,
-            "config.channels_config.mattermost.bot_token",
-        )?;
-    }
-    if let Some(ref mut webhook) = channels.webhook {
-        encrypt_optional_secret(
-            store,
-            &mut webhook.secret,
-            "config.channels_config.webhook.secret",
-        )?;
-    }
-    if let Some(ref mut bridge) = channels.bridge {
-        if !bridge.auth_token.trim().is_empty() {
-            encrypt_secret(
-                store,
-                &mut bridge.auth_token,
-                "config.channels_config.bridge.auth_token",
-            )?;
-        }
-    }
-    if let Some(ref mut matrix) = channels.matrix {
-        encrypt_secret(
-            store,
-            &mut matrix.access_token,
-            "config.channels_config.matrix.access_token",
-        )?;
-    }
-    if let Some(ref mut whatsapp) = channels.whatsapp {
-        encrypt_optional_secret(
-            store,
-            &mut whatsapp.access_token,
-            "config.channels_config.whatsapp.access_token",
-        )?;
-        encrypt_optional_secret(
-            store,
-            &mut whatsapp.app_secret,
-            "config.channels_config.whatsapp.app_secret",
-        )?;
-        encrypt_optional_secret(
-            store,
-            &mut whatsapp.verify_token,
-            "config.channels_config.whatsapp.verify_token",
-        )?;
-    }
-    if let Some(ref mut linq) = channels.linq {
-        encrypt_secret(
-            store,
-            &mut linq.api_token,
-            "config.channels_config.linq.api_token",
-        )?;
-        encrypt_optional_secret(
-            store,
-            &mut linq.signing_secret,
-            "config.channels_config.linq.signing_secret",
-        )?;
-    }
-    if let Some(ref mut nextcloud) = channels.nextcloud_talk {
-        encrypt_secret(
-            store,
-            &mut nextcloud.app_token,
-            "config.channels_config.nextcloud_talk.app_token",
-        )?;
-        encrypt_optional_secret(
-            store,
-            &mut nextcloud.webhook_secret,
-            "config.channels_config.nextcloud_talk.webhook_secret",
-        )?;
-    }
-    if let Some(ref mut irc) = channels.irc {
-        encrypt_optional_secret(
-            store,
-            &mut irc.server_password,
-            "config.channels_config.irc.server_password",
-        )?;
-        encrypt_optional_secret(
-            store,
-            &mut irc.nickserv_password,
-            "config.channels_config.irc.nickserv_password",
-        )?;
-        encrypt_optional_secret(
-            store,
-            &mut irc.sasl_password,
-            "config.channels_config.irc.sasl_password",
-        )?;
-    }
-    if let Some(ref mut lark) = channels.lark {
-        encrypt_secret(
-            store,
-            &mut lark.app_secret,
-            "config.channels_config.lark.app_secret",
-        )?;
-        encrypt_optional_secret(
-            store,
-            &mut lark.encrypt_key,
-            "config.channels_config.lark.encrypt_key",
-        )?;
-        encrypt_optional_secret(
-            store,
-            &mut lark.verification_token,
-            "config.channels_config.lark.verification_token",
-        )?;
-    }
-    if let Some(ref mut dingtalk) = channels.dingtalk {
-        encrypt_secret(
-            store,
-            &mut dingtalk.client_secret,
-            "config.channels_config.dingtalk.client_secret",
-        )?;
-    }
-    if let Some(ref mut qq) = channels.qq {
-        encrypt_secret(
-            store,
-            &mut qq.app_secret,
-            "config.channels_config.qq.app_secret",
-        )?;
-    }
-    if let Some(ref mut nostr) = channels.nostr {
-        encrypt_secret(
-            store,
-            &mut nostr.private_key,
-            "config.channels_config.nostr.private_key",
-        )?;
-    }
-    if let Some(ref mut clawdtalk) = channels.clawdtalk {
-        encrypt_secret(
-            store,
-            &mut clawdtalk.api_key,
-            "config.channels_config.clawdtalk.api_key",
-        )?;
-        encrypt_optional_secret(
-            store,
-            &mut clawdtalk.webhook_secret,
-            "config.channels_config.clawdtalk.webhook_secret",
-        )?;
-    }
-    Ok(())
-}
-
 fn config_dir_creation_error(path: &Path) -> String {
     format!(
         "Failed to create config directory: {}. If running as an OpenRC service, \
          ensure this path is writable by user 'topclaw'.",
         path.display()
     )
-}
-
-fn is_local_ollama_endpoint(api_url: Option<&str>) -> bool {
-    let Some(raw) = api_url.map(str::trim).filter(|value| !value.is_empty()) else {
-        return true;
-    };
-
-    reqwest::Url::parse(raw)
-        .ok()
-        .and_then(|url| url.host_str().map(|host| host.to_ascii_lowercase()))
-        .is_some_and(|host| matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1" | "0.0.0.0"))
-}
-
-fn has_ollama_cloud_credential(config_api_key: Option<&str>) -> bool {
-    let config_key_present = config_api_key
-        .map(str::trim)
-        .is_some_and(|value| !value.is_empty());
-    if config_key_present {
-        return true;
-    }
-
-    ["OLLAMA_API_KEY", "TOPCLAW_API_KEY"].iter().any(|name| {
-        std::env::var(name)
-            .ok()
-            .is_some_and(|value| !value.trim().is_empty())
-    })
-}
-
-fn normalize_wire_api(raw: &str) -> Option<&'static str> {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "responses" => Some("responses"),
-        "chat_completions" | "chat-completions" | "chat" | "chatcompletions" => {
-            Some("chat_completions")
-        }
-        _ => None,
-    }
-}
-
-fn read_codex_openai_api_key() -> Option<String> {
-    let home = UserDirs::new()?.home_dir().to_path_buf();
-    let auth_path = home.join(".codex").join("auth.json");
-    let raw = std::fs::read_to_string(auth_path).ok()?;
-    let parsed: serde_json::Value = serde_json::from_str(&raw).ok()?;
-
-    parsed
-        .get("OPENAI_API_KEY")
-        .and_then(serde_json::Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToString::to_string)
 }
 
 fn normalize_top_level_table_aliases(raw_toml: &mut toml::Value) {
@@ -2895,67 +2033,7 @@ impl Config {
             // Set computed paths that are skipped during serialization
             config.config_path = config_path.clone();
             config.workspace_dir = workspace_dir;
-            let store = crate::security::SecretStore::new(&topclaw_dir, config.secrets.encrypt);
-            decrypt_optional_secret(&store, &mut config.api_key, "config.api_key")?;
-            decrypt_optional_secret(
-                &store,
-                &mut config.composio.api_key,
-                "config.composio.api_key",
-            )?;
-            decrypt_optional_secret(
-                &store,
-                &mut config.proxy.http_proxy,
-                "config.proxy.http_proxy",
-            )?;
-            decrypt_optional_secret(
-                &store,
-                &mut config.proxy.https_proxy,
-                "config.proxy.https_proxy",
-            )?;
-            decrypt_optional_secret(
-                &store,
-                &mut config.proxy.all_proxy,
-                "config.proxy.all_proxy",
-            )?;
-
-            decrypt_optional_secret(
-                &store,
-                &mut config.browser.computer_use.api_key,
-                "config.browser.computer_use.api_key",
-            )?;
-
-            decrypt_optional_secret(
-                &store,
-                &mut config.web_search.brave_api_key,
-                "config.web_search.brave_api_key",
-            )?;
-
-            decrypt_optional_secret(
-                &store,
-                &mut config.storage.provider.config.db_url,
-                "config.storage.provider.config.db_url",
-            )?;
-            decrypt_vec_secrets(
-                &store,
-                &mut config.reliability.api_keys,
-                "config.reliability.api_keys",
-            )?;
-            decrypt_map_secrets(
-                &store,
-                &mut config.reliability.fallback_api_keys,
-                "config.reliability.fallback_api_keys",
-            )?;
-            decrypt_vec_secrets(
-                &store,
-                &mut config.gateway.paired_tokens,
-                "config.gateway.paired_tokens",
-            )?;
-
-            for agent in config.agents.values_mut() {
-                decrypt_optional_secret(&store, &mut agent.api_key, "config.agents.*.api_key")?;
-            }
-
-            decrypt_channel_secrets(&store, &mut config.channels_config)?;
+            schema_secrets::decrypt_config_secrets(&topclaw_dir, &mut config)?;
             resolve_telegram_allowed_users_env_refs(&mut config.channels_config)?;
 
             config.apply_env_overrides();
@@ -3019,90 +2097,6 @@ impl Config {
             self.provider.reasoning_level.as_deref(),
             "provider.reasoning_level",
         )
-    }
-
-    fn lookup_model_provider_profile(
-        &self,
-        provider_name: &str,
-    ) -> Option<(String, ModelProviderConfig)> {
-        let needle = provider_name.trim();
-        if needle.is_empty() {
-            return None;
-        }
-
-        self.model_providers
-            .iter()
-            .find(|(name, _)| name.eq_ignore_ascii_case(needle))
-            .map(|(name, profile)| (name.clone(), profile.clone()))
-    }
-
-    fn apply_named_model_provider_profile(&mut self) {
-        let Some(current_provider) = self.default_provider.clone() else {
-            return;
-        };
-
-        let Some((profile_key, profile)) = self.lookup_model_provider_profile(&current_provider)
-        else {
-            return;
-        };
-
-        let base_url = profile
-            .base_url
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToString::to_string);
-
-        if self
-            .api_url
-            .as_deref()
-            .map(str::trim)
-            .is_none_or(|value| value.is_empty())
-        {
-            if let Some(base_url) = base_url.as_ref() {
-                self.api_url = Some(base_url.clone());
-            }
-        }
-
-        if profile.requires_openai_auth
-            && self
-                .api_key
-                .as_deref()
-                .map(str::trim)
-                .is_none_or(|value| value.is_empty())
-        {
-            let codex_key = std::env::var("OPENAI_API_KEY")
-                .ok()
-                .map(|value| value.trim().to_string())
-                .filter(|value| !value.is_empty())
-                .or_else(read_codex_openai_api_key);
-            if let Some(codex_key) = codex_key {
-                self.api_key = Some(codex_key);
-            }
-        }
-
-        let normalized_wire_api = profile.wire_api.as_deref().and_then(normalize_wire_api);
-        let profile_name = profile
-            .name
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-
-        if normalized_wire_api == Some("responses") {
-            self.default_provider = Some("openai-codex".to_string());
-            return;
-        }
-
-        if let Some(profile_name) = profile_name {
-            if !profile_name.eq_ignore_ascii_case(&profile_key) {
-                self.default_provider = Some(profile_name.to_string());
-                return;
-            }
-        }
-
-        if let Some(base_url) = base_url {
-            self.default_provider = Some(format!("custom:{base_url}"));
-        }
     }
 
     /// Validate configuration values that would cause runtime failures.
@@ -3307,73 +2301,7 @@ impl Config {
             }
         }
 
-        for (profile_key, profile) in &self.model_providers {
-            let profile_name = profile_key.trim();
-            if profile_name.is_empty() {
-                anyhow::bail!("model_providers contains an empty profile name");
-            }
-
-            let has_name = profile
-                .name
-                .as_deref()
-                .map(str::trim)
-                .is_some_and(|value| !value.is_empty());
-            let has_base_url = profile
-                .base_url
-                .as_deref()
-                .map(str::trim)
-                .is_some_and(|value| !value.is_empty());
-
-            if !has_name && !has_base_url {
-                anyhow::bail!(
-                    "model_providers.{profile_name} must define at least one of `name` or `base_url`"
-                );
-            }
-
-            if let Some(base_url) = profile.base_url.as_deref().map(str::trim) {
-                if !base_url.is_empty() {
-                    let parsed = reqwest::Url::parse(base_url).with_context(|| {
-                        format!("model_providers.{profile_name}.base_url is not a valid URL")
-                    })?;
-                    if !matches!(parsed.scheme(), "http" | "https") {
-                        anyhow::bail!(
-                            "model_providers.{profile_name}.base_url must use http/https"
-                        );
-                    }
-                }
-            }
-
-            if let Some(wire_api) = profile.wire_api.as_deref().map(str::trim) {
-                if !wire_api.is_empty() && normalize_wire_api(wire_api).is_none() {
-                    anyhow::bail!(
-                        "model_providers.{profile_name}.wire_api must be one of: responses, chat_completions"
-                    );
-                }
-            }
-        }
-
-        // Ollama cloud-routing safety checks
-        if self
-            .default_provider
-            .as_deref()
-            .is_some_and(|provider| provider.trim().eq_ignore_ascii_case("ollama"))
-            && self
-                .default_model
-                .as_deref()
-                .is_some_and(|model| model.trim().ends_with(":cloud"))
-        {
-            if is_local_ollama_endpoint(self.api_url.as_deref()) {
-                anyhow::bail!(
-                    "default_model uses ':cloud' with provider 'ollama', but api_url is local or unset. Set api_url to a remote Ollama endpoint (for example https://ollama.com)."
-                );
-            }
-
-            if !has_ollama_cloud_credential(self.api_key.as_deref()) {
-                anyhow::bail!(
-                    "default_model uses ':cloud' with provider 'ollama', but no API key is configured. Set api_key or OLLAMA_API_KEY."
-                );
-            }
-        }
+        schema_provider_profiles::validate_model_provider_profiles(self)?;
 
         // Proxy (delegate to existing validation)
         self.proxy.validate()?;
@@ -3674,68 +2602,7 @@ impl Config {
             .config_path
             .parent()
             .context("Config path must have a parent directory")?;
-        let store = crate::security::SecretStore::new(topclaw_dir, self.secrets.encrypt);
-
-        encrypt_optional_secret(&store, &mut config_to_save.api_key, "config.api_key")?;
-        encrypt_optional_secret(
-            &store,
-            &mut config_to_save.composio.api_key,
-            "config.composio.api_key",
-        )?;
-        encrypt_optional_secret(
-            &store,
-            &mut config_to_save.proxy.http_proxy,
-            "config.proxy.http_proxy",
-        )?;
-        encrypt_optional_secret(
-            &store,
-            &mut config_to_save.proxy.https_proxy,
-            "config.proxy.https_proxy",
-        )?;
-        encrypt_optional_secret(
-            &store,
-            &mut config_to_save.proxy.all_proxy,
-            "config.proxy.all_proxy",
-        )?;
-
-        encrypt_optional_secret(
-            &store,
-            &mut config_to_save.browser.computer_use.api_key,
-            "config.browser.computer_use.api_key",
-        )?;
-
-        encrypt_optional_secret(
-            &store,
-            &mut config_to_save.web_search.brave_api_key,
-            "config.web_search.brave_api_key",
-        )?;
-
-        encrypt_optional_secret(
-            &store,
-            &mut config_to_save.storage.provider.config.db_url,
-            "config.storage.provider.config.db_url",
-        )?;
-        encrypt_vec_secrets(
-            &store,
-            &mut config_to_save.reliability.api_keys,
-            "config.reliability.api_keys",
-        )?;
-        encrypt_map_secrets(
-            &store,
-            &mut config_to_save.reliability.fallback_api_keys,
-            "config.reliability.fallback_api_keys",
-        )?;
-        encrypt_vec_secrets(
-            &store,
-            &mut config_to_save.gateway.paired_tokens,
-            "config.gateway.paired_tokens",
-        )?;
-
-        for agent in config_to_save.agents.values_mut() {
-            encrypt_optional_secret(&store, &mut agent.api_key, "config.agents.*.api_key")?;
-        }
-
-        encrypt_channel_secrets(&store, &mut config_to_save.channels_config)?;
+        schema_secrets::encrypt_config_secrets(topclaw_dir, &mut config_to_save)?;
 
         let toml_str =
             toml::to_string_pretty(&config_to_save).context("Failed to serialize config")?;
@@ -4833,6 +3700,57 @@ tool_dispatcher = "xml"
     }
 
     #[tokio::test]
+    async fn schema_secrets_encrypt_config_secrets_encrypts_root_and_nested_fields() {
+        let dir = TempDir::new().unwrap();
+
+        let mut config = Config::default();
+        config.secrets.encrypt = true;
+        config.api_key = Some("root-credential".into());
+        config.channels_config.telegram = Some(TelegramConfig {
+            bot_token: "telegram-credential".into(),
+            allowed_users: Vec::new(),
+            stream_mode: StreamMode::Off,
+            draft_update_interval_ms: 500,
+            interrupt_on_new_message: false,
+            group_reply: None,
+            base_url: None,
+        });
+        config.agents.insert(
+            "worker".into(),
+            DelegateAgentConfig {
+                provider: "openrouter".into(),
+                model: "model-test".into(),
+                system_prompt: None,
+                api_key: Some("agent-credential".into()),
+                temperature: None,
+                max_depth: 3,
+                agentic: false,
+                allowed_tools: Vec::new(),
+                max_iterations: 10,
+            },
+        );
+
+        schema_secrets::encrypt_config_secrets(dir.path(), &mut config).unwrap();
+
+        assert!(config
+            .api_key
+            .as_deref()
+            .is_some_and(crate::security::SecretStore::is_encrypted));
+        assert!(config
+            .channels_config
+            .telegram
+            .as_ref()
+            .is_some_and(|telegram| crate::security::SecretStore::is_encrypted(
+                &telegram.bot_token
+            )));
+        assert!(config
+            .agents
+            .get("worker")
+            .and_then(|agent| agent.api_key.as_deref())
+            .is_some_and(crate::security::SecretStore::is_encrypted));
+    }
+
+    #[tokio::test]
     async fn config_save_atomic_cleanup() {
         let dir =
             std::env::temp_dir().join(format!("topclaw_test_config_{}", uuid::Uuid::new_v4()));
@@ -4882,6 +3800,26 @@ tool_dispatcher = "xml"
         assert_eq!(parsed.stream_mode, StreamMode::Partial);
         assert_eq!(parsed.draft_update_interval_ms, 500);
         assert!(parsed.interrupt_on_new_message);
+    }
+
+    #[test]
+    async fn schema_telegram_allowed_users_resolver_preserves_literal_entries() {
+        let mut channels = ChannelsConfig::default();
+        channels.telegram = Some(TelegramConfig {
+            bot_token: "123:XYZ".into(),
+            allowed_users: vec!["1001".into(), "*".into()],
+            stream_mode: StreamMode::Off,
+            draft_update_interval_ms: 500,
+            interrupt_on_new_message: false,
+            group_reply: None,
+            base_url: None,
+        });
+
+        schema_telegram_allowed_users::resolve_telegram_allowed_users_env_refs(&mut channels)
+            .expect("literal allowed users should be preserved");
+
+        let telegram = channels.telegram.expect("telegram config should exist");
+        assert_eq!(telegram.allowed_users, vec!["1001", "*"]);
     }
 
     #[test]
@@ -6165,6 +5103,29 @@ provider_api = "not-a-real-mode"
         assert_eq!(config.default_provider.as_deref(), Some("openai-codex"));
         assert_eq!(config.api_url.as_deref(), Some("https://api.tonsof.blue"));
         assert_eq!(config.api_key.as_deref(), Some("sk-test-codex-key"));
+    }
+
+    #[tokio::test]
+    async fn schema_provider_profiles_validate_model_provider_profiles_rejects_unknown_wire_api() {
+        let config = Config {
+            default_provider: Some("sub2api".to_string()),
+            model_providers: HashMap::from([(
+                "sub2api".to_string(),
+                ModelProviderConfig {
+                    name: Some("sub2api".to_string()),
+                    base_url: Some("https://api.tonsof.blue/v1".to_string()),
+                    wire_api: Some("ws".to_string()),
+                    requires_openai_auth: false,
+                },
+            )]),
+            ..Config::default()
+        };
+
+        let error = schema_provider_profiles::validate_model_provider_profiles(&config)
+            .expect_err("expected validation failure");
+        assert!(error
+            .to_string()
+            .contains("wire_api must be one of: responses, chat_completions"));
     }
 
     #[test]

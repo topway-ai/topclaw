@@ -257,7 +257,7 @@ pub fn all_tools_with_runtime(
     runtime: Arc<dyn RuntimeAdapter>,
     memory: Arc<dyn Memory>,
     composio_key: Option<&str>,
-    composio_entity_id: Option<&str>,
+    _composio_entity_id: Option<&str>,
     browser_config: &crate::config::BrowserConfig,
     http_config: &crate::config::HttpRequestConfig,
     web_fetch_config: &crate::config::WebFetchConfig,
@@ -444,7 +444,7 @@ pub fn all_tools_with_runtime(
             #[cfg(feature = "tool-composio")]
             tool_arcs.push(Arc::new(ComposioTool::new(
                 key,
-                composio_entity_id,
+                _composio_entity_id,
                 security.clone(),
             )));
         }
@@ -707,7 +707,10 @@ mod tests {
         );
 
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+        #[cfg(feature = "tool-discord")]
         assert!(names.contains(&"discord_history_fetch"));
+        #[cfg(not(feature = "tool-discord"))]
+        assert!(!names.contains(&"discord_history_fetch"));
     }
 
     #[test]

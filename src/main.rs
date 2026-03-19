@@ -37,8 +37,8 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use topclaw::{
     agent, auth, backup, channels, config, cron, daemon, doctor, gateway, hardware, integrations,
-    memory, observability, onboard, peripherals, providers, security, self_improvement,
-    service, skills, update, Config,
+    memory, observability, onboard, peripherals, providers, security, self_improvement, service,
+    skills, update, Config,
 };
 use tracing::{info, warn};
 use tracing_subscriber::{fmt, EnvFilter};
