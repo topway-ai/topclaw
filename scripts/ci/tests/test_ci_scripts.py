@@ -8,6 +8,7 @@ import hashlib
 import http.server
 import json
 import os
+import re
 import shutil
 import socket
 import socketserver
@@ -95,6 +96,11 @@ class CiScriptsBehaviorTest(unittest.TestCase):
 
     def _release_script(self, name: str) -> str:
         return str(ROOT / "scripts" / "release" / name)
+
+    def _sec_audit_workflow_text(self) -> str:
+        return (ROOT / ".github" / "workflows" / "sec-audit.yml").read_text(
+            encoding="utf-8"
+        )
 
     def test_emit_audit_event_envelope(self) -> None:
         payload_path = self.tmp / "payload.json"
@@ -1086,6 +1092,31 @@ class CiScriptsBehaviorTest(unittest.TestCase):
         report = json.loads(out_json.read_text(encoding="utf-8"))
         self.assertGreaterEqual(report["summary"]["new_pull_request_target_triggers"], 1)
         self.assertIn("pull_request_target", "\n".join(report["violations"]))
+
+    def test_sec_audit_pr_lane_uses_github_hosted_runners(self) -> None:
+        workflow = self._sec_audit_workflow_text()
+        self.assertRegex(
+            workflow,
+            re.compile(
+                r"name:\s+Security Required Gate\s+"
+                r"if:\s+always\(\)\s+&&\s+\(github\.event_name == 'pull_request' \|\| github\.event_name == 'merge_group'\)\s+"
+                r"needs:\s+\[[^\]]+\]\s+"
+                r"runs-on:\s+ubuntu-latest",
+                re.S,
+            ),
+        )
+
+    def test_sec_audit_non_pr_lane_keeps_self_hosted_runners(self) -> None:
+        workflow = self._sec_audit_workflow_text()
+        self.assertRegex(
+            workflow,
+            re.compile(
+                r"name:\s+Security Audit\s+"
+                r"if:\s+github\.event_name == 'push' \|\| github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'\s+"
+                r"runs-on:\s+\[self-hosted,\s+Linux,\s+X64,\s+blacksmith-2vcpu-ubuntu-2404\]",
+                re.S,
+            ),
+        )
 
     def test_ci_change_audit_blocks_permissions_write_all(self) -> None:
         repo = self.tmp / "repo"

@@ -129,6 +129,7 @@ Maintain these branch protection rules on `dev` and `main`:
 ### 4.2 Step B: Validation
 
 - `CI Required Gate` and `Security Required Gate` are the merge gates.
+- `Security Required Gate` is emitted by the GitHub-hosted `Sec Audit` PR/merge-group lane; push/scheduled/manual security lanes remain self-hosted and do not change branch-protection requirements.
 - Docs-only PRs use fast-path and skip heavy Rust jobs.
 - Non-doc PRs must pass lint, tests, and release build smoke check.
 - Rust-impacting PRs use the same required gate set as `dev`/`main` pushes (no PR build-only shortcut).

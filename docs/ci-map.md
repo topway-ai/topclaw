@@ -43,6 +43,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
     - Additional behavior: owner routing + escalation policy is documented in `docs/operations/nightly-all-features-runbook.md`
 - `.github/workflows/sec-audit.yml` (`Security Audit`)
     - Purpose: dependency advisories (`rustsec/audit-check`, pinned SHA), policy/license checks (`cargo deny`), gitleaks-based secrets governance (allowlist policy metadata + expiry guard), and SBOM snapshot artifacts (`CycloneDX` + `SPDX`)
+    - Additional behavior: `pull_request` and `merge_group` runs execute on GitHub-hosted runners so `Security Required Gate` remains available for merge-blocking checks; `push`, `schedule`, and `workflow_dispatch` lanes stay on self-hosted runners
 - `.github/workflows/test-coverage.yml` (`Test Coverage`)
     - Purpose: non-blocking coverage lane using `cargo-llvm-cov` with `lcov` artifact upload for trend tracking before hard-gating coverage
 - `.github/workflows/sec-codeql.yml` (`CodeQL Analysis`)
