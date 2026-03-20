@@ -96,12 +96,12 @@ Operational notes:
 
 ## Channel Matrix
 
-### Build Feature Toggles (`channel-matrix`, `channel-lark`)
+### Build Feature Toggles (`channel-telegram`, `channel-matrix`, `channel-lark`)
 
 Matrix and Lark support are controlled at compile time.
 
-- Default builds include Lark/Feishu (`default = ["channel-lark"]`), while Matrix remains opt-in.
-- For a lean local build without Matrix/Lark:
+- Default builds include Telegram (`default = ["channel-telegram"]`), while Matrix and Lark remain opt-in.
+- For a lean local build without Telegram, Matrix, or Lark:
 
 ```bash
 cargo check --no-default-features --features hardware
