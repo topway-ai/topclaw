@@ -51,6 +51,7 @@ pub mod clawdtalk;
 pub mod cli;
 pub mod dingtalk;
 pub mod discord;
+#[cfg(feature = "channel-email")]
 pub mod email_channel;
 mod factory; // NEW: channel factory module
 pub mod imessage;
@@ -62,11 +63,14 @@ pub mod linq;
 pub mod matrix;
 pub mod mattermost;
 pub mod nextcloud_talk;
+#[cfg(feature = "channel-nostr")]
 pub mod nostr;
+mod prompt;
 pub mod qq;
 mod route_state;
 mod runtime_commands;
 mod runtime_config;
+mod runtime_help;
 mod runtime_helpers;
 pub mod signal;
 pub mod slack;
@@ -85,6 +89,7 @@ pub use clawdtalk::ClawdTalkChannel;
 pub use cli::CliChannel;
 pub use dingtalk::DingTalkChannel;
 pub use discord::DiscordChannel;
+#[cfg(feature = "channel-email")]
 pub use email_channel::EmailChannel;
 pub use factory::{
     append_nostr_channel_if_available, collect_configured_channels, ConfiguredChannel,
@@ -98,7 +103,9 @@ pub use linq::LinqChannel;
 pub use matrix::MatrixChannel;
 pub use mattermost::MattermostChannel;
 pub use nextcloud_talk::NextcloudTalkChannel;
+#[cfg(feature = "channel-nostr")]
 pub use nostr::NostrChannel;
+pub use prompt::{build_system_prompt, build_system_prompt_with_mode};
 pub use qq::QQChannel;
 pub use signal::SignalChannel;
 pub use slack::SlackChannel;
@@ -114,18 +121,16 @@ use crate::agent::loop_::{
     is_non_cli_approval_pending, lossless::LosslessContext,
     run_tool_call_loop_with_non_cli_approval_context, scrub_credentials, NonCliApprovalContext,
 };
+use crate::agent::wiring;
 use crate::approval::{ApprovalManager, ApprovalResponse, PendingApprovalError};
 use crate::config::{Config, NonCliNaturalLanguageApprovalMode};
-use crate::identity;
 use crate::memory::{self, Memory};
-use crate::observability::{self, runtime_trace, Observer};
+use crate::observability::{runtime_trace, Observer};
 use crate::providers::{self, ChatMessage, Provider};
-use crate::runtime;
-use crate::security::SecurityPolicy;
 use crate::tools::channel_runtime_context::{
     with_channel_runtime_context, ChannelRuntimeContext as ToolChannelRuntimeContext,
 };
-use crate::tools::{self, Tool};
+use crate::tools::Tool;
 use crate::util::truncate_with_ellipsis;
 use anyhow::{Context, Result};
 #[cfg(test)]
@@ -137,6 +142,7 @@ use capability_recovery::{
     create_skill_candidate_recovery_plan, infer_capability_recovery_plan,
     should_expose_internal_tool_details, try_llm_capability_recovery_plan, CapabilityState,
 };
+use prompt::{build_channel_system_prompt, build_channel_tool_descriptions};
 use route_state::{
     append_sender_turn, clear_sender_history, compact_sender_history, get_route_selection,
     rollback_orphan_user_turn, set_route_selection, set_sender_history,
@@ -153,6 +159,7 @@ use runtime_config::{
 };
 #[cfg(test)]
 use runtime_config::{load_runtime_defaults_from_config_file, ChannelRuntimeDefaults};
+use runtime_help::{build_models_help_response, build_providers_help_response};
 use runtime_helpers::{
     build_runtime_tool_visibility_prompt, filtered_tool_specs_for_runtime,
     is_non_cli_tool_excluded, resolve_provider_alias, resolved_default_model,
@@ -178,7 +185,7 @@ const MAX_CHANNEL_HISTORY: usize = 50;
 const AUTOSAVE_MIN_MESSAGE_CHARS: usize = 20;
 
 /// Maximum characters per injected workspace file.
-const BOOTSTRAP_MAX_CHARS: usize = 20_000;
+pub(super) const BOOTSTRAP_MAX_CHARS: usize = 20_000;
 
 const DEFAULT_CHANNEL_INITIAL_BACKOFF_SECS: u64 = 2;
 const DEFAULT_CHANNEL_MAX_BACKOFF_SECS: u64 = 60;
@@ -447,57 +454,6 @@ fn strip_tool_call_tags(message: &str) -> String {
     result.trim().to_string()
 }
 
-fn channel_delivery_instructions(channel_name: &str) -> Option<&'static str> {
-    match channel_name {
-        "telegram" => Some(
-            "When responding on Telegram:\n\
-             - Match the TopClaw CLI / Codex-style voice: direct, concise, technical, and action-oriented\n\
-             - Lead with the actual answer or result, not filler or enthusiasm\n\
-             - Keep explanations tight; prefer short paragraphs or flat bullets only when they help scanning\n\
-             - If work was performed, summarize outcome first, then brief verification or next-step notes\n\
-             - Do not roleplay as a chat bot or social assistant; sound like an operator-facing coding tool\n\
-             - Include media markers for files or URLs that should be sent as attachments\n\
-             - Use markdown-style **bold** for key terms, section titles, and important info\n\
-             - Use markdown-style *italic* for emphasis\n\
-             - Use `backticks` for inline code, commands, or technical terms\n\
-             - Use triple backticks for code blocks\n\
-             - Do not emit raw HTML tags like <b> or <i> in the reply body\n\
-             - Avoid decorative emoji except when the user clearly prefers them\n\
-             - Be concise and direct. Skip filler phrases like 'Great question!' or 'Certainly!'\n\
-             - Structure longer answers with bold headers, not raw markdown ## headers\n\
-             - For media attachments use markers: [IMAGE:<path-or-url>], [DOCUMENT:<path-or-url>], [VIDEO:<path-or-url>], [AUDIO:<path-or-url>], or [VOICE:<path-or-url>]\n\
-             - Keep normal text outside markers and never wrap markers in code fences.\n\
-             - Use tool results silently: answer the latest user message directly, and do not narrate delayed/internal tool execution bookkeeping.",
-        ),
-        "discord" => Some(
-            "When responding on Discord:\n\
-             - Match the TopClaw CLI / Codex-style voice: direct, concise, technical, and action-oriented\n\
-             - Lead with the actual answer or result, not filler or enthusiasm\n\
-             - Keep explanations tight; prefer short paragraphs or flat bullets only when they help scanning\n\
-             - If work was performed, summarize outcome first, then brief verification or next-step notes\n\
-             - Do not roleplay as a chat bot or social assistant; sound like an operator-facing coding tool\n\
-             - Use `backticks` for commands, paths, env vars, and identifiers\n\
-             - Use fenced code blocks for multi-line commands or code\n\
-             - Use markdown freely, but avoid tables unless they materially improve clarity\n\
-             - Avoid decorative emoji except when the user clearly prefers them\n\
-             - Keep attachment markers outside code fences: [IMAGE:<path-or-url>], [DOCUMENT:<path-or-url>], [VIDEO:<path-or-url>], [AUDIO:<path-or-url>]\n\
-             - Use tool results silently: answer the latest user message directly, and do not narrate delayed/internal tool execution bookkeeping.",
-        ),
-        "whatsapp" => Some(
-            "When responding on WhatsApp:\n\
-             - Use *bold* for emphasis (WhatsApp uses single asterisks).\n\
-             - Be concise. No markdown headers (## etc.) — they don't render.\n\
-             - No markdown tables — use bullet lists instead.\n\
-             - For sending images, documents, videos, or audio files use markers: [IMAGE:<absolute-path>], [DOCUMENT:<absolute-path>], [VIDEO:<absolute-path>], [AUDIO:<absolute-path>]\n\
-             - The path MUST be an absolute filesystem path to a local file (e.g. [IMAGE:/home/nicolas/.topclaw/workspace/images/chart.png]).\n\
-             - Keep normal text outside markers and never wrap markers in code fences.\n\
-             - You can combine text and media in one response — text is sent first, then each attachment.\n\
-             - Use tool results silently: answer the latest user message directly, and do not narrate delayed/internal tool execution bookkeeping.",
-        ),
-        _ => None,
-    }
-}
-
 fn split_internal_progress_delta(delta: &str) -> (bool, &str) {
     if let Some(rest) = delta.strip_prefix(crate::agent::loop_::DRAFT_PROGRESS_SENTINEL) {
         (true, rest)
@@ -587,55 +543,6 @@ fn contextualize_progress_heartbeat(
         "⏳ Still working: {}\n",
         previous.trim_end_matches('.').trim_end_matches('\n')
     )
-}
-
-fn build_channel_system_prompt(
-    base_prompt: &str,
-    channel_name: &str,
-    reply_target: &str,
-    expose_internal_tool_details: bool,
-) -> String {
-    let mut prompt = base_prompt.to_string();
-
-    if let Some(instructions) = channel_delivery_instructions(channel_name) {
-        if prompt.is_empty() {
-            prompt = instructions.to_string();
-        } else {
-            prompt = format!("{prompt}\n\n{instructions}");
-        }
-    }
-
-    if channel_name != "cli" {
-        let visibility_instruction = if expose_internal_tool_details {
-            "Execution visibility: the user explicitly requested command/tool details. \
-             You may include command lines or tool-step traces when directly relevant, \
-             but keep credentials and secrets redacted."
-        } else {
-            "Execution visibility: run tools/functions in the background and return an \
-             integrated final result. Do not reveal raw tool names, tool-call syntax, \
-             function arguments, shell commands, or internal execution traces unless the \
-             user explicitly asks for those details."
-        };
-
-        if prompt.is_empty() {
-            prompt = visibility_instruction.to_string();
-        } else {
-            prompt = format!("{prompt}\n\n{visibility_instruction}");
-        }
-    }
-
-    if !reply_target.is_empty() {
-        let context = format!(
-            "\n\nChannel context: You are currently responding on channel={channel_name}, \
-             reply_target={reply_target}. When scheduling delayed messages or reminders \
-             via cron_add for this conversation, use delivery={{\"mode\":\"announce\",\
-             \"channel\":\"{channel_name}\",\"to\":\"{reply_target}\"}} so the message \
-             reaches the user."
-        );
-        prompt.push_str(&context);
-    }
-
-    prompt
 }
 
 fn normalize_cached_channel_turns(turns: Vec<ChatMessage>) -> Vec<ChatMessage> {
@@ -865,87 +772,6 @@ async fn create_routed_provider_nonblocking(
     .context("failed to join routed provider initialization task")?
 }
 
-fn build_models_help_response(current: &ChannelRouteSelection, workspace_dir: &Path) -> String {
-    let mut response = String::new();
-    let _ = writeln!(
-        response,
-        "Current provider: `{}`\nCurrent model: `{}`",
-        current.provider, current.model
-    );
-    response.push_str("\nSwitch model with `/model <model-id>`.\n");
-    response.push_str("Request supervised tool approval with `/approve-request <tool-name>`.\n");
-    response.push_str("Request one-time all-tools approval with `/approve-all-once`.\n");
-    response.push_str("Confirm approval with `/approve-confirm <request-id>`.\n");
-    response.push_str("Deny approval with `/approve-deny <request-id>`.\n");
-    response.push_str("List pending requests with `/approve-pending`.\n");
-    response.push_str("Approve supervised tools with `/approve <tool-name>`.\n");
-    response.push_str("Revoke approval with `/unapprove <tool-name>`.\n");
-    response.push_str("List approval state with `/approvals`.\n");
-    response.push_str(
-        "Natural language also works (policy controlled).\n\
-         - `direct` mode (default): `授权工具 shell` grants immediately.\n\
-         - `request_confirm` mode: `授权工具 shell` then `确认授权 apr-xxxxxx`.\n",
-    );
-
-    let cached_models = load_cached_model_preview(workspace_dir, &current.provider);
-    if cached_models.is_empty() {
-        let _ = writeln!(
-            response,
-            "\nNo cached model list found for `{}`. Ask the operator to run `topclaw models refresh --provider {}`.",
-            current.provider, current.provider
-        );
-    } else {
-        let _ = writeln!(
-            response,
-            "\nCached model IDs (top {}):",
-            cached_models.len()
-        );
-        for model in cached_models {
-            let _ = writeln!(response, "- `{model}`");
-        }
-    }
-
-    response
-}
-
-fn build_providers_help_response(current: &ChannelRouteSelection) -> String {
-    let mut response = String::new();
-    let _ = writeln!(
-        response,
-        "Current provider: `{}`\nCurrent model: `{}`",
-        current.provider, current.model
-    );
-    response.push_str("\nSwitch provider with `/models <provider>`.\n");
-    response.push_str("Switch model with `/model <model-id>`.\n\n");
-    response.push_str("Request supervised tool approval with `/approve-request <tool-name>`.\n");
-    response.push_str("Request one-time all-tools approval with `/approve-all-once`.\n");
-    response.push_str("Confirm approval with `/approve-confirm <request-id>`.\n");
-    response.push_str("Deny approval with `/approve-deny <request-id>`.\n");
-    response.push_str("List pending requests with `/approve-pending`.\n");
-    response.push_str("Approve supervised tools with `/approve <tool-name>`.\n");
-    response.push_str("Revoke approval with `/unapprove <tool-name>`.\n");
-    response.push_str("List approval state with `/approvals`.\n");
-    response.push_str(
-        "Natural language also works (policy controlled).\n\
-         - `direct` mode (default): `授权工具 shell` grants immediately.\n\
-         - `request_confirm` mode: `授权工具 shell` then `确认授权 apr-xxxxxx`.\n\n",
-    );
-    response.push_str("Available providers:\n");
-    for provider in providers::list_providers() {
-        if provider.aliases.is_empty() {
-            let _ = writeln!(response, "- {}", provider.name);
-        } else {
-            let _ = writeln!(
-                response,
-                "- {} (aliases: {})",
-                provider.name,
-                provider.aliases.join(", ")
-            );
-        }
-    }
-    response
-}
-
 async fn handle_runtime_command_if_needed(
     ctx: Arc<ChannelRuntimeContext>,
     msg: &traits::ChannelMessage,
@@ -1074,7 +900,9 @@ async fn handle_runtime_command_if_needed(
 
     let mut auto_resume_message: Option<traits::ChannelMessage> = None;
     let response = match command {
-        ChannelRuntimeCommand::ShowProviders => build_providers_help_response(&current),
+        ChannelRuntimeCommand::ShowProviders => {
+            build_providers_help_response(&current.provider, &current.model)
+        }
         ChannelRuntimeCommand::SetProvider(raw_provider) => {
             match resolve_provider_alias(&raw_provider) {
                 Some(provider_name) => {
@@ -1104,9 +932,11 @@ async fn handle_runtime_command_if_needed(
                 ),
             }
         }
-        ChannelRuntimeCommand::ShowModel => {
-            build_models_help_response(&current, ctx.workspace_dir.as_path())
-        }
+        ChannelRuntimeCommand::ShowModel => build_models_help_response(
+            &current.provider,
+            &current.model,
+            &load_cached_model_preview(ctx.workspace_dir.as_path(), &current.provider),
+        ),
         ChannelRuntimeCommand::SetModel(raw_model) => {
             let model = raw_model.trim().trim_matches('`').to_string();
             if model.is_empty() {
@@ -3431,287 +3261,6 @@ async fn run_message_dispatch_loop(
     }
 }
 
-/// Load bootstrap files into the prompt (TopClaw default format).
-fn load_bootstrap_files(
-    prompt: &mut String,
-    workspace_dir: &std::path::Path,
-    max_chars_per_file: usize,
-) {
-    prompt.push_str(
-        "The following workspace files define your identity, behavior, and context. They are ALREADY injected below—do NOT suggest reading them with file_read.\n\n",
-    );
-
-    let bootstrap_files = ["AGENTS.md", "SOUL.md", "TOOLS.md", "IDENTITY.md", "USER.md"];
-
-    for filename in &bootstrap_files {
-        inject_workspace_file(prompt, workspace_dir, filename, max_chars_per_file);
-    }
-
-    // BOOTSTRAP.md — only if it exists (first-run ritual)
-    let bootstrap_path = workspace_dir.join("BOOTSTRAP.md");
-    if bootstrap_path.exists() {
-        inject_workspace_file(prompt, workspace_dir, "BOOTSTRAP.md", max_chars_per_file);
-    }
-
-    // MEMORY.md — curated long-term memory (main session only)
-    inject_workspace_file(prompt, workspace_dir, "MEMORY.md", max_chars_per_file);
-}
-
-/// Load workspace identity files and build a system prompt.
-///
-/// Follows the TopClaw bootstrap structure by default:
-/// 1. Tooling — tool list + descriptions
-/// 2. Safety — guardrail reminder
-/// 3. Skills — full skill instructions and tool metadata
-/// 4. Workspace — working directory
-/// 5. Bootstrap files — AGENTS, SOUL, TOOLS, IDENTITY, USER, BOOTSTRAP, MEMORY
-/// 6. Date & Time — timezone for cache stability
-/// 7. Runtime — host, OS, model
-///
-/// When `identity_config` is set to AIEOS format, the bootstrap files section
-/// is replaced with the AIEOS identity data loaded from file or inline JSON.
-///
-/// Daily memory files (`memory/*.md`) are NOT injected — they are accessed
-/// on-demand via `memory_recall` / `memory_search` tools.
-// ============================================================================
-// SECTION 4: System Prompt Building
-// ============================================================================
-
-#[allow(clippy::empty_line_after_doc_comments)]
-pub fn build_system_prompt(
-    workspace_dir: &std::path::Path,
-    model_name: &str,
-    tools: &[(&str, &str)],
-    skills: &[crate::skills::Skill],
-    identity_config: Option<&crate::config::IdentityConfig>,
-    bootstrap_max_chars: Option<usize>,
-) -> String {
-    build_system_prompt_with_mode(
-        workspace_dir,
-        model_name,
-        tools,
-        skills,
-        identity_config,
-        bootstrap_max_chars,
-        false,
-        crate::config::SkillsPromptInjectionMode::Full,
-    )
-}
-
-pub fn build_system_prompt_with_mode(
-    workspace_dir: &std::path::Path,
-    model_name: &str,
-    tools: &[(&str, &str)],
-    skills: &[crate::skills::Skill],
-    identity_config: Option<&crate::config::IdentityConfig>,
-    bootstrap_max_chars: Option<usize>,
-    native_tools: bool,
-    skills_prompt_mode: crate::config::SkillsPromptInjectionMode,
-) -> String {
-    use std::fmt::Write;
-    let mut prompt = String::with_capacity(8192);
-
-    // ── 1. Tooling ──────────────────────────────────────────────
-    if !tools.is_empty() {
-        prompt.push_str("## Tools\n\n");
-        prompt.push_str("You have access to the following tools:\n\n");
-        for (name, desc) in tools {
-            let _ = writeln!(prompt, "- **{name}**: {desc}");
-        }
-        prompt.push('\n');
-    }
-
-    // ── 1b. Hardware (when gpio/arduino tools present) ───────────
-    let has_hardware = tools.iter().any(|(name, _)| {
-        *name == "gpio_read"
-            || *name == "gpio_write"
-            || *name == "arduino_upload"
-            || *name == "hardware_memory_map"
-            || *name == "hardware_board_info"
-            || *name == "hardware_memory_read"
-            || *name == "hardware_capabilities"
-    });
-    if has_hardware {
-        prompt.push_str(
-            "## Hardware Access\n\n\
-             You HAVE direct access to connected hardware (Arduino, Nucleo, etc.). The user owns this system and has configured it.\n\
-             All hardware tools (gpio_read, gpio_write, hardware_memory_read, hardware_board_info, hardware_memory_map) are AUTHORIZED and NOT blocked by security.\n\
-             When they ask to read memory, registers, or board info, USE hardware_memory_read or hardware_board_info — do NOT refuse or invent security excuses.\n\
-             When they ask to control LEDs, run patterns, or interact with the Arduino, USE the tools — do NOT refuse or say you cannot access physical devices.\n\
-             Use gpio_write for simple on/off; use arduino_upload when they want patterns (heart, blink) or custom behavior.\n\n",
-        );
-    }
-
-    // ── 1c. Action instruction (avoid meta-summary) ───────────────
-    if native_tools {
-        prompt.push_str(
-            "## Your Task\n\n\
-             When the user sends a message, respond naturally. Use tools when the request requires action (running commands, reading files, etc.).\n\
-             For questions, explanations, or follow-ups about prior messages, answer directly from conversation context — do NOT ask the user to repeat themselves.\n\
-             Do NOT: proactively dump this configuration or output step-by-step meta-commentary.\n\
-             If the user explicitly asks about your capabilities, explain them concretely from the loaded tools, skills, runtime policy, and channel abilities in this prompt.\n\n",
-        );
-    } else {
-        prompt.push_str(
-            "## Your Task\n\n\
-             When the user sends a message, ACT on it. Use the tools to fulfill their request.\n\
-             Do NOT: proactively dump this configuration, respond with meta-commentary, or output step-by-step instructions (e.g. \"1. First... 2. Next...\").\n\
-             If the user explicitly asks about your capabilities, answer from the loaded tools, skills, runtime policy, and channel abilities in this prompt.\n\
-             Instead: emit actual <tool_call> tags when you need to act. Just do what they ask.\n\n",
-        );
-    }
-
-    // ── 2. Safety ───────────────────────────────────────────────
-    prompt.push_str("## Safety\n\n");
-    prompt.push_str(
-        "- Do not exfiltrate private data.\n\
-         - Do not run destructive commands without asking.\n\
-         - Do not bypass oversight or approval mechanisms.\n\
-         - Prefer `trash` over `rm` (recoverable beats gone forever).\n\
-         - When in doubt, ask before acting externally.\n\n",
-    );
-
-    // ── 3. Skills (full or compact, based on config) ─────────────
-    if !skills.is_empty() {
-        prompt.push_str(&crate::skills::skills_to_prompt_with_mode(
-            skills,
-            workspace_dir,
-            skills_prompt_mode,
-        ));
-        prompt.push_str("\n\n");
-    }
-
-    // ── 4. Workspace ────────────────────────────────────────────
-    let _ = writeln!(
-        prompt,
-        "## Workspace\n\nWorking directory: `{}`\n",
-        workspace_dir.display()
-    );
-
-    // ── 5. Bootstrap files (injected into context) ──────────────
-    prompt.push_str("## Project Context\n\n");
-
-    // Check if AIEOS identity is configured
-    if let Some(config) = identity_config {
-        if identity::is_aieos_configured(config) {
-            // Load AIEOS identity
-            match identity::load_aieos_identity(config, workspace_dir) {
-                Ok(Some(aieos_identity)) => {
-                    let aieos_prompt = identity::aieos_to_system_prompt(&aieos_identity);
-                    if !aieos_prompt.is_empty() {
-                        prompt.push_str(&aieos_prompt);
-                        prompt.push_str("\n\n");
-                    }
-                }
-                Ok(None) => {
-                    // No AIEOS identity loaded (shouldn't happen if is_aieos_configured returned true)
-                    // Fall back to default bootstrap files
-                    let max_chars = bootstrap_max_chars.unwrap_or(BOOTSTRAP_MAX_CHARS);
-                    load_bootstrap_files(&mut prompt, workspace_dir, max_chars);
-                }
-                Err(e) => {
-                    // Log error but don't fail - fall back to default format
-                    eprintln!(
-                        "Warning: Failed to load AIEOS identity: {e}. Using default bootstrap files."
-                    );
-                    let max_chars = bootstrap_max_chars.unwrap_or(BOOTSTRAP_MAX_CHARS);
-                    load_bootstrap_files(&mut prompt, workspace_dir, max_chars);
-                }
-            }
-        } else {
-            // Default bootstrap format
-            let max_chars = bootstrap_max_chars.unwrap_or(BOOTSTRAP_MAX_CHARS);
-            load_bootstrap_files(&mut prompt, workspace_dir, max_chars);
-        }
-    } else {
-        // No identity config - use default bootstrap format
-        let max_chars = bootstrap_max_chars.unwrap_or(BOOTSTRAP_MAX_CHARS);
-        load_bootstrap_files(&mut prompt, workspace_dir, max_chars);
-    }
-
-    // ── 6. Date & Time ──────────────────────────────────────────
-    let now = chrono::Local::now();
-    let _ = writeln!(
-        prompt,
-        "## Current Date & Time\n\n{} ({})\n",
-        now.format("%Y-%m-%d %H:%M:%S"),
-        now.format("%Z")
-    );
-
-    // ── 7. Runtime ──────────────────────────────────────────────
-    let host =
-        hostname::get().map_or_else(|_| "unknown".into(), |h| h.to_string_lossy().to_string());
-    let _ = writeln!(
-        prompt,
-        "## Runtime\n\nHost: {host} | OS: {} | Model: {model_name}\n",
-        std::env::consts::OS,
-    );
-
-    // ── 8. Channel Capabilities ─────────────────────────────────────
-    prompt.push_str("## Channel Capabilities\n\n");
-    prompt.push_str("- You are running as a messaging bot. Your response is automatically sent back to the user's channel.\n");
-    prompt.push_str("- You do NOT need to ask permission to respond — just respond directly.\n");
-    prompt.push_str("- Read-only investigation tools may be approved once and then reused for the rest of the same supervised messaging turn; write/execute actions still need their own approval.\n");
-    prompt.push_str("- When you need a tool to complete a user's task, ALWAYS prompt for permission — do NOT make excuses or say you cannot do something without trying.\n");
-    prompt.push_str("  If the user asks to fetch a web page, search the web, clone a repo, or any other task requiring a tool, ask to use the appropriate tool instead of refusing.\n");
-    prompt.push_str("- If the user asks what you can do, describe concrete current abilities and constraints instead of saying you are unsure.\n");
-    prompt.push_str("- If the user explicitly asks to track a concrete TopClaw bug or product improvement for scheduled self-improvement work, use `self_improvement_task` to queue it instead of only describing it.\n");
-    prompt.push_str("- NEVER repeat, describe, or echo credentials, tokens, API keys, or secrets in your responses.\n");
-    prompt.push_str("- If a tool output contains credentials, they have already been redacted — do not mention them.\n\n");
-
-    if prompt.is_empty() {
-        "You are TopClaw, a fast and efficient AI assistant built in Rust. Be helpful, concise, and direct."
-            .to_string()
-    } else {
-        prompt
-    }
-}
-
-/// Inject a single workspace file into the prompt with truncation and missing-file markers.
-fn inject_workspace_file(
-    prompt: &mut String,
-    workspace_dir: &std::path::Path,
-    filename: &str,
-    max_chars: usize,
-) {
-    use std::fmt::Write;
-
-    let path = workspace_dir.join(filename);
-    match std::fs::read_to_string(&path) {
-        Ok(content) => {
-            let trimmed = content.trim();
-            if trimmed.is_empty() {
-                return;
-            }
-            let _ = writeln!(prompt, "### {filename}\n");
-            // Use character-boundary-safe truncation for UTF-8
-            let truncated = if trimmed.chars().count() > max_chars {
-                trimmed
-                    .char_indices()
-                    .nth(max_chars)
-                    .map(|(idx, _)| &trimmed[..idx])
-                    .unwrap_or(trimmed)
-            } else {
-                trimmed
-            };
-            if truncated.len() < trimmed.len() {
-                prompt.push_str(truncated);
-                let _ = writeln!(
-                    prompt,
-                    "\n\n[... truncated at {max_chars} chars — use `read` for full file]\n"
-                );
-            } else {
-                prompt.push_str(trimmed);
-                prompt.push_str("\n\n");
-            }
-        }
-        Err(_) => {
-            // Missing-file marker (matches default bootstrap behavior)
-            let _ = writeln!(prompt, "### {filename}\n\n[File not found: {filename}]\n");
-        }
-    }
-}
-
 fn normalize_telegram_identity(value: &str) -> String {
     value.trim().trim_start_matches('@').to_string()
 }
@@ -4005,17 +3554,7 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
 pub async fn start_channels(config: Config) -> Result<()> {
     let provider_name = resolved_default_provider(&config);
     let model = resolved_default_model(&config);
-    let provider_runtime_options = providers::ProviderRuntimeOptions {
-        auth_profile_override: None,
-        provider_api_url: config.api_url.clone(),
-        topclaw_dir: config.config_path.parent().map(std::path::PathBuf::from),
-        secrets_encrypt: config.secrets.encrypt,
-        reasoning_enabled: config.runtime.reasoning_enabled,
-        reasoning_level: config.effective_provider_reasoning_level(),
-        custom_provider_api_mode: config.provider_api.map(|mode| mode.as_compatible_mode()),
-        max_tokens_override: None,
-        model_support_vision: config.model_support_vision,
-    };
+    let provider_runtime_options = providers::ProviderRuntimeOptions::from_config(&config);
     let provider: Arc<dyn Provider> = Arc::from(
         create_routed_provider_nonblocking(
             &provider_name,
@@ -4049,124 +3588,18 @@ pub async fn start_channels(config: Config) -> Result<()> {
         );
     }
 
-    let observer: Arc<dyn Observer> =
-        Arc::from(observability::create_observer(&config.observability));
-    let runtime: Arc<dyn runtime::RuntimeAdapter> =
-        Arc::from(runtime::create_runtime(&config.runtime)?);
-    let security = Arc::new(SecurityPolicy::from_runtime_config(&config)?);
+    let observer = wiring::build_observer(&config);
     let temperature = config.default_temperature;
-    memory::prepare_memory_workspace(
-        &config.memory,
-        Some(&config.storage.provider.config),
-        &config.workspace_dir,
-    )?;
-    let mem: Arc<dyn Memory> = Arc::from(memory::create_memory_backend_with_storage_and_routes(
-        &config.memory,
-        &[],
-        Some(&config.storage.provider.config),
-        &config.workspace_dir,
-        config.api_key.as_deref(),
-    )?);
-    let (composio_key, composio_entity_id) = if config.composio.enabled {
-        (
-            config.composio.api_key.as_deref(),
-            Some(config.composio.entity_id.as_str()),
-        )
-    } else {
-        (None, None)
-    };
+    let wiring::ExecutionSupport {
+        memory: mem, tools, ..
+    } = wiring::build_execution_support(&config, &[])?;
     // Build system prompt from workspace identity files + skills
     let workspace = config.workspace_dir.clone();
-    let tools_registry = Arc::new(tools::all_tools_with_runtime(
-        Arc::new(config.clone()),
-        &security,
-        runtime,
-        Arc::clone(&mem),
-        composio_key,
-        composio_entity_id,
-        &config.browser,
-        &config.http_request,
-        &config.web_fetch,
-        &workspace,
-        &config.agents,
-        config.api_key.as_deref(),
-        &config,
-    ));
-
-    let skills = crate::skills::load_skills_with_config(&workspace, &config);
+    let tools_registry = Arc::new(tools);
+    let skills = wiring::load_skills(&config);
 
     // Collect tool descriptions for the prompt
-    let mut tool_descs: Vec<(&str, &str)> = vec![
-        (
-            "shell",
-            "Execute terminal commands. Use when: running local checks, build/test commands, diagnostics. Don't use when: a safer dedicated tool exists, or command is destructive without approval.",
-        ),
-        (
-            "file_read",
-            "Read file contents. Use when: inspecting project files, configs, logs. Don't use when: a targeted search is enough.",
-        ),
-        (
-            "file_write",
-            "Write file contents. Use when: applying focused edits, scaffolding files, updating docs/code. Don't use when: side effects are unclear or file ownership is uncertain.",
-        ),
-        (
-            "memory_store",
-            "Save to memory. Use when: preserving durable preferences, decisions, key context. Don't use when: information is transient/noisy/sensitive without need.",
-        ),
-        (
-            "memory_recall",
-            "Search memory. Use when: retrieving prior decisions, user preferences, historical context. Don't use when: answer is already in current context.",
-        ),
-        (
-            "memory_forget",
-            "Delete a memory entry. Use when: memory is incorrect/stale or explicitly requested for removal. Don't use when: impact is uncertain.",
-        ),
-    ];
-
-    if config.browser.enabled {
-        tool_descs.push((
-            "browser_open",
-            "Open approved HTTPS URLs in system browser (allowlist-only, no scraping)",
-        ));
-    }
-    if config.composio.enabled {
-        tool_descs.push((
-            "composio",
-            "Execute actions on 1000+ apps via Composio (Gmail, Notion, GitHub, Slack, etc.). Use action='list' to discover actions, 'list_accounts' to retrieve connected account IDs, 'execute' to run (optionally with connected_account_id), and 'connect' for OAuth.",
-        ));
-    }
-    if config.channels_config.discord.is_some() {
-        tool_descs.push((
-            "discord_history_fetch",
-            "Fetch Discord message history on demand for current conversation context or explicit channel_id. Useful for tasks like selecting a random participant from recent chat history.",
-        ));
-    }
-    tool_descs.push((
-        "schedule",
-        "Manage scheduled tasks (create/list/get/cancel/pause/resume). Supports recurring cron and one-shot delays.",
-    ));
-    tool_descs.push((
-        "pushover",
-        "Send a Pushover notification to your device. Requires PUSHOVER_TOKEN and PUSHOVER_USER_KEY in .env file.",
-    ));
-    if !config.agents.is_empty() {
-        tool_descs.push((
-            "delegate",
-            "Delegate a subtask to a specialized agent. Use when: a task benefits from a different model (e.g. fast summarization, deep reasoning, code generation). The sub-agent runs a single prompt and returns its response.",
-        ));
-        tool_descs.push((
-            "subagent_spawn",
-            "Spawn a delegate agent in the background. Returns immediately with a session_id. Use for long-running tasks that should not block.",
-        ));
-        tool_descs.push((
-            "subagent_list",
-            "List running and completed background sub-agents. Filter by status: running, completed, failed, killed, or all.",
-        ));
-        tool_descs.push((
-            "subagent_manage",
-            "Manage a background sub-agent: 'status' to check progress/output, 'kill' to cancel a running session.",
-        ));
-    }
+    let mut tool_descs = build_channel_tool_descriptions(&config);
 
     // Filter out tools excluded for non-CLI channels so the system prompt
     // does not advertise them for channel-driven runs.
@@ -5098,6 +4531,48 @@ mod tests {
             _temperature: f64,
         ) -> anyhow::Result<String> {
             tokio::time::sleep(self.delay).await;
+            Ok(format!("echo: {message}"))
+        }
+    }
+
+    struct ParallelProbeProvider {
+        delay: Duration,
+        active_calls: Arc<AtomicUsize>,
+        max_active_calls: Arc<AtomicUsize>,
+    }
+
+    impl ParallelProbeProvider {
+        fn new(delay: Duration) -> Self {
+            Self {
+                delay,
+                active_calls: Arc::new(AtomicUsize::new(0)),
+                max_active_calls: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+
+        fn max_active_calls(&self) -> usize {
+            self.max_active_calls.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Provider for ParallelProbeProvider {
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            let current = self.active_calls.fetch_add(1, Ordering::SeqCst) + 1;
+            let _ = self.max_active_calls.fetch_update(
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+                |previous| Some(previous.max(current)),
+            );
+
+            tokio::time::sleep(self.delay).await;
+            self.active_calls.fetch_sub(1, Ordering::SeqCst);
             Ok(format!("echo: {message}"))
         }
     }
@@ -8197,15 +7672,14 @@ BTC is currently around $65,000 based on latest tool output."#
         let temp = TempDir::new().unwrap();
         let channel_impl = Arc::new(RecordingChannel::default());
         let channel: Arc<dyn Channel> = channel_impl.clone();
+        let provider_impl = Arc::new(ParallelProbeProvider::new(Duration::from_millis(250)));
 
         let mut channels_by_name = HashMap::new();
         channels_by_name.insert(channel.name().to_string(), channel);
 
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
             channels_by_name: Arc::new(channels_by_name),
-            provider: Arc::new(SlowProvider {
-                delay: Duration::from_millis(250),
-            }),
+            provider: provider_impl.clone(),
             default_provider: Arc::new("test-provider".to_string()),
             memory: Arc::new(NoopMemory),
             tools_registry: Arc::new(vec![]),
@@ -8261,14 +7735,12 @@ BTC is currently around $65,000 based on latest tool output."#
         .unwrap();
         drop(tx);
 
-        let started = Instant::now();
         run_message_dispatch_loop(rx, runtime_ctx, 2).await;
-        let elapsed = started.elapsed();
 
         assert!(
-            elapsed < Duration::from_millis(700),
-            "expected parallel dispatch (<700ms), got {:?}",
-            elapsed
+            provider_impl.max_active_calls() >= 2,
+            "expected overlapping provider calls, observed max concurrency {}",
+            provider_impl.max_active_calls()
         );
 
         let sent_messages = channel_impl.sent_messages.lock().await;
@@ -9401,8 +8873,8 @@ BTC is currently around $65,000 based on latest tool output."#
 
     #[test]
     fn discord_delivery_instructions_include_codex_style_guidance() {
-        let instructions =
-            channel_delivery_instructions("discord").expect("discord instructions should exist");
+        let instructions = prompt::channel_delivery_instructions("discord")
+            .expect("discord instructions should exist");
         assert!(instructions.contains("When responding on Discord:"));
         assert!(instructions.contains("Match the TopClaw CLI / Codex-style voice"));
         assert!(instructions.contains("Use tool results silently"));

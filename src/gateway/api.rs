@@ -1464,7 +1464,19 @@ mod tests {
             tenant_id: Some("tenant-1".to_string()),
             allowed_numbers: vec!["*".to_string()],
         });
-        let mut email = crate::channels::email_channel::EmailConfig::default();
+        let mut email = crate::config::schema::EmailConfig {
+            imap_host: String::new(),
+            imap_port: 993,
+            imap_folder: "INBOX".to_string(),
+            smtp_host: String::new(),
+            smtp_port: 465,
+            smtp_tls: true,
+            username: String::new(),
+            password: String::new(),
+            from_address: String::new(),
+            idle_timeout_secs: 1740,
+            allowed_senders: Vec::new(),
+        };
         email.password = "email-real-password".to_string();
         cfg.channels_config.email = Some(email);
         cfg.channels_config.feishu = Some(crate::config::FeishuConfig {
@@ -1549,7 +1561,19 @@ mod tests {
             tenant_id: Some("tenant-1".to_string()),
             allowed_numbers: vec!["*".to_string()],
         });
-        let mut email = crate::channels::email_channel::EmailConfig::default();
+        let mut email = crate::config::schema::EmailConfig {
+            imap_host: String::new(),
+            imap_port: 993,
+            imap_folder: "INBOX".to_string(),
+            smtp_host: String::new(),
+            smtp_port: 465,
+            smtp_tls: true,
+            username: String::new(),
+            password: String::new(),
+            from_address: String::new(),
+            idle_timeout_secs: 1740,
+            allowed_senders: Vec::new(),
+        };
         email.password = "email-real-password".to_string();
         current.channels_config.email = Some(email);
         current.channels_config.feishu = Some(crate::config::FeishuConfig {

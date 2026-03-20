@@ -8,7 +8,9 @@ use crate::channels::MattermostChannel;
 use crate::channels::QQChannel;
 #[cfg(feature = "channel-slack")]
 use crate::channels::SlackChannel;
-use crate::channels::{Channel, SendMessage, TelegramChannel};
+#[cfg(feature = "channel-telegram")]
+use crate::channels::TelegramChannel;
+use crate::channels::{Channel, SendMessage};
 use crate::config::Config;
 use crate::cron::{
     due_jobs, next_run_for_schedule, record_last_run, record_run, remove_job, reschedule_after_run,

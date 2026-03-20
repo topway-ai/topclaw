@@ -7,18 +7,22 @@ use super::traits::Channel;
 use crate::config::Config;
 use std::sync::Arc;
 
+#[cfg(feature = "channel-email")]
+pub use super::EmailChannel;
 #[cfg(feature = "channel-irc")]
 pub use super::IrcChannel;
 #[cfg(feature = "channel-lark")]
 pub use super::LarkChannel;
 #[cfg(feature = "channel-matrix")]
 pub use super::MatrixChannel;
+#[cfg(feature = "channel-nostr")]
+pub use super::NostrChannel;
 #[cfg(feature = "whatsapp-web")]
 pub use super::WhatsAppWebChannel;
 pub use super::{
-    BridgeChannel, ClawdTalkChannel, DingTalkChannel, DiscordChannel, EmailChannel,
-    IMessageChannel, LinqChannel, MattermostChannel, NextcloudTalkChannel, NostrChannel, QQChannel,
-    SignalChannel, SlackChannel, TelegramChannel, WatiChannel, WhatsAppChannel,
+    BridgeChannel, ClawdTalkChannel, DingTalkChannel, DiscordChannel, IMessageChannel, LinqChannel,
+    MattermostChannel, NextcloudTalkChannel, QQChannel, SignalChannel, SlackChannel,
+    TelegramChannel, WatiChannel, WhatsAppChannel,
 };
 
 /// A configured channel with its display name.
@@ -253,11 +257,19 @@ pub fn collect_configured_channels(
         });
     }
 
+    #[cfg(feature = "channel-email")]
     if let Some(ref email_cfg) = config.channels_config.email {
         channels.push(ConfiguredChannel {
             display_name: "Email",
             channel: Arc::new(EmailChannel::new(email_cfg.clone())),
         });
+    }
+
+    #[cfg(not(feature = "channel-email"))]
+    if config.channels_config.email.is_some() {
+        tracing::warn!(
+            "Email channel is configured but this build was compiled without `channel-email`; skipping Email startup."
+        );
     }
 
     #[cfg(feature = "channel-irc")]
@@ -344,13 +356,28 @@ pub fn collect_configured_channels(
 /// Returns None on success, or Some(error_message) on failure.
 pub async fn append_nostr_channel_if_available(
     config: &Config,
-    channels: &mut Vec<ConfiguredChannel>,
+    _channels: &mut Vec<ConfiguredChannel>,
     startup_context: &str,
 ) -> Option<String> {
+    #[cfg(not(feature = "channel-nostr"))]
+    {
+        if config.channels_config.nostr.is_some() {
+            let reason = format!(
+                "Nostr channel is configured but this build was compiled without `channel-nostr`; skipping Nostr {startup_context}."
+            );
+            tracing::warn!("{reason}");
+            return Some(reason);
+        }
+        None
+    }
+
+    #[cfg(feature = "channel-nostr")]
     let ns = config.channels_config.nostr.as_ref()?;
+
+    #[cfg(feature = "channel-nostr")]
     match NostrChannel::new(&ns.private_key, ns.relays.clone(), &ns.allowed_pubkeys).await {
         Ok(channel) => {
-            channels.push(ConfiguredChannel {
+            _channels.push(ConfiguredChannel {
                 display_name: "Nostr",
                 channel: Arc::new(channel),
             });

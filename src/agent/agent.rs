@@ -12,13 +12,12 @@ use crate::agent::dispatcher::{
 use crate::agent::memory_loader::{DefaultMemoryLoader, MemoryLoader};
 use crate::agent::prompt::{PromptContext, SystemPromptBuilder};
 use crate::agent::research;
+use crate::agent::wiring;
 use crate::config::{Config, ResearchPhaseConfig};
-use crate::memory::{self, Memory, MemoryCategory};
-use crate::observability::{self, Observer, ObserverEvent};
+use crate::memory::{Memory, MemoryCategory};
+use crate::observability::{Observer, ObserverEvent};
 use crate::providers::{self, ChatMessage, ChatRequest, ConversationMessage, Provider};
-use crate::runtime;
-use crate::security::SecurityPolicy;
-use crate::tools::{self, Tool, ToolSpec};
+use crate::tools::{Tool, ToolSpec};
 use anyhow::Result;
 use std::collections::HashMap;
 use std::io::Write as IoWrite;
@@ -273,70 +272,6 @@ impl Agent {
         self.history.clear();
     }
 
-    fn build_observer_from_config(config: &Config) -> Arc<dyn Observer> {
-        Arc::from(observability::create_observer(&config.observability))
-    }
-
-    fn build_runtime_from_config(config: &Config) -> Result<Arc<dyn runtime::RuntimeAdapter>> {
-        Ok(Arc::from(runtime::create_runtime(&config.runtime)?))
-    }
-
-    fn build_security_policy_from_config(config: &Config) -> Result<Arc<SecurityPolicy>> {
-        Ok(Arc::new(SecurityPolicy::from_runtime_config(config)?))
-    }
-
-    fn build_memory_from_config(config: &Config) -> Result<Arc<dyn Memory>> {
-        memory::prepare_memory_workspace(
-            &config.memory,
-            Some(&config.storage.provider.config),
-            &config.workspace_dir,
-        )?;
-        Ok(Arc::from(
-            memory::create_memory_backend_with_storage_and_routes(
-                &config.memory,
-                &config.embedding_routes,
-                Some(&config.storage.provider.config),
-                &config.workspace_dir,
-                config.api_key.as_deref(),
-            )?,
-        ))
-    }
-
-    fn composio_context_from_config(config: &Config) -> (Option<&str>, Option<&str>) {
-        if config.composio.enabled {
-            (
-                config.composio.api_key.as_deref(),
-                Some(config.composio.entity_id.as_str()),
-            )
-        } else {
-            (None, None)
-        }
-    }
-
-    fn build_tools_from_config(
-        config: &Config,
-        security: &Arc<SecurityPolicy>,
-        runtime: Arc<dyn runtime::RuntimeAdapter>,
-        memory: Arc<dyn Memory>,
-    ) -> Vec<Box<dyn Tool>> {
-        let (composio_key, composio_entity_id) = Self::composio_context_from_config(config);
-        tools::all_tools_with_runtime(
-            Arc::new(config.clone()),
-            security,
-            runtime,
-            memory,
-            composio_key,
-            composio_entity_id,
-            &config.browser,
-            &config.http_request,
-            &config.web_fetch,
-            &config.workspace_dir,
-            &config.agents,
-            config.api_key.as_deref(),
-            config,
-        )
-    }
-
     fn resolve_model_name_from_config(config: &Config) -> String {
         config
             .default_model
@@ -347,13 +282,14 @@ impl Agent {
 
     fn build_provider_from_config(config: &Config, model_name: &str) -> Result<Box<dyn Provider>> {
         let provider_name = config.default_provider.as_deref().unwrap_or("openrouter");
-        providers::create_routed_provider(
+        providers::create_routed_provider_with_options(
             provider_name,
             config.api_key.as_deref(),
             config.api_url.as_deref(),
             &config.reliability,
             &config.model_routes,
             model_name,
+            &providers::ProviderRuntimeOptions::from_config(config),
         )
     }
 
@@ -381,32 +317,25 @@ impl Agent {
         (route_model_by_hint, available_hints)
     }
 
-    fn load_skills_from_config(config: &Config) -> Vec<crate::skills::Skill> {
-        crate::skills::load_skills_with_config(&config.workspace_dir, config)
-    }
-
     /// Construct a fully wired agent from the standard TopClaw config.
     ///
     /// This performs the same high-level dependency wiring used by the CLI:
     /// runtime creation, security policy setup, memory backend selection,
     /// provider routing, tool registration, and skill loading.
     pub fn from_config(config: &Config) -> Result<Self> {
-        let observer = Self::build_observer_from_config(config);
-        let runtime = Self::build_runtime_from_config(config)?;
-        let security = Self::build_security_policy_from_config(config)?;
-        let memory = Self::build_memory_from_config(config)?;
-        let tools = Self::build_tools_from_config(config, &security, runtime, memory.clone());
+        let observer = wiring::build_observer(config);
+        let execution = wiring::build_execution_support(config, &config.embedding_routes)?;
         let model_name = Self::resolve_model_name_from_config(config);
         let provider = Self::build_provider_from_config(config, &model_name)?;
         let tool_dispatcher = Self::build_tool_dispatcher_from_config(config, provider.as_ref());
         let (route_model_by_hint, available_hints) =
             Self::build_model_route_index_from_config(config);
-        let skills = Self::load_skills_from_config(config);
+        let skills = wiring::load_skills(config);
 
         Agent::builder()
             .provider(provider)
-            .tools(tools)
-            .memory(memory)
+            .tools(execution.tools)
+            .memory(execution.memory)
             .observer(observer)
             .tool_dispatcher(tool_dispatcher)
             .memory_loader(Box::new(DefaultMemoryLoader::new(

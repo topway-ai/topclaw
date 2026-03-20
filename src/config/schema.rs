@@ -60,10 +60,16 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 #[path = "schema_runtime_dirs.rs"]
 mod runtime_dirs;
+#[path = "schema_channels.rs"]
+mod schema_channels;
+#[path = "schema_memory.rs"]
+mod schema_memory;
 #[path = "schema_provider_profiles.rs"]
 mod schema_provider_profiles;
 #[path = "schema_secrets.rs"]
 mod schema_secrets;
+#[path = "schema_security.rs"]
+mod schema_security;
 #[path = "schema_telegram_allowed_users.rs"]
 mod schema_telegram_allowed_users;
 #[cfg(unix)]
@@ -71,6 +77,30 @@ use tokio::fs::File;
 use tokio::fs::{self, OpenOptions};
 use tokio::io::AsyncWriteExt;
 
+use self::schema_channels::{
+    clone_group_reply_allowed_sender_ids, default_channel_message_timeout_secs,
+    default_draft_update_interval_ms, default_irc_port, default_telegram_stream_mode,
+    default_wati_api_url, resolve_group_reply_mode,
+};
+pub use self::schema_channels::{
+    default_idle_timeout, default_imap_folder, default_imap_port,
+    default_lark_draft_update_interval_ms, default_lark_max_draft_edits, default_nostr_relays,
+    default_smtp_port,
+};
+use self::schema_memory::{
+    default_archive_after_days, default_cache_size, default_chunk_size,
+    default_conversation_retention_days, default_embedding_dims, default_embedding_model,
+    default_embedding_provider, default_hygiene_enabled, default_keyword_weight,
+    default_min_relevance_score, default_purge_after_days, default_qdrant_collection,
+    default_response_cache_max, default_response_cache_ttl, default_vector_weight,
+};
+use self::schema_security::{
+    default_semantic_guard_collection, default_semantic_guard_threshold,
+    default_syscall_anomaly_alert_cooldown_secs, default_syscall_anomaly_baseline_syscalls,
+    default_syscall_anomaly_log_path, default_syscall_anomaly_max_alerts_per_minute,
+    default_syscall_anomaly_max_denied_events_per_minute,
+    default_syscall_anomaly_max_total_events_per_minute,
+};
 use runtime_dirs::{default_config_and_workspace_dirs, resolve_runtime_config_dirs};
 pub(crate) use runtime_dirs::{
     persist_active_workspace_config_dir, resolve_config_dir_for_workspace,
@@ -420,20 +450,6 @@ pub struct QdrantConfig {
     pub api_key: Option<String>,
 }
 
-fn default_qdrant_collection() -> String {
-    "topclaw_memories".into()
-}
-
-impl Default for QdrantConfig {
-    fn default() -> Self {
-        Self {
-            url: None,
-            collection: default_qdrant_collection(),
-            api_key: None,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct MemoryConfig {
@@ -518,78 +534,6 @@ pub struct MemoryConfig {
     pub qdrant: QdrantConfig,
 }
 
-fn default_embedding_provider() -> String {
-    "none".into()
-}
-fn default_hygiene_enabled() -> bool {
-    true
-}
-fn default_archive_after_days() -> u32 {
-    7
-}
-fn default_purge_after_days() -> u32 {
-    30
-}
-fn default_conversation_retention_days() -> u32 {
-    30
-}
-fn default_embedding_model() -> String {
-    "text-embedding-3-small".into()
-}
-fn default_embedding_dims() -> usize {
-    1536
-}
-fn default_vector_weight() -> f64 {
-    0.7
-}
-fn default_keyword_weight() -> f64 {
-    0.3
-}
-fn default_min_relevance_score() -> f64 {
-    0.4
-}
-fn default_cache_size() -> usize {
-    10_000
-}
-fn default_chunk_size() -> usize {
-    512
-}
-fn default_response_cache_ttl() -> u32 {
-    60
-}
-fn default_response_cache_max() -> usize {
-    5_000
-}
-
-impl Default for MemoryConfig {
-    fn default() -> Self {
-        Self {
-            backend: "sqlite".into(),
-            auto_save: true,
-            hygiene_enabled: default_hygiene_enabled(),
-            archive_after_days: default_archive_after_days(),
-            purge_after_days: default_purge_after_days(),
-            conversation_retention_days: default_conversation_retention_days(),
-            embedding_provider: default_embedding_provider(),
-            embedding_model: default_embedding_model(),
-            embedding_dimensions: default_embedding_dims(),
-            vector_weight: default_vector_weight(),
-            keyword_weight: default_keyword_weight(),
-            min_relevance_score: default_min_relevance_score(),
-            embedding_cache_size: default_cache_size(),
-            chunk_max_tokens: default_chunk_size(),
-            response_cache_enabled: false,
-            response_cache_ttl_minutes: default_response_cache_ttl(),
-            response_cache_max_entries: default_response_cache_max(),
-            snapshot_enabled: false,
-            snapshot_on_hygiene: false,
-            auto_hydrate: true,
-            sqlite_open_timeout_secs: None,
-            qdrant: QdrantConfig::default(),
-        }
-    }
-}
-
 // ── Hooks ────────────────────────────────────────────────────────
 
 // ── Autonomy / Security ──────────────────────────────────────────
@@ -621,23 +565,6 @@ impl Default for MemoryConfig {
 // ── Heartbeat ────────────────────────────────────────────────────
 
 // ── Channels ─────────────────────────────────────────────────────
-
-struct ConfigWrapper<T: ChannelConfig>(std::marker::PhantomData<T>);
-
-impl<T: ChannelConfig> ConfigWrapper<T> {
-    fn new(_: Option<&T>) -> Self {
-        Self(std::marker::PhantomData)
-    }
-}
-
-impl<T: ChannelConfig> crate::config::traits::ConfigHandle for ConfigWrapper<T> {
-    fn name(&self) -> &'static str {
-        T::name()
-    }
-    fn desc(&self) -> &'static str {
-        T::desc()
-    }
-}
 
 /// Top-level channel configurations (`[channels_config]` section).
 ///
@@ -699,140 +626,6 @@ pub struct ChannelsConfig {
     pub message_timeout_secs: u64,
 }
 
-impl ChannelsConfig {
-    /// get channels' metadata and `.is_some()`, except webhook
-    #[rustfmt::skip]
-    pub fn channels_except_webhook(&self) -> Vec<(Box<dyn super::traits::ConfigHandle>, bool)> {
-        vec![
-            (
-                Box::new(ConfigWrapper::new(self.bridge.as_ref())),
-                self.bridge.is_some(),
-            ),
-            (
-                Box::new(ConfigWrapper::new(self.telegram.as_ref())),
-                self.telegram.is_some(),
-            ),
-            (
-                Box::new(ConfigWrapper::new(self.discord.as_ref())),
-                self.discord.is_some(),
-            ),
-            (
-                Box::new(ConfigWrapper::new(self.slack.as_ref())),
-                self.slack.is_some(),
-            ),
-            (
-                Box::new(ConfigWrapper::new(self.mattermost.as_ref())),
-                self.mattermost.is_some(),
-            ),
-            (
-                Box::new(ConfigWrapper::new(self.imessage.as_ref())),
-                self.imessage.is_some(),
-            ),
-            (
-                Box::new(ConfigWrapper::new(self.matrix.as_ref())),
-                self.matrix.is_some(),
-            ),
-            (
-                Box::new(ConfigWrapper::new(self.signal.as_ref())),
-                self.signal.is_some(),
-            ),
-            (
-                Box::new(ConfigWrapper::new(self.whatsapp.as_ref())),
-                self.whatsapp.is_some(),
-            ),
-            (
-                Box::new(ConfigWrapper::new(self.linq.as_ref())),
-                self.linq.is_some(),
-            ),
-            (
-                Box::new(ConfigWrapper::new(self.wati.as_ref())),
-                self.wati.is_some(),
-            ),
-            (
-                Box::new(ConfigWrapper::new(self.nextcloud_talk.as_ref())),
-                self.nextcloud_talk.is_some(),
-            ),
-            (
-                Box::new(ConfigWrapper::new(self.email.as_ref())),
-                self.email.is_some(),
-            ),
-            (
-                Box::new(ConfigWrapper::new(self.irc.as_ref())),
-                self.irc.is_some()
-            ),
-            (
-                Box::new(ConfigWrapper::new(self.lark.as_ref())),
-                self.lark.is_some(),
-            ),
-            (
-                Box::new(ConfigWrapper::new(self.feishu.as_ref())),
-                self.feishu.is_some(),
-            ),
-            (
-                Box::new(ConfigWrapper::new(self.dingtalk.as_ref())),
-                self.dingtalk.is_some(),
-            ),
-            (
-                Box::new(ConfigWrapper::new(self.qq.as_ref())),
-                self.qq
-                    .as_ref()
-                    .is_some_and(|qq| qq.receive_mode == QQReceiveMode::Websocket)
-            ),
-            (
-                Box::new(ConfigWrapper::new(self.nostr.as_ref())),
-                self.nostr.is_some(),
-            ),
-            (
-                Box::new(ConfigWrapper::new(self.clawdtalk.as_ref())),
-                self.clawdtalk.is_some(),
-            ),
-        ]
-    }
-
-    pub fn channels(&self) -> Vec<(Box<dyn super::traits::ConfigHandle>, bool)> {
-        let mut ret = self.channels_except_webhook();
-        ret.push((
-            Box::new(ConfigWrapper::new(self.webhook.as_ref())),
-            self.webhook.is_some(),
-        ));
-        ret
-    }
-}
-
-fn default_channel_message_timeout_secs() -> u64 {
-    300
-}
-
-impl Default for ChannelsConfig {
-    fn default() -> Self {
-        Self {
-            cli: true,
-            bridge: None,
-            telegram: None,
-            discord: None,
-            slack: None,
-            mattermost: None,
-            webhook: None,
-            imessage: None,
-            matrix: None,
-            signal: None,
-            whatsapp: None,
-            linq: None,
-            wati: None,
-            nextcloud_talk: None,
-            email: None,
-            irc: None,
-            lark: None,
-            feishu: None,
-            dingtalk: None,
-            qq: None,
-            nostr: None,
-            clawdtalk: None,
-            message_timeout_secs: default_channel_message_timeout_secs(),
-        }
-    }
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // SECTION 2: Channel Configs
 // ═══════════════════════════════════════════════════════════════════════════
@@ -846,14 +639,6 @@ pub enum StreamMode {
     Off,
     /// Update a draft message with every flush interval.
     Partial,
-}
-
-fn default_draft_update_interval_ms() -> u64 {
-    500
-}
-
-fn default_telegram_stream_mode() -> StreamMode {
-    StreamMode::Partial
 }
 
 /// Group-chat reply trigger mode for channels that support mention gating.
@@ -885,22 +670,6 @@ pub struct GroupReplyConfig {
     /// channel-level inbound allowlist (`allowed_users` / equivalents).
     #[serde(default)]
     pub allowed_sender_ids: Vec<String>,
-}
-
-fn resolve_group_reply_mode(
-    group_reply: Option<&GroupReplyConfig>,
-    default_mode: GroupReplyMode,
-) -> GroupReplyMode {
-    if let Some(mode) = group_reply.and_then(|cfg| cfg.mode) {
-        return mode;
-    }
-    default_mode
-}
-
-fn clone_group_reply_allowed_sender_ids(group_reply: Option<&GroupReplyConfig>) -> Vec<String> {
-    group_reply
-        .map(|cfg| cfg.allowed_sender_ids.clone())
-        .unwrap_or_default()
 }
 
 /// Telegram bot channel configuration.
@@ -1255,10 +1024,6 @@ pub struct WatiConfig {
     pub allowed_numbers: Vec<String>,
 }
 
-fn default_wati_api_url() -> String {
-    "https://live-mt-server.wati.io".to_string()
-}
-
 impl ChannelConfig for WatiConfig {
     fn name() -> &'static str {
         "WATI"
@@ -1363,10 +1128,6 @@ impl ChannelConfig for IrcConfig {
     }
 }
 
-fn default_irc_port() -> u16 {
-    6697
-}
-
 /// How TopClaw receives events from Feishu / Lark.
 ///
 /// - `websocket` (default) — persistent WSS long-connection; no public URL required.
@@ -1377,14 +1138,6 @@ pub enum LarkReceiveMode {
     #[default]
     Websocket,
     Webhook,
-}
-
-pub fn default_lark_draft_update_interval_ms() -> u64 {
-    3000
-}
-
-pub fn default_lark_max_draft_edits() -> u32 {
-    20
 }
 
 /// Lark configuration for messaging integration.
@@ -1547,31 +1300,6 @@ pub struct SecurityConfig {
     pub semantic_guard_threshold: f64,
 }
 
-impl Default for SecurityConfig {
-    fn default() -> Self {
-        Self {
-            sandbox: SandboxConfig::default(),
-            resources: ResourceLimitsConfig::default(),
-            audit: AuditConfig::default(),
-            otp: OtpConfig::default(),
-            estop: EstopConfig::default(),
-            syscall_anomaly: SyscallAnomalyConfig::default(),
-            canary_tokens: default_true(),
-            semantic_guard: false,
-            semantic_guard_collection: default_semantic_guard_collection(),
-            semantic_guard_threshold: default_semantic_guard_threshold(),
-        }
-    }
-}
-
-fn default_semantic_guard_collection() -> String {
-    "semantic_guard".to_string()
-}
-
-fn default_semantic_guard_threshold() -> f64 {
-    0.82
-}
-
 /// Syscall anomaly detection configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SyscallAnomalyConfig {
@@ -1610,104 +1338,6 @@ pub struct SyscallAnomalyConfig {
     /// Expected syscall baseline. Unknown syscall names trigger anomaly when enabled.
     #[serde(default = "default_syscall_anomaly_baseline_syscalls")]
     pub baseline_syscalls: Vec<String>,
-}
-
-fn default_syscall_anomaly_max_denied_events_per_minute() -> u32 {
-    5
-}
-
-fn default_syscall_anomaly_max_total_events_per_minute() -> u32 {
-    120
-}
-
-fn default_syscall_anomaly_max_alerts_per_minute() -> u32 {
-    30
-}
-
-fn default_syscall_anomaly_alert_cooldown_secs() -> u64 {
-    20
-}
-
-fn default_syscall_anomaly_log_path() -> String {
-    "syscall-anomalies.log".to_string()
-}
-
-fn default_syscall_anomaly_baseline_syscalls() -> Vec<String> {
-    vec![
-        "read".to_string(),
-        "write".to_string(),
-        "open".to_string(),
-        "openat".to_string(),
-        "close".to_string(),
-        "stat".to_string(),
-        "fstat".to_string(),
-        "newfstatat".to_string(),
-        "lseek".to_string(),
-        "mmap".to_string(),
-        "mprotect".to_string(),
-        "munmap".to_string(),
-        "brk".to_string(),
-        "rt_sigaction".to_string(),
-        "rt_sigprocmask".to_string(),
-        "ioctl".to_string(),
-        "fcntl".to_string(),
-        "access".to_string(),
-        "pipe2".to_string(),
-        "dup".to_string(),
-        "dup2".to_string(),
-        "dup3".to_string(),
-        "epoll_create1".to_string(),
-        "epoll_ctl".to_string(),
-        "epoll_wait".to_string(),
-        "poll".to_string(),
-        "ppoll".to_string(),
-        "select".to_string(),
-        "futex".to_string(),
-        "clock_gettime".to_string(),
-        "nanosleep".to_string(),
-        "getpid".to_string(),
-        "gettid".to_string(),
-        "set_tid_address".to_string(),
-        "set_robust_list".to_string(),
-        "clone".to_string(),
-        "clone3".to_string(),
-        "fork".to_string(),
-        "execve".to_string(),
-        "wait4".to_string(),
-        "exit".to_string(),
-        "exit_group".to_string(),
-        "socket".to_string(),
-        "connect".to_string(),
-        "accept".to_string(),
-        "accept4".to_string(),
-        "listen".to_string(),
-        "sendto".to_string(),
-        "recvfrom".to_string(),
-        "sendmsg".to_string(),
-        "recvmsg".to_string(),
-        "getsockname".to_string(),
-        "getpeername".to_string(),
-        "setsockopt".to_string(),
-        "getsockopt".to_string(),
-        "getrandom".to_string(),
-        "statx".to_string(),
-    ]
-}
-
-impl Default for SyscallAnomalyConfig {
-    fn default() -> Self {
-        Self {
-            enabled: default_true(),
-            strict_mode: false,
-            alert_on_unknown_syscall: default_true(),
-            max_denied_events_per_minute: default_syscall_anomaly_max_denied_events_per_minute(),
-            max_total_events_per_minute: default_syscall_anomaly_max_total_events_per_minute(),
-            max_alerts_per_minute: default_syscall_anomaly_max_alerts_per_minute(),
-            alert_cooldown_secs: default_syscall_anomaly_alert_cooldown_secs(),
-            log_path: default_syscall_anomaly_log_path(),
-            baseline_syscalls: default_syscall_anomaly_baseline_syscalls(),
-        }
-    }
 }
 
 /// DingTalk configuration for Stream Mode messaging
@@ -1786,15 +1416,6 @@ impl ChannelConfig for NostrConfig {
     }
 }
 
-pub fn default_nostr_relays() -> Vec<String> {
-    vec![
-        "wss://relay.damus.io".to_string(),
-        "wss://nos.lol".to_string(),
-        "wss://relay.primal.net".to_string(),
-        "wss://relay.snort.social".to_string(),
-    ]
-}
-
 /// Email channel configuration.
 /// Note: The email channel implementation requires the `channel-email` feature.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -1836,22 +1457,6 @@ impl crate::config::traits::ChannelConfig for EmailConfig {
     fn desc() -> &'static str {
         "Email over IMAP/SMTP"
     }
-}
-
-pub fn default_imap_port() -> u16 {
-    993
-}
-
-pub fn default_imap_folder() -> String {
-    "INBOX".to_string()
-}
-
-pub fn default_smtp_port() -> u16 {
-    465
-}
-
-pub fn default_idle_timeout() -> u64 {
-    1740
 }
 
 /// ClawdTalk (Telnyx) voice channel configuration.

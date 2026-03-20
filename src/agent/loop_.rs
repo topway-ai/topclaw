@@ -1,16 +1,17 @@
+use crate::agent::wiring;
 use crate::approval::{ApprovalManager, ApprovalRequest, ApprovalResponse};
 use crate::config::Config;
-use crate::memory::{self, Memory, MemoryCategory};
+use crate::memory::MemoryCategory;
 use crate::multimodal;
-use crate::observability::{self, runtime_trace, Observer, ObserverEvent};
+use crate::observability::{runtime_trace, Observer, ObserverEvent};
 #[allow(unused_imports)]
 use crate::providers::ChatRequest;
 #[cfg(test)]
 use crate::providers::ToolCall;
 use crate::providers::{self, ChatMessage, Provider, ProviderCapabilityError};
-use crate::runtime;
-use crate::security::SecurityPolicy;
-use crate::tools::{self, Tool};
+#[cfg(test)]
+use crate::tools;
+use crate::tools::Tool;
 use crate::util::truncate_with_ellipsis;
 use anyhow::Result;
 use regex::{Regex, RegexSet};
@@ -18,7 +19,7 @@ use rustyline::error::ReadlineError;
 use std::collections::{BTreeSet, HashSet};
 use std::fmt::Write;
 use std::io::Write as _;
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -1421,25 +1422,12 @@ pub async fn run(
     interactive: bool,
 ) -> Result<String> {
     // ── Wire up agnostic subsystems ──────────────────────────────
-    let base_observer = observability::create_observer(&config.observability);
-    let observer: Arc<dyn Observer> = Arc::from(base_observer);
-    let runtime: Arc<dyn runtime::RuntimeAdapter> =
-        Arc::from(runtime::create_runtime(&config.runtime)?);
-    let security = Arc::new(SecurityPolicy::from_runtime_config(&config)?);
-
-    // ── Memory (the brain) ────────────────────────────────────────
-    memory::prepare_memory_workspace(
-        &config.memory,
-        Some(&config.storage.provider.config),
-        &config.workspace_dir,
-    )?;
-    let mem: Arc<dyn Memory> = Arc::from(memory::create_memory_backend_with_storage_and_routes(
-        &config.memory,
-        &[],
-        Some(&config.storage.provider.config),
-        &config.workspace_dir,
-        config.api_key.as_deref(),
-    )?);
+    let observer = wiring::build_observer(&config);
+    let wiring::ExecutionSupport {
+        memory: mem,
+        tools: mut tools_registry,
+        ..
+    } = wiring::build_execution_support(&config, &[])?;
     tracing::info!(backend = mem.name(), "Memory initialized");
 
     // ── Peripherals (merge peripheral tools into registry) ─
@@ -1451,29 +1439,6 @@ pub async fn run(
     }
 
     // ── Tools (including memory tools and peripherals) ────────────
-    let (composio_key, composio_entity_id) = if config.composio.enabled {
-        (
-            config.composio.api_key.as_deref(),
-            Some(config.composio.entity_id.as_str()),
-        )
-    } else {
-        (None, None)
-    };
-    let mut tools_registry = tools::all_tools_with_runtime(
-        Arc::new(config.clone()),
-        &security,
-        runtime,
-        mem.clone(),
-        composio_key,
-        composio_entity_id,
-        &config.browser,
-        &config.http_request,
-        &config.web_fetch,
-        &config.workspace_dir,
-        &config.agents,
-        config.api_key.as_deref(),
-        &config,
-    );
 
     let peripheral_tools: Vec<Box<dyn Tool>> =
         crate::peripherals::create_peripheral_tools(&config.peripherals).await?;
@@ -1493,17 +1458,7 @@ pub async fn run(
         .or(config.default_model.as_deref())
         .unwrap_or("anthropic/claude-sonnet-4");
 
-    let provider_runtime_options = providers::ProviderRuntimeOptions {
-        auth_profile_override: None,
-        provider_api_url: config.api_url.clone(),
-        topclaw_dir: config.config_path.parent().map(std::path::PathBuf::from),
-        secrets_encrypt: config.secrets.encrypt,
-        reasoning_enabled: config.runtime.reasoning_enabled,
-        reasoning_level: config.effective_provider_reasoning_level(),
-        custom_provider_api_mode: config.provider_api.map(|mode| mode.as_compatible_mode()),
-        max_tokens_override: None,
-        model_support_vision: config.model_support_vision,
-    };
+    let provider_runtime_options = providers::ProviderRuntimeOptions::from_config(&config);
 
     let provider: Box<dyn Provider> = providers::create_routed_provider_with_options(
         provider_name,
@@ -1541,7 +1496,7 @@ pub async fn run(
         .collect();
 
     // ── Build system prompt from workspace MD files ──
-    let skills = crate::skills::load_skills_with_config(&config.workspace_dir, &config);
+    let skills = wiring::load_skills(&config);
     let mut tool_descs: Vec<(&str, &str)> = vec![
         (
             "shell",
@@ -1928,47 +1883,12 @@ pub async fn run(
 /// Process a single message through the full agent (with tools, peripherals, memory).
 /// Used by channels (Telegram, Discord, etc.) to enable hardware and tool use.
 pub async fn process_message(config: Config, message: &str) -> Result<String> {
-    let observer: Arc<dyn Observer> =
-        Arc::from(observability::create_observer(&config.observability));
-    let runtime: Arc<dyn runtime::RuntimeAdapter> =
-        Arc::from(runtime::create_runtime(&config.runtime)?);
-    let security = Arc::new(SecurityPolicy::from_runtime_config(&config)?);
-    memory::prepare_memory_workspace(
-        &config.memory,
-        Some(&config.storage.provider.config),
-        &config.workspace_dir,
-    )?;
-    let mem: Arc<dyn Memory> = Arc::from(memory::create_memory_backend_with_storage_and_routes(
-        &config.memory,
-        &[],
-        Some(&config.storage.provider.config),
-        &config.workspace_dir,
-        config.api_key.as_deref(),
-    )?);
-
-    let (composio_key, composio_entity_id) = if config.composio.enabled {
-        (
-            config.composio.api_key.as_deref(),
-            Some(config.composio.entity_id.as_str()),
-        )
-    } else {
-        (None, None)
-    };
-    let mut tools_registry = tools::all_tools_with_runtime(
-        Arc::new(config.clone()),
-        &security,
-        runtime,
-        mem.clone(),
-        composio_key,
-        composio_entity_id,
-        &config.browser,
-        &config.http_request,
-        &config.web_fetch,
-        &config.workspace_dir,
-        &config.agents,
-        config.api_key.as_deref(),
-        &config,
-    );
+    let observer = wiring::build_observer(&config);
+    let wiring::ExecutionSupport {
+        memory: mem,
+        tools: mut tools_registry,
+        ..
+    } = wiring::build_execution_support(&config, &[])?;
     let peripheral_tools: Vec<Box<dyn Tool>> =
         crate::peripherals::create_peripheral_tools(&config.peripherals).await?;
     tools_registry.extend(peripheral_tools);
@@ -1978,17 +1898,7 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         .default_model
         .clone()
         .unwrap_or_else(|| "anthropic/claude-sonnet-4-20250514".into());
-    let provider_runtime_options = providers::ProviderRuntimeOptions {
-        auth_profile_override: None,
-        provider_api_url: config.api_url.clone(),
-        topclaw_dir: config.config_path.parent().map(std::path::PathBuf::from),
-        secrets_encrypt: config.secrets.encrypt,
-        reasoning_enabled: config.runtime.reasoning_enabled,
-        reasoning_level: config.effective_provider_reasoning_level(),
-        custom_provider_api_mode: config.provider_api.map(|mode| mode.as_compatible_mode()),
-        max_tokens_override: None,
-        model_support_vision: config.model_support_vision,
-    };
+    let provider_runtime_options = providers::ProviderRuntimeOptions::from_config(&config);
     let provider: Box<dyn Provider> = providers::create_routed_provider_with_options(
         provider_name,
         config.api_key.as_deref(),
@@ -2014,7 +1924,7 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         .map(|b| b.board.clone())
         .collect();
 
-    let skills = crate::skills::load_skills_with_config(&config.workspace_dir, &config);
+    let skills = wiring::load_skills(&config);
     let mut tool_descs: Vec<(&str, &str)> = vec![
         ("shell", "Execute terminal commands."),
         ("file_read", "Read file contents."),
