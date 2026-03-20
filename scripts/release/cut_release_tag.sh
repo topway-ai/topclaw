@@ -77,7 +77,17 @@ echo "Created annotated tag: $TAG"
 if [[ "$PUSH_TAG" == "true" ]]; then
   git push origin "$TAG"
   echo "Pushed tag to origin: $TAG"
-  echo "GitHub release pipeline will run via .github/workflows/pub-release.yml"
+  if command -v gh >/dev/null 2>&1; then
+    python3 scripts/release/ensure_pub_release.py \
+      --origin-url "$(git remote get-url origin)" \
+      --release-tag "$TAG" \
+      --head-sha "$HEAD_SHA" \
+      --wait-seconds "${TOPCLAW_PUB_RELEASE_WAIT_SECONDS:-30}" \
+      --poll-interval-seconds "${TOPCLAW_PUB_RELEASE_POLL_INTERVAL_SECONDS:-5}"
+  else
+    echo "gh CLI not found; monitor .github/workflows/pub-release.yml manually."
+    echo "If no push-triggered Pub Release run appears for $TAG, dispatch publish mode with release_tag=$TAG."
+  fi
 else
   echo "Next step: git push origin $TAG"
 fi
