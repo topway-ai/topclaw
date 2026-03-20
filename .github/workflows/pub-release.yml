@@ -44,7 +44,7 @@ env:
 jobs:
     prepare:
         name: Prepare Release Context
-        if: github.event_name == 'push' && github.ref_type == 'tag'
+        if: (github.event_name == 'push' && github.ref_type == 'tag') || github.event_name == 'workflow_dispatch'
         runs-on: ubuntu-22.04
         outputs:
             release_ref: ${{ steps.vars.outputs.release_ref }}
