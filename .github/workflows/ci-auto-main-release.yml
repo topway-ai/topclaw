@@ -42,75 +42,44 @@ jobs:
 
             - name: Enforce release automation actor policy
               if: steps.skip.outputs.skip != 'true'
+              id: plan
               shell: bash
               run: |
                   set -euo pipefail
-                  actor="${GITHUB_ACTOR}"
-                  actor_lc="$(echo "${actor}" | tr '[:upper:]' '[:lower:]')"
-                  allowed_actors_lc="jackfly8"
-                  if [[ ",${allowed_actors_lc}," != *",${actor_lc},"* ]]; then
-                    echo "::error::Only maintainer actors (${allowed_actors_lc}) can trigger main release tagging. Actor: ${actor}"
-                    exit 1
-                  fi
+                  mkdir -p artifacts
+                  python3 scripts/ci/auto_main_release_plan.py \
+                    --repo-root . \
+                    --actor "${GITHUB_ACTOR}" \
+                    --repository-owner "${GITHUB_REPOSITORY_OWNER}" \
+                    --authorized-actors "${{ vars.RELEASE_AUTHORIZED_ACTORS || '' }}" \
+                    --output-json artifacts/auto-main-release-plan.json \
+                    --output-md artifacts/auto-main-release-plan.md \
+                    --fail-on-violation
 
-            - name: Resolve current and next version
-              if: steps.skip.outputs.skip != 'true'
-              id: version
-              shell: bash
-              run: |
-                  set -euo pipefail
+                  python3 - <<'PY'
+                  import json
+                  import os
+                  from pathlib import Path
 
-                  current_version="$(awk '
-                    BEGIN { in_pkg=0 }
-                    /^\[package\]/ { in_pkg=1; next }
-                    in_pkg && /^\[/ { in_pkg=0 }
-                    in_pkg && $1 == "version" {
-                      value=$3
-                      gsub(/"/, "", value)
-                      print value
-                      exit
-                    }
-                  ' Cargo.toml)"
+                  report = json.loads(Path("artifacts/auto-main-release-plan.json").read_text(encoding="utf-8"))
+                  with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+                      fh.write(f"current={report['current_version']}\n")
+                      fh.write(f"next={report['next_version']}\n")
+                      fh.write(f"tag={report['release_tag']}\n")
+                      fh.write(f"tag_exists={str(report['tag_exists_on_origin']).lower()}\n")
+                      fh.write(f"should_create_tag={str(report['should_create_tag']).lower()}\n")
+                      fh.write(f"should_bump_version={str(report['should_bump_version']).lower()}\n")
+                      fh.write(f"mode={report['mode']}\n")
+                  PY
 
-                  if [[ -z "${current_version}" ]]; then
-                    echo "::error::Failed to resolve current package version from Cargo.toml"
-                    exit 1
-                  fi
-                  if [[ ! "${current_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                    echo "::error::Cargo.toml version must be strict semver X.Y.Z (found: ${current_version})"
-                    exit 1
-                  fi
-
-                  IFS='.' read -r major minor patch <<< "${current_version}"
-                  next_patch="$((patch + 1))"
-                  next_version="${major}.${minor}.${next_patch}"
-
-                  {
-                    echo "current=${current_version}"
-                    echo "next=${next_version}"
-                    echo "tag=v${current_version}"
-                  } >> "$GITHUB_OUTPUT"
-
-            - name: Verify tag does not already exist
-              id: tag_check
-              if: steps.skip.outputs.skip != 'true'
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  tag="${{ steps.version.outputs.tag }}"
-                  if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
-                    echo "::warning::Release tag ${tag} already exists on origin; skipping auto-tag/bump for this push."
-                    echo "exists=true" >> "$GITHUB_OUTPUT"
-                  else
-                    echo "exists=false" >> "$GITHUB_OUTPUT"
-                  fi
+                  cat artifacts/auto-main-release-plan.md >> "$GITHUB_STEP_SUMMARY"
 
             - name: Create and push annotated release tag
-              if: steps.skip.outputs.skip != 'true' && steps.tag_check.outputs.exists != 'true'
+              if: steps.skip.outputs.skip != 'true' && steps.plan.outputs.should_create_tag == 'true'
               shell: bash
               run: |
                   set -euo pipefail
-                  tag="${{ steps.version.outputs.tag }}"
+                  tag="${{ steps.plan.outputs.tag }}"
 
                   git config user.name "github-actions[bot]"
                   git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -119,11 +88,11 @@ jobs:
                   git push origin "refs/tags/${tag}"
 
             - name: Bump Cargo version for next release
-              if: steps.skip.outputs.skip != 'true' && steps.tag_check.outputs.exists != 'true'
+              if: steps.skip.outputs.skip != 'true' && steps.plan.outputs.should_bump_version == 'true'
               shell: bash
               run: |
                   set -euo pipefail
-                  next="${{ steps.version.outputs.next }}"
+                  next="${{ steps.plan.outputs.next }}"
 
                   awk -v new_version="${next}" '
                     BEGIN { in_pkg=0; done=0 }
@@ -150,11 +119,11 @@ jobs:
                   mv Cargo.lock.tmp Cargo.lock
 
             - name: Commit and push next-version prep
-              if: steps.skip.outputs.skip != 'true' && steps.tag_check.outputs.exists != 'true'
+              if: steps.skip.outputs.skip != 'true' && steps.plan.outputs.should_bump_version == 'true'
               shell: bash
               run: |
                   set -euo pipefail
-                  next="${{ steps.version.outputs.next }}"
+                  next="${{ steps.plan.outputs.next }}"
 
                   git config user.name "github-actions[bot]"
                   git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

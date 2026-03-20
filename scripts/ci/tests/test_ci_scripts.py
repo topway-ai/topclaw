@@ -2767,6 +2767,118 @@ class CiScriptsBehaviorTest(unittest.TestCase):
         joined = "\n".join(report["violations"])
         self.assertIn("annotated tag", joined)
 
+    def test_auto_main_release_plan_defaults_to_repository_owner_actor(self) -> None:
+        repo = self.tmp / "repo"
+        repo.mkdir(parents=True, exist_ok=True)
+        run_cmd(["git", "init"], cwd=repo)
+        run_cmd(["git", "config", "user.name", "Test User"], cwd=repo)
+        run_cmd(["git", "config", "user.email", "test@example.com"], cwd=repo)
+
+        cargo = repo / "Cargo.toml"
+        cargo.write_text(
+            textwrap.dedent(
+                """
+                [package]
+                name = "sample"
+                version = "2026.3.20"
+                edition = "2021"
+                """
+            ).strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        run_cmd(["git", "add", "Cargo.toml"], cwd=repo)
+        run_cmd(["git", "commit", "-m", "init"], cwd=repo)
+        run_cmd(["git", "branch", "-M", "main"], cwd=repo)
+        run_cmd(["git", "remote", "add", "origin", str(repo)], cwd=repo)
+
+        out_json = self.tmp / "auto-main-release-plan.json"
+        out_md = self.tmp / "auto-main-release-plan.md"
+        proc = run_cmd(
+            [
+                "python3",
+                self._script("auto_main_release_plan.py"),
+                "--repo-root",
+                str(repo),
+                "--actor",
+                "topway-ai",
+                "--repository-owner",
+                "topway-ai",
+                "--authorized-actors",
+                "",
+                "--output-json",
+                str(out_json),
+                "--output-md",
+                str(out_md),
+                "--fail-on-violation",
+            ],
+            cwd=repo,
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        report = json.loads(out_json.read_text(encoding="utf-8"))
+        self.assertTrue(report["actor_authorized"])
+        self.assertEqual(report["release_tag"], "v2026.3.20")
+        self.assertFalse(report["tag_exists_on_origin"])
+        self.assertTrue(report["should_create_tag"])
+        self.assertTrue(report["should_bump_version"])
+        self.assertEqual(report["mode"], "tag_and_bump")
+
+    def test_auto_main_release_plan_switches_to_bump_only_when_tag_exists(self) -> None:
+        repo = self.tmp / "repo"
+        repo.mkdir(parents=True, exist_ok=True)
+        run_cmd(["git", "init"], cwd=repo)
+        run_cmd(["git", "config", "user.name", "Test User"], cwd=repo)
+        run_cmd(["git", "config", "user.email", "test@example.com"], cwd=repo)
+
+        cargo = repo / "Cargo.toml"
+        cargo.write_text(
+            textwrap.dedent(
+                """
+                [package]
+                name = "sample"
+                version = "2026.3.20"
+                edition = "2021"
+                """
+            ).strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        run_cmd(["git", "add", "Cargo.toml"], cwd=repo)
+        run_cmd(["git", "commit", "-m", "init"], cwd=repo)
+        run_cmd(["git", "branch", "-M", "main"], cwd=repo)
+        run_cmd(["git", "tag", "-a", "v2026.3.20", "-m", "v2026.3.20"], cwd=repo)
+        run_cmd(["git", "remote", "add", "origin", str(repo)], cwd=repo)
+
+        out_json = self.tmp / "auto-main-release-plan-existing-tag.json"
+        out_md = self.tmp / "auto-main-release-plan-existing-tag.md"
+        proc = run_cmd(
+            [
+                "python3",
+                self._script("auto_main_release_plan.py"),
+                "--repo-root",
+                str(repo),
+                "--actor",
+                "topway-ai",
+                "--repository-owner",
+                "topway-ai",
+                "--authorized-actors",
+                "",
+                "--output-json",
+                str(out_json),
+                "--output-md",
+                str(out_md),
+                "--fail-on-violation",
+            ],
+            cwd=repo,
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        report = json.loads(out_json.read_text(encoding="utf-8"))
+        self.assertTrue(report["actor_authorized"])
+        self.assertTrue(report["tag_exists_on_origin"])
+        self.assertFalse(report["should_create_tag"])
+        self.assertTrue(report["should_bump_version"])
+        self.assertEqual(report["mode"], "bump_only")
+
     def test_nightly_matrix_report_fails_on_failed_lane(self) -> None:
         lane_root = self.tmp / "lane-artifacts"
         lane_root.mkdir(parents=True, exist_ok=True)
