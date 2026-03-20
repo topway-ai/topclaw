@@ -6966,7 +6966,7 @@ dependencies = [
 
 [[package]]
 name = "topclaw"
-version = "2026.3.22"
+version = "2026.3.20"
 dependencies = [
  "anyhow",
  "async-imap",
