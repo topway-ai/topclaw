@@ -51,7 +51,8 @@ use channel_flows::{
 };
 use channel_menu::{
     channel_choice_is_configured, channel_menu_choices, channel_menu_option_labels,
-    default_channel_menu_index, ChannelMenuChoice,
+    default_channel_menu_index, default_other_channel_menu_index, other_channel_menu_choices,
+    other_channel_menu_option_labels, ChannelMenuChoice,
 };
 use model_catalog::{
     build_model_options, cache_live_models_for_provider, fetch_live_models_for_provider,
@@ -2584,29 +2585,18 @@ fn setup_channels() -> Result<ChannelsConfig> {
             .copied()
             .unwrap_or(ChannelMenuChoice::Done);
 
-        match choice {
-            ChannelMenuChoice::Telegram => setup_telegram_channel(&mut config)?,
-            ChannelMenuChoice::Discord => setup_discord_channel(&mut config)?,
-            ChannelMenuChoice::Slack => setup_slack_channel(&mut config)?,
-            ChannelMenuChoice::IMessage => setup_imessage_channel(&mut config)?,
-            ChannelMenuChoice::Matrix => setup_matrix_channel(&mut config)?,
-            ChannelMenuChoice::Signal => setup_signal_channel(&mut config)?,
-            ChannelMenuChoice::WhatsApp => setup_whatsapp_channel(&mut config)?,
-            ChannelMenuChoice::Linq => setup_linq_channel(&mut config)?,
-            ChannelMenuChoice::Irc => setup_irc_channel(&mut config)?,
-            ChannelMenuChoice::Webhook => setup_webhook_channel(&mut config)?,
-            ChannelMenuChoice::NextcloudTalk => setup_nextcloud_talk_channel(&mut config)?,
-            ChannelMenuChoice::DingTalk => setup_dingtalk_channel(&mut config)?,
-            ChannelMenuChoice::QqOfficial => setup_qq_official_channel(&mut config)?,
-            ChannelMenuChoice::LarkFeishu => setup_lark_feishu_channel(&mut config)?,
-            #[cfg(feature = "channel-nostr")]
-            ChannelMenuChoice::Nostr => setup_nostr_channel(&mut config)?,
-            #[cfg(not(feature = "channel-nostr"))]
-            ChannelMenuChoice::Nostr => continue,
+        let configured_choice = match choice {
+            ChannelMenuChoice::OtherChannels => setup_other_channels(&mut config)?,
             ChannelMenuChoice::Done => break,
-        }
+            _ => {
+                setup_selected_channel(&mut config, choice)?;
+                Some(choice)
+            }
+        };
 
-        if channel_choice_is_configured(&config, choice) {
+        if configured_choice
+            .is_some_and(|configured| channel_choice_is_configured(&config, configured))
+        {
             break;
         }
 
@@ -2628,6 +2618,61 @@ fn setup_channels() -> Result<ChannelsConfig> {
     );
 
     Ok(config)
+}
+
+fn setup_other_channels(config: &mut ChannelsConfig) -> Result<Option<ChannelMenuChoice>> {
+    let other_choices = other_channel_menu_choices();
+
+    loop {
+        let options = other_channel_menu_option_labels(config);
+        let selection = Select::new()
+            .with_prompt("  Other available channels")
+            .items(&options)
+            .default(default_other_channel_menu_index(config))
+            .interact()?;
+
+        let choice = other_choices
+            .get(selection)
+            .copied()
+            .unwrap_or(ChannelMenuChoice::Back);
+
+        if matches!(choice, ChannelMenuChoice::Back) {
+            return Ok(None);
+        }
+
+        setup_selected_channel(config, choice)?;
+        if channel_choice_is_configured(config, choice) {
+            return Ok(Some(choice));
+        }
+
+        println!();
+    }
+}
+
+fn setup_selected_channel(config: &mut ChannelsConfig, choice: ChannelMenuChoice) -> Result<()> {
+    match choice {
+        ChannelMenuChoice::Telegram => setup_telegram_channel(config)?,
+        ChannelMenuChoice::Discord => setup_discord_channel(config)?,
+        ChannelMenuChoice::Slack => setup_slack_channel(config)?,
+        ChannelMenuChoice::IMessage => setup_imessage_channel(config)?,
+        ChannelMenuChoice::Matrix => setup_matrix_channel(config)?,
+        ChannelMenuChoice::Signal => setup_signal_channel(config)?,
+        ChannelMenuChoice::WhatsApp => setup_whatsapp_channel(config)?,
+        ChannelMenuChoice::Linq => setup_linq_channel(config)?,
+        ChannelMenuChoice::Irc => setup_irc_channel(config)?,
+        ChannelMenuChoice::Webhook => setup_webhook_channel(config)?,
+        ChannelMenuChoice::NextcloudTalk => setup_nextcloud_talk_channel(config)?,
+        ChannelMenuChoice::DingTalk => setup_dingtalk_channel(config)?,
+        ChannelMenuChoice::QqOfficial => setup_qq_official_channel(config)?,
+        ChannelMenuChoice::LarkFeishu => setup_lark_feishu_channel(config)?,
+        #[cfg(feature = "channel-nostr")]
+        ChannelMenuChoice::Nostr => setup_nostr_channel(config)?,
+        #[cfg(not(feature = "channel-nostr"))]
+        ChannelMenuChoice::Nostr => {}
+        ChannelMenuChoice::OtherChannels | ChannelMenuChoice::Done | ChannelMenuChoice::Back => {}
+    }
+
+    Ok(())
 }
 
 // ── Step 4: Tunnel ──────────────────────────────────────────────
@@ -5100,18 +5145,67 @@ mod tests {
     }
 
     #[test]
-    fn channel_menu_choices_include_signal_and_nextcloud_talk() {
-        let choices = channel_menu_choices();
+    fn top_level_channel_menu_prioritizes_recommended_channels() {
+        let labels = channel_menu_option_labels(&ChannelsConfig::default());
 
-        #[cfg(feature = "channel-signal")]
-        assert!(choices.contains(&ChannelMenuChoice::Signal));
-        #[cfg(not(feature = "channel-signal"))]
-        assert!(!choices.contains(&ChannelMenuChoice::Signal));
+        assert!(
+            labels
+                .first()
+                .is_some_and(|label| label.starts_with("Telegram")),
+            "expected Telegram to be the first top-level channel option, got {labels:?}"
+        );
 
-        #[cfg(feature = "channel-nextcloud-talk")]
-        assert!(choices.contains(&ChannelMenuChoice::NextcloudTalk));
-        #[cfg(not(feature = "channel-nextcloud-talk"))]
-        assert!(!choices.contains(&ChannelMenuChoice::NextcloudTalk));
+        #[cfg(feature = "channel-discord")]
+        assert!(
+            labels
+                .get(1)
+                .is_some_and(|label| label.starts_with("Discord")),
+            "expected Discord to be the second top-level channel option, got {labels:?}"
+        );
+
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.starts_with("Other channels")),
+            "expected an Other channels entry in the top-level menu, got {labels:?}"
+        );
+        assert!(
+            !labels.iter().any(|label| label.starts_with("Webhook")),
+            "expected Webhook to be hidden behind Other channels, got {labels:?}"
+        );
+        #[cfg(feature = "channel-lark")]
+        assert!(
+            !labels.iter().any(|label| label.starts_with("Lark/Feishu")),
+            "expected Lark/Feishu to be hidden behind Other channels, got {labels:?}"
+        );
+    }
+
+    #[test]
+    fn other_channel_menu_lists_advanced_channels() {
+        let labels = other_channel_menu_option_labels(&ChannelsConfig::default());
+
+        assert!(
+            labels.iter().any(|label| label.starts_with("Webhook")),
+            "expected Webhook to appear in the advanced channel menu, got {labels:?}"
+        );
+        #[cfg(feature = "channel-lark")]
+        assert!(
+            labels.iter().any(|label| label.starts_with("Lark/Feishu")),
+            "expected Lark/Feishu to appear in the advanced channel menu, got {labels:?}"
+        );
+        assert!(
+            !labels.iter().any(|label| label.starts_with("Telegram")),
+            "expected Telegram to stay in the top-level menu, got {labels:?}"
+        );
+        #[cfg(feature = "channel-discord")]
+        assert!(
+            !labels.iter().any(|label| label.starts_with("Discord")),
+            "expected Discord to stay in the top-level menu, got {labels:?}"
+        );
+        assert!(
+            labels.last().is_some_and(|label| label.starts_with("Back")),
+            "expected the advanced menu to end with a Back option, got {labels:?}"
+        );
     }
 
     #[test]
