@@ -7,6 +7,7 @@ import contextlib
 import hashlib
 import http.server
 import json
+import os
 import shutil
 import socket
 import socketserver
@@ -91,6 +92,9 @@ class CiScriptsBehaviorTest(unittest.TestCase):
 
     def _script(self, name: str) -> str:
         return str(SCRIPTS_DIR / name)
+
+    def _release_script(self, name: str) -> str:
+        return str(ROOT / "scripts" / "release" / name)
 
     def test_emit_audit_event_envelope(self) -> None:
         payload_path = self.tmp / "payload.json"
@@ -2878,6 +2882,151 @@ class CiScriptsBehaviorTest(unittest.TestCase):
         self.assertFalse(report["should_create_tag"])
         self.assertTrue(report["should_bump_version"])
         self.assertEqual(report["mode"], "bump_only")
+
+    def test_ensure_pub_release_skips_dispatch_when_push_run_exists(self) -> None:
+        gh_bin = self.tmp / "gh"
+        gh_log = self.tmp / "gh.log"
+        gh_runs = self.tmp / "gh-runs.json"
+        gh_runs.write_text(
+            json.dumps(
+                {
+                    "workflow_runs": [
+                        {
+                            "name": "Pub Release",
+                            "event": "push",
+                            "head_branch": "v2026.3.22",
+                            "html_url": "https://example.test/runs/1",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        gh_bin.write_text(
+            textwrap.dedent(
+                """\
+                #!/usr/bin/env python3
+                import os
+                import pathlib
+                import sys
+
+                log_path = pathlib.Path(os.environ["GH_CALL_LOG"])
+                with log_path.open("a", encoding="utf-8") as handle:
+                    handle.write(" ".join(sys.argv[1:]) + "\\n")
+
+                if sys.argv[1] == "api":
+                    sys.stdout.write(pathlib.Path(os.environ["GH_API_RESPONSE"]).read_text(encoding="utf-8"))
+                    raise SystemExit(0)
+
+                if sys.argv[1] == "workflow" and sys.argv[2] == "run":
+                    raise SystemExit(0)
+
+                raise SystemExit(2)
+                """
+            ),
+            encoding="utf-8",
+        )
+        gh_bin.chmod(0o755)
+
+        env = dict(os.environ)
+        env["PATH"] = f"{self.tmp}:{env['PATH']}"
+        env["GH_CALL_LOG"] = str(gh_log)
+        env["GH_API_RESPONSE"] = str(gh_runs)
+
+        proc = run_cmd(
+            [
+                "python3",
+                self._release_script("ensure_pub_release.py"),
+                "--release-tag",
+                "v2026.3.22",
+                "--head-sha",
+                "450ab1cf3e3dfb3ead9807e1537442c90aa937fc",
+                "--origin-url",
+                "https://github.com/topway-ai/topclaw.git",
+                "--wait-seconds",
+                "0",
+                "--poll-interval-seconds",
+                "0",
+            ],
+            env=env,
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        self.assertIn("Detected push-triggered Pub Release run", proc.stdout)
+        calls = gh_log.read_text(encoding="utf-8")
+        self.assertIn("api repos/topway-ai/topclaw/actions/runs?head_sha=450ab1cf3e3dfb3ead9807e1537442c90aa937fc&per_page=100", calls)
+        self.assertNotIn("workflow run", calls)
+
+    def test_ensure_pub_release_dispatches_when_push_run_missing(self) -> None:
+        gh_bin = self.tmp / "gh"
+        gh_log = self.tmp / "gh.log"
+        gh_runs = self.tmp / "gh-runs.json"
+        gh_runs.write_text(
+            json.dumps(
+                {
+                    "workflow_runs": [
+                        {
+                            "name": "Pub Release",
+                            "event": "workflow_dispatch",
+                            "head_branch": "main",
+                            "html_url": "https://example.test/runs/manual",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        gh_bin.write_text(
+            textwrap.dedent(
+                """\
+                #!/usr/bin/env python3
+                import os
+                import pathlib
+                import sys
+
+                log_path = pathlib.Path(os.environ["GH_CALL_LOG"])
+                with log_path.open("a", encoding="utf-8") as handle:
+                    handle.write(" ".join(sys.argv[1:]) + "\\n")
+
+                if sys.argv[1] == "api":
+                    sys.stdout.write(pathlib.Path(os.environ["GH_API_RESPONSE"]).read_text(encoding="utf-8"))
+                    raise SystemExit(0)
+
+                if sys.argv[1] == "workflow" and sys.argv[2] == "run":
+                    raise SystemExit(0)
+
+                raise SystemExit(2)
+                """
+            ),
+            encoding="utf-8",
+        )
+        gh_bin.chmod(0o755)
+
+        env = dict(os.environ)
+        env["PATH"] = f"{self.tmp}:{env['PATH']}"
+        env["GH_CALL_LOG"] = str(gh_log)
+        env["GH_API_RESPONSE"] = str(gh_runs)
+
+        proc = run_cmd(
+            [
+                "python3",
+                self._release_script("ensure_pub_release.py"),
+                "--release-tag",
+                "v2026.3.22",
+                "--head-sha",
+                "450ab1cf3e3dfb3ead9807e1537442c90aa937fc",
+                "--origin-url",
+                "https://github.com/topway-ai/topclaw.git",
+                "--wait-seconds",
+                "0",
+                "--poll-interval-seconds",
+                "0",
+            ],
+            env=env,
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        self.assertIn("Dispatching manual publish fallback", proc.stdout)
+        calls = gh_log.read_text(encoding="utf-8")
+        self.assertIn("workflow run pub-release.yml -f release_ref=v2026.3.22 -f publish_release=true -f release_tag=v2026.3.22 -f draft=false", calls)
 
     def test_nightly_matrix_report_fails_on_failed_lane(self) -> None:
         lane_root = self.tmp / "lane-artifacts"

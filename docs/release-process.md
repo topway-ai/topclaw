@@ -2,7 +2,7 @@
 
 This runbook defines the maintainers' standard release flow.
 
-Last verified: **March 5, 2026**.
+Last verified: **March 20, 2026**.
 
 ## Release Goals
 
@@ -83,12 +83,13 @@ This script enforces:
 - `HEAD == origin/main`
 - non-duplicate tag
 - stable semver tag format (`vX.Y.Z`)
+- when `gh` is available, it waits briefly for a push-triggered `Pub Release` run and dispatches the existing manual publish fallback if no run appears
 
 ### 4) Monitor publish run
 
 After tag push, monitor:
 
-1. `Pub Release` publish mode
+1. `Pub Release` publish mode (push-triggered when GitHub emits the tag event, or `workflow_dispatch` fallback if the helper had to recover)
 2. `Pub Docker Img` publish job
 
 Expected publish outputs:
@@ -165,6 +166,15 @@ If tag-push release fails after artifacts are validated:
    - `release_tag=<existing tag>`
    - `release_ref` is automatically pinned to `release_tag` in publish mode
 3. Re-validate released assets.
+
+If a manual tag push succeeds but no `Pub Release` push run appears promptly:
+
+1. Use `scripts/release/cut_release_tag.sh <tag> --push` from an environment with `gh` available so the helper can auto-dispatch the publish fallback.
+2. Or dispatch `Pub Release` manually in publish mode using the existing tag:
+   - `publish_release=true`
+   - `release_tag=<existing tag>`
+   - `release_ref=<existing tag>`
+3. Re-check the release and asset URLs after the fallback run completes.
 
 If prerelease/canary lanes fail:
 
