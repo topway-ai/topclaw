@@ -1732,7 +1732,15 @@ pub fn sync_curated_skill_selection(
         let skill_dir = skills_path.join(entry.slug);
         if selected.contains(&entry.slug.to_ascii_lowercase()) {
             if !skill_dir.exists() {
-                let _ = install_curated_skill(workspace_dir, entry.slug)?;
+                match install_curated_skill(workspace_dir, entry.slug) {
+                    Ok(_) => {}
+                    Err(err) => {
+                        tracing::warn!(
+                            skill = entry.slug,
+                            "failed to install curated skill, skipping: {err:#}"
+                        );
+                    }
+                }
             }
         } else if skill_dir.exists() {
             std::fs::remove_dir_all(&skill_dir).with_context(|| {
@@ -2152,6 +2160,15 @@ fn install_github_tree_skill_source_with_override(
     }
 
     let source_dir = checkout_dir.join(&parsed.skill_path);
+    if !source_dir.exists() {
+        anyhow::bail!(
+            "skill path '{}' not found in cloned repository {} (ref: {}); \
+             the skill may have been temporarily removed from the remote branch",
+            parsed.skill_path,
+            repo_url,
+            parsed.git_ref,
+        );
+    }
     let source_dir = source_dir
         .to_str()
         .context("GitHub tree source path contained invalid UTF-8")?;
