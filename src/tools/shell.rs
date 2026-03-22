@@ -149,6 +149,8 @@ impl Tool for ShellTool {
             .unwrap_or(false);
         let otp_code = args.get("otp_code").and_then(|v| v.as_str());
 
+        // validate_command_execution already applies redirect policy internally,
+        // checks the allowlist, forbidden paths, and risk classification.
         match self.security.validate_command_execution(&command, approved) {
             Ok(_) => {}
             Err(reason) => {
@@ -158,14 +160,6 @@ impl Tool for ShellTool {
                     error: Some(reason),
                 });
             }
-        }
-
-        if let Some(path) = self.security.forbidden_path_argument(&effective_command) {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!("Path blocked by security policy: {path}")),
-            });
         }
 
         if let Err(error) = self.security.enforce_sensitive_tool_operation(

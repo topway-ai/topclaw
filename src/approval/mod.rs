@@ -174,19 +174,22 @@ impl ApprovalManager {
             return false;
         }
 
+        // Normalize for case-insensitive matching (consistent with exclusion checks).
+        let normalized = tool_name.to_ascii_lowercase();
+
         // always_ask overrides everything.
-        if self.always_ask.read().contains(tool_name) {
+        if self.always_ask.read().contains(&normalized) {
             return true;
         }
 
         // auto_approve skips the prompt.
-        if self.auto_approve.read().contains(tool_name) {
+        if self.auto_approve.read().contains(&normalized) {
             return false;
         }
 
         // Session allowlist (from prior "Always" responses).
         let allowlist = self.session_allowlist.lock();
-        if allowlist.contains(tool_name) {
+        if allowlist.contains(&normalized) {
             return false;
         }
 
@@ -202,10 +205,10 @@ impl ApprovalManager {
         decision: ApprovalResponse,
         channel: &str,
     ) {
-        // If "Always", add to session allowlist.
+        // If "Always", add to session allowlist (normalized for case-insensitive lookup).
         if decision == ApprovalResponse::Always {
             let mut allowlist = self.session_allowlist.lock();
-            allowlist.insert(tool_name.to_string());
+            allowlist.insert(tool_name.to_ascii_lowercase());
         }
 
         // Append to audit log.
@@ -221,34 +224,22 @@ impl ApprovalManager {
         log.push(entry);
     }
 
-    /// Get a snapshot of the audit log.
-    #[allow(dead_code)]
-    pub fn audit_log(&self) -> Vec<ApprovalLogEntry> {
-        self.audit_log.lock().clone()
-    }
-
-    /// Get the current session allowlist.
-    #[allow(dead_code)]
-    pub fn session_allowlist(&self) -> HashSet<String> {
-        self.session_allowlist.lock().clone()
-    }
-
     /// Grant session-scoped non-CLI approval for a specific tool.
     pub fn grant_non_cli_session(&self, tool_name: &str) {
         let mut allowlist = self.non_cli_allowlist.lock();
-        allowlist.insert(tool_name.to_string());
+        allowlist.insert(tool_name.to_ascii_lowercase());
     }
 
     /// Revoke session-scoped non-CLI approval for a specific tool.
     pub fn revoke_non_cli_session(&self, tool_name: &str) -> bool {
         let mut allowlist = self.non_cli_allowlist.lock();
-        allowlist.remove(tool_name)
+        allowlist.remove(&tool_name.to_ascii_lowercase())
     }
 
     /// Check whether non-CLI session approval exists for a tool.
     pub fn is_non_cli_session_granted(&self, tool_name: &str) -> bool {
         let allowlist = self.non_cli_allowlist.lock();
-        allowlist.contains(tool_name)
+        allowlist.contains(&tool_name.to_ascii_lowercase())
     }
 
     /// Get the current non-CLI session allowlist.
@@ -345,19 +336,20 @@ impl ApprovalManager {
     /// Apply runtime + persisted approval grant semantics:
     /// add to auto_approve and remove from always_ask.
     pub fn apply_persistent_runtime_grant(&self, tool_name: &str) {
+        let normalized = tool_name.to_ascii_lowercase();
         {
             let mut auto = self.auto_approve.write();
-            auto.insert(tool_name.to_string());
+            auto.insert(normalized.clone());
         }
         let mut always = self.always_ask.write();
-        always.remove(tool_name);
+        always.remove(&normalized);
     }
 
     /// Apply runtime + persisted approval revoke semantics:
     /// remove from auto_approve.
     pub fn apply_persistent_runtime_revoke(&self, tool_name: &str) -> bool {
         let mut auto = self.auto_approve.write();
-        auto.remove(tool_name)
+        auto.remove(&tool_name.to_ascii_lowercase())
     }
 
     /// Replace runtime-persistent non-CLI policy from config hot-reload.
@@ -527,14 +519,6 @@ impl ApprovalManager {
         Ok(req)
     }
 
-    /// Return whether a pending non-CLI request still exists.
-    #[allow(dead_code)]
-    pub fn has_non_cli_pending_request(&self, request_id: &str) -> bool {
-        let mut pending = self.pending_non_cli_requests.lock();
-        prune_expired_pending_requests(&mut pending);
-        pending.contains_key(request_id)
-    }
-
     /// Record a yes/no resolution for a pending non-CLI request.
     pub fn record_non_cli_pending_resolution(&self, request_id: &str, decision: ApprovalResponse) {
         if !matches!(decision, ApprovalResponse::Yes | ApprovalResponse::No) {
@@ -548,12 +532,6 @@ impl ApprovalManager {
             }
         }
         resolved.insert(request_id.to_string(), decision);
-    }
-
-    /// Consume a resolved pending-request decision if present.
-    #[allow(dead_code)]
-    pub fn take_non_cli_pending_resolution(&self, request_id: &str) -> Option<ApprovalResponse> {
-        self.resolved_non_cli_requests.lock().remove(request_id)
     }
 
     /// List active pending non-CLI approval requests.
@@ -678,6 +656,25 @@ fn prune_expired_pending_requests(
     let before = pending.len();
     pending.retain(|_, req| !is_pending_request_expired(req));
     before.saturating_sub(pending.len())
+}
+
+// ── Test-only helpers ────────────────────────────────────────────
+
+#[cfg(test)]
+impl ApprovalManager {
+    fn audit_log(&self) -> Vec<ApprovalLogEntry> {
+        self.audit_log.lock().clone()
+    }
+
+    fn has_non_cli_pending_request(&self, request_id: &str) -> bool {
+        let mut pending = self.pending_non_cli_requests.lock();
+        prune_expired_pending_requests(&mut pending);
+        pending.contains_key(request_id)
+    }
+
+    fn take_non_cli_pending_resolution(&self, request_id: &str) -> Option<ApprovalResponse> {
+        self.resolved_non_cli_requests.lock().remove(request_id)
+    }
 }
 
 // ── Tests ────────────────────────────────────────────────────────

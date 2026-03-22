@@ -28,6 +28,54 @@ use super::runtime_helpers::{
 };
 use super::traits::{self, SendMessage};
 
+/// Format a pending-approval error with a trace event.
+///
+/// Shared by `/approve-confirm` and `/approve-deny` error arms.
+fn format_pending_approval_error(
+    error: PendingApprovalError,
+    request_id: &str,
+    sender: &str,
+    source_channel: &str,
+    event_name: &str,
+    past_participle: &str,
+) -> String {
+    let (description, message) = match error {
+        PendingApprovalError::NotFound => (
+            "pending request not found".to_string(),
+            format!(
+                "Pending approval request `{request_id}` was not found. Create one with `/approve-request <tool-name>` or `/approve-all-once`."
+            ),
+        ),
+        PendingApprovalError::Expired => (
+            "pending request expired".to_string(),
+            format!("Pending approval request `{request_id}` has expired."),
+        ),
+        PendingApprovalError::RequesterMismatch => (
+            format!("pending request {past_participle} mismatch"),
+            format!(
+                "Pending approval request `{request_id}` can only be {past_participle} by the same sender in the same chat/channel that created it."
+            ),
+        ),
+    };
+
+    runtime_trace::record_event(
+        event_name,
+        Some(source_channel),
+        None,
+        None,
+        None,
+        Some(false),
+        Some(&description),
+        serde_json::json!({
+            "request_id": request_id,
+            "sender": sender,
+            "channel": source_channel,
+        }),
+    );
+
+    message
+}
+
 pub(super) async fn handle_runtime_command_if_needed(
     ctx: Arc<ChannelRuntimeContext>,
     msg: &traits::ChannelMessage,
@@ -427,61 +475,14 @@ pub(super) async fn handle_runtime_command_if_needed(
                             approval_message
                         }
                     }
-                    Err(PendingApprovalError::NotFound) => {
-                        runtime_trace::record_event(
-                            "approval_request_confirmed",
-                            Some(source_channel),
-                            None,
-                            None,
-                            None,
-                            Some(false),
-                            Some("pending request not found"),
-                            serde_json::json!({
-                                "request_id": request_id,
-                                "sender": sender,
-                                "channel": source_channel,
-                            }),
-                        );
-                        format!(
-                            "Pending approval request `{request_id}` was not found. Create one with `/approve-request <tool-name>` or `/approve-all-once`."
-                        )
-                    }
-                    Err(PendingApprovalError::Expired) => {
-                        runtime_trace::record_event(
-                            "approval_request_confirmed",
-                            Some(source_channel),
-                            None,
-                            None,
-                            None,
-                            Some(false),
-                            Some("pending request expired"),
-                            serde_json::json!({
-                                "request_id": request_id,
-                                "sender": sender,
-                                "channel": source_channel,
-                            }),
-                        );
-                        format!("Pending approval request `{request_id}` has expired.")
-                    }
-                    Err(PendingApprovalError::RequesterMismatch) => {
-                        runtime_trace::record_event(
-                            "approval_request_confirmed",
-                            Some(source_channel),
-                            None,
-                            None,
-                            None,
-                            Some(false),
-                            Some("pending request confirmer mismatch"),
-                            serde_json::json!({
-                                "request_id": request_id,
-                                "sender": sender,
-                                "channel": source_channel,
-                            }),
-                        );
-                        format!(
-                            "Pending approval request `{request_id}` can only be confirmed by the same sender in the same chat/channel that created it."
-                        )
-                    }
+                    Err(err) => format_pending_approval_error(
+                        err,
+                        &request_id,
+                        sender,
+                        source_channel,
+                        "approval_request_confirmed",
+                        "confirmed",
+                    ),
                 }
             }
         }
@@ -519,59 +520,14 @@ pub(super) async fn handle_runtime_command_if_needed(
                             req.request_id, req.tool_name
                         )
                     }
-                    Err(PendingApprovalError::NotFound) => {
-                        runtime_trace::record_event(
-                            "approval_request_denied",
-                            Some(source_channel),
-                            None,
-                            None,
-                            None,
-                            Some(false),
-                            Some("pending request not found"),
-                            serde_json::json!({
-                                "request_id": request_id,
-                                "sender": sender,
-                                "channel": source_channel,
-                            }),
-                        );
-                        format!("Pending approval request `{request_id}` was not found.")
-                    }
-                    Err(PendingApprovalError::Expired) => {
-                        runtime_trace::record_event(
-                            "approval_request_denied",
-                            Some(source_channel),
-                            None,
-                            None,
-                            None,
-                            Some(false),
-                            Some("pending request expired"),
-                            serde_json::json!({
-                                "request_id": request_id,
-                                "sender": sender,
-                                "channel": source_channel,
-                            }),
-                        );
-                        format!("Pending approval request `{request_id}` has expired.")
-                    }
-                    Err(PendingApprovalError::RequesterMismatch) => {
-                        runtime_trace::record_event(
-                            "approval_request_denied",
-                            Some(source_channel),
-                            None,
-                            None,
-                            None,
-                            Some(false),
-                            Some("pending request denier mismatch"),
-                            serde_json::json!({
-                                "request_id": request_id,
-                                "sender": sender,
-                                "channel": source_channel,
-                            }),
-                        );
-                        format!(
-                            "Pending approval request `{request_id}` can only be denied by the same sender in the same chat/channel that created it."
-                        )
-                    }
+                    Err(err) => format_pending_approval_error(
+                        err,
+                        &request_id,
+                        sender,
+                        source_channel,
+                        "approval_request_denied",
+                        "denied",
+                    ),
                 }
             }
         }

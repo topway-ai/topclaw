@@ -84,13 +84,17 @@ impl ActionTracker {
         }
     }
 
-    /// Record an action and return the current count within the window.
+    fn sliding_window_cutoff() -> Instant {
+        Instant::now()
+            .checked_sub(std::time::Duration::from_secs(3600))
+            .unwrap_or_else(Instant::now)
+    }
+
+    /// Record an action (unconditionally). Use `record_if_allowed` to check
+    /// the budget first.
     pub fn record(&self) -> usize {
         let mut actions = self.actions.lock();
-        let cutoff = Instant::now()
-            .checked_sub(std::time::Duration::from_secs(3600))
-            .unwrap_or_else(Instant::now);
-        actions.retain(|t| *t > cutoff);
+        actions.retain(|t| *t > Self::sliding_window_cutoff());
         actions.push(Instant::now());
         actions.len()
     }
@@ -98,10 +102,7 @@ impl ActionTracker {
     /// Count of actions in the current window without recording.
     pub fn count(&self) -> usize {
         let mut actions = self.actions.lock();
-        let cutoff = Instant::now()
-            .checked_sub(std::time::Duration::from_secs(3600))
-            .unwrap_or_else(Instant::now);
-        actions.retain(|t| *t > cutoff);
+        actions.retain(|t| *t > Self::sliding_window_cutoff());
         actions.len()
     }
 }
@@ -264,6 +265,113 @@ enum QuoteState {
     Double,
 }
 
+// ── Quote-Aware Character Iterator ───────────────────────────────────────
+// Shared state machine for all quote-aware shell parsing. Yields each
+// character together with whether it sits outside any quotes.
+
+struct QuoteAwareChars<I: Iterator<Item = char>> {
+    inner: std::iter::Peekable<I>,
+    quote: QuoteState,
+    escaped: bool,
+}
+
+impl<I: Iterator<Item = char>> QuoteAwareChars<I> {
+    fn new(chars: I) -> Self {
+        Self {
+            inner: chars.peekable(),
+            quote: QuoteState::None,
+            escaped: false,
+        }
+    }
+
+    /// Consume the next raw character if it equals `expected`.
+    fn next_if_eq(&mut self, expected: &char) -> Option<char> {
+        self.inner.next_if_eq(expected)
+    }
+}
+
+/// Yielded item: the character, whether it's unquoted, and the new quote state.
+struct QuoteAwareChar {
+    ch: char,
+    unquoted: bool,
+}
+
+impl<I: Iterator<Item = char>> Iterator for QuoteAwareChars<I> {
+    type Item = QuoteAwareChar;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let ch = self.inner.next()?;
+
+        match self.quote {
+            QuoteState::Single => {
+                if ch == '\'' {
+                    self.quote = QuoteState::None;
+                }
+                Some(QuoteAwareChar {
+                    ch,
+                    unquoted: false,
+                })
+            }
+            QuoteState::Double => {
+                if self.escaped {
+                    self.escaped = false;
+                    return Some(QuoteAwareChar {
+                        ch,
+                        unquoted: false,
+                    });
+                }
+                if ch == '\\' {
+                    self.escaped = true;
+                    return Some(QuoteAwareChar {
+                        ch,
+                        unquoted: false,
+                    });
+                }
+                if ch == '"' {
+                    self.quote = QuoteState::None;
+                }
+                Some(QuoteAwareChar {
+                    ch,
+                    unquoted: false,
+                })
+            }
+            QuoteState::None => {
+                if self.escaped {
+                    self.escaped = false;
+                    return Some(QuoteAwareChar {
+                        ch,
+                        unquoted: false,
+                    });
+                }
+                if ch == '\\' {
+                    self.escaped = true;
+                    return Some(QuoteAwareChar {
+                        ch,
+                        unquoted: false,
+                    });
+                }
+                match ch {
+                    '\'' => {
+                        self.quote = QuoteState::Single;
+                        Some(QuoteAwareChar {
+                            ch,
+                            unquoted: false,
+                        })
+                    }
+                    '"' => {
+                        self.quote = QuoteState::Double;
+                        Some(QuoteAwareChar {
+                            ch,
+                            unquoted: false,
+                        })
+                    }
+                    _ => Some(QuoteAwareChar { ch, unquoted: true }),
+                }
+            }
+        }
+    }
+}
+
 /// Split a shell command into sub-commands by unquoted separators.
 ///
 /// Separators:
@@ -276,9 +384,7 @@ enum QuoteState {
 fn split_unquoted_segments(command: &str) -> Vec<String> {
     let mut segments = Vec::new();
     let mut current = String::new();
-    let mut quote = QuoteState::None;
-    let mut escaped = false;
-    let mut chars = command.chars().peekable();
+    let mut iter = QuoteAwareChars::new(command.chars());
 
     let push_segment = |segments: &mut Vec<String>, current: &mut String| {
         let trimmed = current.trim();
@@ -288,69 +394,27 @@ fn split_unquoted_segments(command: &str) -> Vec<String> {
         current.clear();
     };
 
-    while let Some(ch) = chars.next() {
-        match quote {
-            QuoteState::Single => {
-                if ch == '\'' {
-                    quote = QuoteState::None;
-                }
-                current.push(ch);
+    while let Some(item) = iter.next() {
+        if !item.unquoted {
+            current.push(item.ch);
+            continue;
+        }
+        match item.ch {
+            ';' | '\n' => push_segment(&mut segments, &mut current),
+            '|' => {
+                // Consume full `||`; both characters are separators.
+                let _ = iter.next_if_eq(&'|');
+                push_segment(&mut segments, &mut current);
             }
-            QuoteState::Double => {
-                if escaped {
-                    escaped = false;
-                    current.push(ch);
-                    continue;
-                }
-                if ch == '\\' {
-                    escaped = true;
-                    current.push(ch);
-                    continue;
-                }
-                if ch == '"' {
-                    quote = QuoteState::None;
-                }
-                current.push(ch);
-            }
-            QuoteState::None => {
-                if escaped {
-                    escaped = false;
-                    current.push(ch);
-                    continue;
-                }
-                if ch == '\\' {
-                    escaped = true;
-                    current.push(ch);
-                    continue;
-                }
-
-                match ch {
-                    '\'' => {
-                        quote = QuoteState::Single;
-                        current.push(ch);
-                    }
-                    '"' => {
-                        quote = QuoteState::Double;
-                        current.push(ch);
-                    }
-                    ';' | '\n' => push_segment(&mut segments, &mut current),
-                    '|' => {
-                        if chars.next_if_eq(&'|').is_some() {
-                            // Consume full `||`; both characters are separators.
-                        }
-                        push_segment(&mut segments, &mut current);
-                    }
-                    '&' => {
-                        if chars.next_if_eq(&'&').is_some() {
-                            // `&&` is a separator; single `&` is handled separately.
-                            push_segment(&mut segments, &mut current);
-                        } else {
-                            current.push(ch);
-                        }
-                    }
-                    _ => current.push(ch),
+            '&' => {
+                if iter.next_if_eq(&'&').is_some() {
+                    // `&&` is a separator; single `&` is handled separately.
+                    push_segment(&mut segments, &mut current);
+                } else {
+                    current.push(item.ch);
                 }
             }
+            _ => current.push(item.ch),
         }
     }
 
@@ -367,101 +431,18 @@ fn split_unquoted_segments(command: &str) -> Vec<String> {
 /// We treat any standalone `&` as unsafe in policy validation because it can
 /// chain hidden sub-commands and escape foreground timeout expectations.
 fn contains_unquoted_single_ampersand(command: &str) -> bool {
-    let mut quote = QuoteState::None;
-    let mut escaped = false;
-    let mut chars = command.chars().peekable();
-
-    while let Some(ch) = chars.next() {
-        match quote {
-            QuoteState::Single => {
-                if ch == '\'' {
-                    quote = QuoteState::None;
-                }
-            }
-            QuoteState::Double => {
-                if escaped {
-                    escaped = false;
-                    continue;
-                }
-                if ch == '\\' {
-                    escaped = true;
-                    continue;
-                }
-                if ch == '"' {
-                    quote = QuoteState::None;
-                }
-            }
-            QuoteState::None => {
-                if escaped {
-                    escaped = false;
-                    continue;
-                }
-                if ch == '\\' {
-                    escaped = true;
-                    continue;
-                }
-                match ch {
-                    '\'' => quote = QuoteState::Single,
-                    '"' => quote = QuoteState::Double,
-                    '&' => {
-                        if chars.next_if_eq(&'&').is_none() {
-                            return true;
-                        }
-                    }
-                    _ => {}
-                }
-            }
+    let mut iter = QuoteAwareChars::new(command.chars());
+    while let Some(item) = iter.next() {
+        if item.unquoted && item.ch == '&' && iter.next_if_eq(&'&').is_none() {
+            return true;
         }
     }
-
     false
 }
 
 /// Detect an unquoted character in a shell command.
 fn contains_unquoted_char(command: &str, target: char) -> bool {
-    let mut quote = QuoteState::None;
-    let mut escaped = false;
-
-    for ch in command.chars() {
-        match quote {
-            QuoteState::Single => {
-                if ch == '\'' {
-                    quote = QuoteState::None;
-                }
-            }
-            QuoteState::Double => {
-                if escaped {
-                    escaped = false;
-                    continue;
-                }
-                if ch == '\\' {
-                    escaped = true;
-                    continue;
-                }
-                if ch == '"' {
-                    quote = QuoteState::None;
-                }
-            }
-            QuoteState::None => {
-                if escaped {
-                    escaped = false;
-                    continue;
-                }
-                if ch == '\\' {
-                    escaped = true;
-                    continue;
-                }
-                match ch {
-                    '\'' => quote = QuoteState::Single,
-                    '"' => quote = QuoteState::Double,
-                    _ if ch == target => return true,
-                    _ => {}
-                }
-            }
-        }
-    }
-
-    false
+    QuoteAwareChars::new(command.chars()).any(|item| item.unquoted && item.ch == target)
 }
 
 fn is_token_boundary_char(ch: char) -> bool {
@@ -658,15 +639,17 @@ fn strip_supported_redirects(command: &str) -> String {
 /// Detect unquoted shell variable expansions like `$HOME`, `$1`, `$?`.
 ///
 /// Escaped dollars (`\$`) are ignored. Variables inside single quotes are
-/// treated as literals and therefore ignored.
+/// treated as literals and therefore ignored. Variables inside double quotes
+/// ARE detected because shell expands them there.
+///
+/// Note: this function does NOT use `QuoteAwareChars` because it needs to
+/// detect `$` inside double quotes (where the iterator marks `unquoted=false`).
 fn contains_unquoted_shell_variable_expansion(command: &str) -> bool {
+    let chars: Vec<char> = command.chars().collect();
     let mut quote = QuoteState::None;
     let mut escaped = false;
-    let chars: Vec<char> = command.chars().collect();
 
-    for i in 0..chars.len() {
-        let ch = chars[i];
-
+    for (i, &ch) in chars.iter().enumerate() {
         match quote {
             QuoteState::Single => {
                 if ch == '\'' {
@@ -677,13 +660,10 @@ fn contains_unquoted_shell_variable_expansion(command: &str) -> bool {
             QuoteState::Double => {
                 if escaped {
                     escaped = false;
-                    continue;
-                }
-                if ch == '\\' {
+                } else if ch == '\\' {
                     escaped = true;
                     continue;
-                }
-                if ch == '"' {
+                } else if ch == '"' {
                     quote = QuoteState::None;
                     continue;
                 }
@@ -697,13 +677,16 @@ fn contains_unquoted_shell_variable_expansion(command: &str) -> bool {
                     escaped = true;
                     continue;
                 }
-                if ch == '\'' {
-                    quote = QuoteState::Single;
-                    continue;
-                }
-                if ch == '"' {
-                    quote = QuoteState::Double;
-                    continue;
+                match ch {
+                    '\'' => {
+                        quote = QuoteState::Single;
+                        continue;
+                    }
+                    '"' => {
+                        quote = QuoteState::Double;
+                        continue;
+                    }
+                    _ => {}
                 }
             }
         }
@@ -712,16 +695,15 @@ fn contains_unquoted_shell_variable_expansion(command: &str) -> bool {
             continue;
         }
 
-        let Some(next) = chars.get(i + 1).copied() else {
-            continue;
-        };
-        if next.is_ascii_alphanumeric()
-            || matches!(
-                next,
-                '_' | '{' | '(' | '#' | '?' | '!' | '$' | '*' | '@' | '-'
-            )
-        {
-            return true;
+        if let Some(&next) = chars.get(i + 1) {
+            if next.is_ascii_alphanumeric()
+                || matches!(
+                    next,
+                    '_' | '{' | '(' | '#' | '?' | '!' | '$' | '*' | '@' | '-'
+                )
+            {
+                return true;
+            }
         }
     }
 
@@ -812,9 +794,13 @@ impl SecurityPolicy {
 
     /// Classify command risk. Any high-risk segment marks the whole command high.
     pub fn command_risk_level(&self, command: &str) -> CommandRiskLevel {
+        self.command_risk_level_with_segments(&split_unquoted_segments(command))
+    }
+
+    fn command_risk_level_with_segments(&self, segments: &[String]) -> CommandRiskLevel {
         let mut saw_medium = false;
 
-        for segment in split_unquoted_segments(command) {
+        for segment in segments {
             let cmd_part = skip_env_assignments(&segment);
             let mut words = cmd_part.split_whitespace();
             let Some(base_raw) = words.next() else {
@@ -934,15 +920,18 @@ impl SecurityPolicy {
     ) -> Result<CommandRiskLevel, String> {
         let effective_command = self.apply_shell_redirect_policy(command);
 
-        if !self.is_command_allowed(&effective_command) {
+        // Pre-compute segments once; shared by allowlist, path, and risk checks.
+        let segments = split_unquoted_segments(&effective_command);
+
+        if !self.is_command_allowed_with_segments(&effective_command, &segments) {
             return Err(format!("Command not allowed by security policy: {command}"));
         }
 
-        if let Some(path) = self.forbidden_path_argument(&effective_command) {
+        if let Some(path) = self.forbidden_path_argument_with_segments(&segments) {
             return Err(format!("Path blocked by security policy: {path}"));
         }
 
-        let risk = self.command_risk_level(&effective_command);
+        let risk = self.command_risk_level_with_segments(&segments);
 
         if risk == CommandRiskLevel::High {
             if self.block_high_risk_commands {
@@ -984,6 +973,10 @@ impl SecurityPolicy {
     /// - Blocks shell redirections (`<`, `>`, `>>`) that can bypass path policy
     /// - Blocks dangerous arguments (e.g. `find -exec`, `git config`)
     pub fn is_command_allowed(&self, command: &str) -> bool {
+        self.is_command_allowed_with_segments(command, &split_unquoted_segments(command))
+    }
+
+    fn is_command_allowed_with_segments(&self, command: &str, segments: &[String]) -> bool {
         if self.autonomy == AutonomyLevel::ReadOnly {
             return false;
         }
@@ -1023,9 +1016,7 @@ impl SecurityPolicy {
             return false;
         }
 
-        // Split on unquoted command separators and validate each sub-command.
-        let segments = split_unquoted_segments(command);
-        for segment in &segments {
+        for segment in segments {
             // Strip leading env var assignments (e.g. FOO=bar cmd)
             let cmd_part = skip_env_assignments(segment);
 
@@ -1084,12 +1075,49 @@ impl SecurityPolicy {
         }
     }
 
+    /// Check a single candidate token for forbidden path smuggling.
+    ///
+    /// Covers inline redirections (`cat</etc/passwd`), option assignment forms
+    /// (`--file=/etc/passwd`, `-f/etc/passwd`), and direct path tokens.
+    fn check_candidate_path_token(&self, candidate: &str) -> Option<String> {
+        let candidate = candidate.trim();
+        if candidate.is_empty() || candidate.contains("://") {
+            return None;
+        }
+
+        if let Some(target) = redirection_target(candidate) {
+            if let Some(blocked) = self.forbidden_path_token(target) {
+                return Some(blocked);
+            }
+        }
+
+        if candidate.starts_with('-') {
+            if let Some((_, value)) = candidate.split_once('=') {
+                if let Some(blocked) = self.forbidden_path_token(value) {
+                    return Some(blocked);
+                }
+            }
+            if let Some(value) = attached_short_option_value(candidate) {
+                if let Some(blocked) = self.forbidden_path_token(value) {
+                    return Some(blocked);
+                }
+            }
+            return None;
+        }
+
+        self.forbidden_path_token(candidate)
+    }
+
     /// Return the first path-like argument blocked by path policy.
     ///
     /// This is best-effort token parsing for shell commands and is intended
     /// as a safety gate before command execution.
     pub fn forbidden_path_argument(&self, command: &str) -> Option<String> {
-        for segment in split_unquoted_segments(command) {
+        self.forbidden_path_argument_with_segments(&split_unquoted_segments(command))
+    }
+
+    fn forbidden_path_argument_with_segments(&self, segments: &[String]) -> Option<String> {
+        for segment in segments {
             let cmd_part = skip_env_assignments(&segment);
             let mut words = cmd_part.split_whitespace();
             let Some(executable) = words.next() else {
@@ -1104,33 +1132,8 @@ impl SecurityPolicy {
             }
 
             for token in words {
-                let candidate = strip_wrapping_quotes(token).trim();
-                if candidate.is_empty() || candidate.contains("://") {
-                    continue;
-                }
-
-                if let Some(target) = redirection_target(candidate) {
-                    if let Some(blocked) = self.forbidden_path_token(target) {
-                        return Some(blocked);
-                    }
-                }
-
-                // Handle option assignment forms like `--file=/etc/passwd`.
-                if candidate.starts_with('-') {
-                    if let Some((_, value)) = candidate.split_once('=') {
-                        if let Some(blocked) = self.forbidden_path_token(value) {
-                            return Some(blocked);
-                        }
-                    }
-                    if let Some(value) = attached_short_option_value(candidate) {
-                        if let Some(blocked) = self.forbidden_path_token(value) {
-                            return Some(blocked);
-                        }
-                    }
-                    continue;
-                }
-
-                if let Some(blocked) = self.forbidden_path_token(candidate) {
+                if let Some(blocked) = self.check_candidate_path_token(strip_wrapping_quotes(token))
+                {
                     return Some(blocked);
                 }
             }
@@ -1146,32 +1149,7 @@ impl SecurityPolicy {
     /// `-f/etc/passwd`, and inline redirections.
     pub fn forbidden_path_argv(&self, argv: &[String]) -> Option<String> {
         for token in argv {
-            let candidate = strip_wrapping_quotes(token).trim();
-            if candidate.is_empty() || candidate.contains("://") {
-                continue;
-            }
-
-            if let Some(target) = redirection_target(candidate) {
-                if let Some(blocked) = self.forbidden_path_token(target) {
-                    return Some(blocked);
-                }
-            }
-
-            if candidate.starts_with('-') {
-                if let Some((_, value)) = candidate.split_once('=') {
-                    if let Some(blocked) = self.forbidden_path_token(value) {
-                        return Some(blocked);
-                    }
-                }
-                if let Some(value) = attached_short_option_value(candidate) {
-                    if let Some(blocked) = self.forbidden_path_token(value) {
-                        return Some(blocked);
-                    }
-                }
-                continue;
-            }
-
-            if let Some(blocked) = self.forbidden_path_token(candidate) {
+            if let Some(blocked) = self.check_candidate_path_token(strip_wrapping_quotes(token)) {
                 return Some(blocked);
             }
         }
@@ -1468,11 +1446,14 @@ impl SecurityPolicy {
         }
     }
 
-    /// Record an action and check if the rate limit has been exceeded.
+    /// Check the rate limit and, if allowed, record the action.
     /// Returns `true` if the action is allowed, `false` if rate-limited.
     pub fn record_action(&self) -> bool {
-        let count = self.tracker.record();
-        count <= self.max_actions_per_hour as usize
+        if self.tracker.count() >= self.max_actions_per_hour as usize {
+            return false;
+        }
+        self.tracker.record();
+        true
     }
 
     /// Check if the rate limit would be exceeded without recording.
