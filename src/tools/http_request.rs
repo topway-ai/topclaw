@@ -159,7 +159,6 @@ impl HttpRequestTool {
             },
         }
     }
-
 }
 
 async fn read_response_text_limited(

@@ -200,7 +200,12 @@ pub(super) async fn run_message_dispatch_loop(
                 }
             }
 
-            Box::pin(super::message_processing::process_channel_message(worker_ctx, msg, cancellation_token)).await;
+            Box::pin(super::message_processing::process_channel_message(
+                worker_ctx,
+                msg,
+                cancellation_token,
+            ))
+            .await;
 
             if interrupt_enabled {
                 let mut active = in_flight.lock().await;

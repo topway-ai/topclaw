@@ -337,9 +337,10 @@ pub(crate) async fn run_tool_call_loop(
         max_tool_iterations
     };
 
+    let excluded_set = crate::channels::runtime_helpers::exclusion_set(excluded_tools);
     let tool_specs: Vec<crate::tools::ToolSpec> = tools_registry
         .iter()
-        .filter(|tool| !excluded_tools.iter().any(|ex| ex == tool.name()))
+        .filter(|tool| !excluded_set.contains(&tool.name().to_ascii_lowercase()))
         .map(|tool| tool.spec())
         .collect();
     let use_native_tools = provider.supports_native_tools() && !tool_specs.is_empty();
@@ -864,7 +865,7 @@ pub(crate) async fn run_tool_call_loop(
                 channel_reply_target.as_deref(),
             );
 
-            if excluded_tools.iter().any(|ex| ex == &tool_name) {
+            if excluded_set.contains(&tool_name.to_ascii_lowercase()) {
                 let blocked = format!("Tool '{tool_name}' is not available in this channel.");
                 runtime_trace::record_event(
                     "tool_call_result",
@@ -4577,12 +4578,9 @@ Tail"#;
         assert_eq!(history[0].content, "system prompt");
         // Trimmed to limit
         assert_eq!(history.len(), max_history + 1); // +1 for system
-                                                     // Most recent messages preserved
+                                                    // Most recent messages preserved
         let last = &history[history.len() - 1];
-        assert_eq!(
-            last.content,
-            format!("msg {}", max_history + 19)
-        );
+        assert_eq!(last.content, format!("msg {}", max_history + 19));
     }
 
     #[test]

@@ -1,13 +1,15 @@
 use super::capability_detection::{
     extract_json_object, looks_like_file_read_task, looks_like_file_write_task,
-    looks_like_remote_repo_review_request, looks_like_shell_task,
-    looks_like_web_task, should_try_llm_capability_recovery,
+    looks_like_remote_repo_review_request, looks_like_shell_task, looks_like_web_task,
+    should_try_llm_capability_recovery,
 };
+use super::runtime_helpers::exclusion_set;
 use super::{traits, ChannelRuntimeContext};
 use crate::approval::ApprovalManager;
 use crate::providers::Provider;
 use crate::tools::Tool;
 use serde::Deserialize;
+use std::collections::HashSet;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum CapabilityRecoveryKind {
@@ -54,21 +56,17 @@ fn tool_is_registered(tools_registry: &[Box<dyn Tool>], tool_name: &str) -> bool
     tools_registry.iter().any(|tool| tool.name() == tool_name)
 }
 
-pub(super) fn capability_tool_state(
+/// Determine capability state using a pre-built exclusion set (avoids
+/// re-hashing on every call when checking multiple tools in a loop).
+fn capability_tool_state_with_set(
     tools_registry: &[Box<dyn Tool>],
-    excluded_tools: &[String],
+    excluded: &HashSet<String>,
     approval_manager: &ApprovalManager,
     tool_name: &str,
 ) -> CapabilityState {
     if !tool_is_registered(tools_registry, tool_name) {
         return CapabilityState::Missing;
     }
-
-    let excluded = excluded_tools
-        .iter()
-        .map(|tool| tool.trim().to_ascii_lowercase())
-        .collect::<std::collections::HashSet<_>>();
-
     if excluded.contains(&tool_name.trim().to_ascii_lowercase()) {
         CapabilityState::Excluded
     } else if approval_manager.is_non_cli_session_granted(tool_name) {
@@ -80,6 +78,17 @@ pub(super) fn capability_tool_state(
     }
 }
 
+/// Convenience wrapper for single-tool checks (builds the set internally).
+pub(super) fn capability_tool_state(
+    tools_registry: &[Box<dyn Tool>],
+    excluded_tools: &[String],
+    approval_manager: &ApprovalManager,
+    tool_name: &str,
+) -> CapabilityState {
+    let excluded = exclusion_set(excluded_tools);
+    capability_tool_state_with_set(tools_registry, &excluded, approval_manager, tool_name)
+}
+
 fn create_capability_recovery_plan(
     ctx: &ChannelRuntimeContext,
     msg: &traits::ChannelMessage,
@@ -88,13 +97,14 @@ fn create_capability_recovery_plan(
     candidates: &[CapabilityToolCandidate],
     reason: &'static str,
 ) -> Option<CapabilityRecoveryPlan> {
+    let excluded = exclusion_set(excluded_tools);
     let mut first_missing: Option<CapabilityToolCandidate> = None;
     let mut first_excluded: Option<CapabilityToolCandidate> = None;
 
     for candidate in candidates {
-        match capability_tool_state(
+        match capability_tool_state_with_set(
             ctx.tools_registry.as_ref(),
-            excluded_tools,
+            &excluded,
             ctx.approval_manager.as_ref(),
             candidate.tool_name,
         ) {
@@ -140,8 +150,8 @@ fn create_capability_recovery_plan(
             state: CapabilityState::Excluded,
             reason: reason.to_string(),
             message: format!(
-                "I can’t use `{}` in this chat because it is currently blocked by `autonomy.non_cli_excluded_tools`.\nRemove it from that config list, let the channel runtime reload, then retry.\n{}",
-                candidate.tool_name, candidate.setup_hint
+                "I need `{}` for this request, but it’s currently blocked for chat channels.\nUse `/approve {}` to enable it, then retry your request.",
+                candidate.tool_name, candidate.tool_name
             ),
         });
     }
@@ -362,8 +372,7 @@ User request:\n{}",
             state,
             reason,
             message: format!(
-                "I identified `{}` as the missing capability for this request, but it is currently blocked by `autonomy.non_cli_excluded_tools`.\nRemove it from that config list, let the runtime reload, then retry.",
-                tool_name
+                "I need `{tool_name}` for this request, but it's currently blocked for chat channels.\nUse `/approve {tool_name}` to enable it, then retry your request.",
             ),
         }),
         CapabilityState::Missing => Some(CapabilityRecoveryPlan {

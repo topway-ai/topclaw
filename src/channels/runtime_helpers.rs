@@ -1,7 +1,9 @@
+use super::runtime_config::remove_non_cli_exclusion_from_config;
 use super::ChannelRuntimeContext;
 use crate::config::Config;
 use crate::providers;
 use crate::tools::{Tool, ToolSpec};
+use std::collections::HashSet;
 
 pub(super) fn resolve_provider_alias(name: &str) -> Option<String> {
     let candidate = name.trim();
@@ -45,23 +47,63 @@ pub(super) fn snapshot_non_cli_excluded_tools(ctx: &ChannelRuntimeContext) -> Ve
         .clone()
 }
 
+/// Canonical single-tool exclusion check (case-insensitive, trimmed).
+pub(crate) fn is_tool_excluded(excluded_tools: &[String], tool_name: &str) -> bool {
+    let normalized = tool_name.trim().to_ascii_lowercase();
+    excluded_tools
+        .iter()
+        .any(|ex| ex.trim().eq_ignore_ascii_case(&normalized))
+}
+
+/// Build a `HashSet` for batch exclusion lookups (avoids repeated iteration).
+pub(crate) fn exclusion_set(excluded_tools: &[String]) -> HashSet<String> {
+    excluded_tools
+        .iter()
+        .map(|t| t.trim().to_ascii_lowercase())
+        .collect()
+}
+
 pub(super) fn filtered_tool_specs_for_runtime(
     tools_registry: &[Box<dyn Tool>],
     excluded_tools: &[String],
 ) -> Vec<ToolSpec> {
+    let excluded = exclusion_set(excluded_tools);
     tools_registry
         .iter()
         .map(|tool| tool.spec())
-        .filter(|spec| !excluded_tools.iter().any(|excluded| excluded == &spec.name))
+        .filter(|spec| !excluded.contains(&spec.name.to_ascii_lowercase()))
         .collect()
 }
 
 pub(super) fn is_non_cli_tool_excluded(ctx: &ChannelRuntimeContext, tool_name: &str) -> bool {
-    ctx.non_cli_excluded_tools
+    let excluded = ctx
+        .non_cli_excluded_tools
         .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .iter()
-        .any(|excluded| excluded == tool_name)
+        .unwrap_or_else(|e| e.into_inner());
+    is_tool_excluded(&excluded, tool_name)
+}
+
+/// Remove a tool from the runtime exclusion list (in-memory + config on disk).
+/// Returns a human-readable status message.
+pub(super) async fn auto_unexclude_tool(ctx: &ChannelRuntimeContext, tool_name: &str) -> String {
+    {
+        let mut excluded = ctx
+            .non_cli_excluded_tools
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        excluded.retain(|t| t != tool_name);
+    }
+    match remove_non_cli_exclusion_from_config(ctx, tool_name).await {
+        Ok(Some(_)) => format!(
+            "Also removed `{tool_name}` from `autonomy.non_cli_excluded_tools` (persisted to config)."
+        ),
+        Ok(None) => format!(
+            "Also removed `{tool_name}` from the runtime exclusion list (config path not found, runtime-only)."
+        ),
+        Err(err) => format!(
+            "Removed `{tool_name}` from the runtime exclusion list, but failed to persist: {err}"
+        ),
+    }
 }
 
 pub(super) fn build_runtime_tool_visibility_prompt(

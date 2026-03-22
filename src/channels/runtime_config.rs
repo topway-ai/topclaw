@@ -417,6 +417,33 @@ pub(super) async fn describe_non_cli_approvals(
     Ok(response)
 }
 
+pub(super) async fn remove_non_cli_exclusion_from_config(
+    ctx: &ChannelRuntimeContext,
+    tool_name: &str,
+) -> Result<Option<PathBuf>> {
+    let Some(config_path) = runtime_config_path(ctx) else {
+        return Ok(None);
+    };
+
+    let contents = tokio::fs::read_to_string(&config_path)
+        .await
+        .with_context(|| format!("Failed to read {}", config_path.display()))?;
+    let mut parsed: Config = toml::from_str(&contents)
+        .with_context(|| format!("Failed to parse {}", config_path.display()))?;
+    parsed.config_path = config_path.clone();
+
+    let before_len = parsed.autonomy.non_cli_excluded_tools.len();
+    parsed
+        .autonomy
+        .non_cli_excluded_tools
+        .retain(|entry| entry != tool_name);
+    if parsed.autonomy.non_cli_excluded_tools.len() != before_len {
+        parsed.save().await?;
+    }
+
+    Ok(Some(config_path))
+}
+
 pub(super) async fn maybe_apply_runtime_config_update(ctx: &ChannelRuntimeContext) -> Result<()> {
     let Some(config_path) = runtime_config_path(ctx) else {
         return Ok(());

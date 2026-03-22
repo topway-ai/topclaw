@@ -11,9 +11,7 @@ use crate::config::{
     TelegramConfig, WebFetchConfig, WebSearchConfig, WebhookConfig,
 };
 use crate::hardware::{self, HardwareConfig};
-use crate::memory::{
-    default_memory_backend_key, memory_backend_profile,
-};
+use crate::memory::{default_memory_backend_key, memory_backend_profile};
 use crate::providers::{
     canonical_china_provider_name, is_glm_alias, is_glm_cn_alias, is_minimax_alias,
     is_moonshot_alias, is_qianfan_alias, is_qwen_alias, is_qwen_oauth_alias, is_zai_alias,

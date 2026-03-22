@@ -13,6 +13,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::context::*;
 use super::helpers::*;
+use super::runtime_commands::non_cli_natural_language_mode_label;
 use super::runtime_commands::{
     approval_target_label, is_approval_management_command, parse_runtime_command,
     ChannelRuntimeCommand, APPROVAL_ALL_TOOLS_ONCE_TOKEN,
@@ -22,8 +23,9 @@ use super::runtime_config::{
     remove_non_cli_approval_from_config,
 };
 use super::runtime_help::{build_models_help_response, build_providers_help_response};
-use super::runtime_commands::non_cli_natural_language_mode_label;
-use super::runtime_helpers::{is_non_cli_tool_excluded, snapshot_non_cli_excluded_tools};
+use super::runtime_helpers::{
+    auto_unexclude_tool, is_non_cli_tool_excluded, snapshot_non_cli_excluded_tools,
+};
 use super::traits::{self, SendMessage};
 
 pub(super) async fn handle_runtime_command_if_needed(
@@ -164,7 +166,11 @@ pub(super) async fn handle_runtime_command_if_needed(
                         Ok(_) => {
                             if provider_name != current.provider {
                                 current.provider = provider_name.clone();
-                                super::route_state::set_route_selection(ctx.as_ref(), &sender_key, current.clone());
+                                super::route_state::set_route_selection(
+                                    ctx.as_ref(),
+                                    &sender_key,
+                                    current.clone(),
+                                );
                                 super::route_state::clear_sender_history(ctx.as_ref(), &sender_key);
                             }
 
@@ -415,9 +421,8 @@ pub(super) async fn handle_runtime_command_if_needed(
                         if tool_name != APPROVAL_ALL_TOOLS_ONCE_TOKEN
                             && is_non_cli_tool_excluded(ctx.as_ref(), &tool_name)
                         {
-                            format!(
-                                "{approval_message}\nNote: `{tool_name}` is currently listed in `autonomy.non_cli_excluded_tools` for this runtime. Remove it from config; the channel runtime auto-reloads this list from disk."
-                            )
+                            let note = auto_unexclude_tool(ctx.as_ref(), &tool_name).await;
+                            format!("{approval_message}\n{note}")
                         } else {
                             approval_message
                         }
@@ -644,9 +649,8 @@ pub(super) async fn handle_runtime_command_if_needed(
                 };
 
                 if is_non_cli_tool_excluded(ctx.as_ref(), &tool_name) {
-                    format!(
-                        "{persistence_message}\nRuntime pending requests cleared: {cleared_pending}.\nNote: `{tool_name}` is currently listed in `autonomy.non_cli_excluded_tools` for this runtime. Remove it from config; the channel runtime auto-reloads this list from disk."
-                    )
+                    let note = auto_unexclude_tool(ctx.as_ref(), &tool_name).await;
+                    format!("{persistence_message}\nRuntime pending requests cleared: {cleared_pending}.\n{note}")
                 } else {
                     format!("{persistence_message}\nRuntime pending requests cleared: {cleared_pending}.")
                 }
@@ -726,14 +730,16 @@ pub(super) async fn handle_runtime_command_if_needed(
                 "channel": resume_msg.channel.clone(),
             }),
         );
-        Box::pin(super::message_processing::process_channel_message_with_options(
-            Arc::clone(&ctx),
-            resume_msg,
-            CancellationToken::new(),
-            ProcessChannelMessageOptions {
-                resume_existing_user_turn: true,
-            },
-        ))
+        Box::pin(
+            super::message_processing::process_channel_message_with_options(
+                Arc::clone(&ctx),
+                resume_msg,
+                CancellationToken::new(),
+                ProcessChannelMessageOptions {
+                    resume_existing_user_turn: true,
+                },
+            ),
+        )
         .await;
     }
 

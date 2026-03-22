@@ -972,7 +972,6 @@ impl BedrockProvider {
         let converse_response: ConverseResponse = response.json().await?;
         Ok(converse_response)
     }
-
 }
 
 // ── AWS Event-Stream Binary Parser ──────────────────────────────

@@ -233,7 +233,10 @@ fn is_line_isolated_json_segment(message: &str, start: usize, end: usize) -> boo
     message[line_start..start].trim().is_empty() && message[end..line_end].trim().is_empty()
 }
 
-pub(super) fn strip_isolated_tool_json_artifacts(message: &str, known_tool_names: &HashSet<String>) -> String {
+pub(super) fn strip_isolated_tool_json_artifacts(
+    message: &str,
+    known_tool_names: &HashSet<String>,
+) -> String {
     let mut cleaned = String::with_capacity(message.len());
     let mut cursor = 0usize;
     let mut saw_tool_call_payload = false;

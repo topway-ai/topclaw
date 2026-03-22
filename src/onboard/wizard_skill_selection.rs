@@ -82,6 +82,49 @@ fn prompt_skill_selection_instruction(help_text: &str) {
     print_onboarding_skill_controls();
 }
 
+/// Declarative mapping from skill slugs to the non-CLI tools they require.
+/// Used during onboarding to automatically un-exclude tools when the user
+/// selects the corresponding skill.
+struct SkillToolMapping {
+    slug: &'static str,
+    tools_to_unexclude: &'static [&'static str],
+}
+
+const SKILL_TOOL_MAPPINGS: &[SkillToolMapping] = &[
+    SkillToolMapping {
+        slug: "workspace-search",
+        tools_to_unexclude: &["shell"],
+    },
+    SkillToolMapping {
+        slug: "code-explainer",
+        tools_to_unexclude: &["shell"],
+    },
+    SkillToolMapping {
+        slug: "change-summary",
+        tools_to_unexclude: &["shell", "git_operations"],
+    },
+    SkillToolMapping {
+        slug: "self-improving-agent",
+        tools_to_unexclude: &["file_write", "file_edit", "memory_store"],
+    },
+    SkillToolMapping {
+        slug: "skill-creator",
+        tools_to_unexclude: &["shell", "file_write", "file_edit"],
+    },
+    SkillToolMapping {
+        slug: "multi-search-engine",
+        tools_to_unexclude: &["http_request"],
+    },
+    SkillToolMapping {
+        slug: "agent-browser-extension",
+        tools_to_unexclude: &["browser", "browser_open"],
+    },
+    SkillToolMapping {
+        slug: "desktop-computer-use",
+        tools_to_unexclude: &["browser", "browser_open", "screenshot"],
+    },
+];
+
 pub(super) fn apply_onboarding_skill_tool_defaults(
     config: &mut Config,
     selection: &SkillOnboardingSelection,
@@ -93,10 +136,10 @@ pub(super) fn apply_onboarding_skill_tool_defaults(
             .any(|selected| selected == slug)
     };
 
+    // Enable config feature flags that skills depend on.
     if has_skill("find-skills") || has_skill("safe-web-search") {
         config.web_search.enabled = true;
     }
-
     if has_skill("multi-search-engine") {
         config.web_fetch.enabled = true;
     }
@@ -112,6 +155,22 @@ pub(super) fn apply_onboarding_skill_tool_defaults(
             (false, false) => unreachable!("checked above"),
         }
         .to_string();
+    }
+
+    // Un-exclude tools required by selected skills so they work on non-CLI
+    // channels (Telegram, Discord, etc.) without manual config edits.
+    let mut tools_to_unexclude = std::collections::HashSet::new();
+    for mapping in SKILL_TOOL_MAPPINGS {
+        if has_skill(mapping.slug) {
+            tools_to_unexclude.extend(mapping.tools_to_unexclude.iter().copied());
+        }
+    }
+
+    if !tools_to_unexclude.is_empty() {
+        config
+            .autonomy
+            .non_cli_excluded_tools
+            .retain(|tool| !tools_to_unexclude.contains(tool.as_str()));
     }
 }
 

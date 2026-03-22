@@ -303,11 +303,7 @@ mod tests {
 
         let key_hex = tokio::fs::read_to_string(&store.key_path).await.unwrap();
         // ChaCha20-Poly1305 uses 32-byte keys → 64 hex chars
-        assert_eq!(
-            key_hex.len(),
-            64,
-            "Key should be 32 bytes hex-encoded"
-        );
+        assert_eq!(key_hex.len(), 64, "Key should be 32 bytes hex-encoded");
     }
 
     #[test]

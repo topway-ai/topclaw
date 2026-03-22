@@ -106,75 +106,221 @@ pub(crate) fn build_channel_system_prompt(
 pub(crate) fn build_channel_tool_descriptions(
     config: &Config,
 ) -> Vec<(&'static str, &'static str)> {
+    // ── File operations ──
     let mut tool_descs = vec![
         (
-            "shell",
-            "Execute terminal commands. Use when: running local checks, build/test commands, diagnostics. Don't use when: a safer dedicated tool exists, or command is destructive without approval.",
-        ),
-        (
             "file_read",
-            "Read file contents. Use when: inspecting project files, configs, logs. Don't use when: a targeted search is enough.",
+            "Read file contents with line numbers. Use when: inspecting code, configs, logs, PDFs. Supports partial reads (offset/limit) for large files. Don't use when: you need to search across many files — use content_search or glob_search instead.",
         ),
         (
             "file_write",
-            "Write file contents. Use when: applying focused edits, scaffolding files, updating docs/code. Don't use when: side effects are unclear or file ownership is uncertain.",
+            "Create or overwrite a file. Use when: creating new files or replacing entire content. Don't use when: making targeted edits to existing files — use file_edit instead.",
         ),
         (
+            "file_edit",
+            "Edit a file by finding and replacing an exact string. Use when: making targeted changes to existing files (rename a variable, fix a bug, update a config value). Safer than file_write because it only changes what you specify. Don't use when: creating new files or rewriting entire content — use file_write.",
+        ),
+        // ── Search ──
+        (
+            "glob_search",
+            "Find files by name/path pattern. Use when: locating files by extension, name pattern, or directory structure (e.g. '**/*.rs', 'src/**/test_*'). Don't use when: searching file contents — use content_search.",
+        ),
+        (
+            "content_search",
+            "Search file contents by regex (like grep/ripgrep). Use when: finding code patterns, TODOs, references, function definitions, string matches across files. Supports context lines, file filters, count mode. Don't use when: you already know the exact file — use file_read.",
+        ),
+        // ── Shell & processes ──
+        (
+            "shell",
+            "Execute terminal commands. Use when: running builds, tests, diagnostics, or any task not covered by a dedicated tool. Has 60-second timeout. Don't use when: a safer dedicated tool exists (prefer file_read over cat, content_search over grep, git_operations over raw git).",
+        ),
+        (
+            "process",
+            "Manage background processes (spawn, status, kill, output). Use when: running long commands that exceed shell's 60-second timeout (servers, builds, watchers). Max 8 concurrent. Don't use when: command completes quickly — use shell instead.",
+        ),
+        // ── Git ──
+        (
+            "git_operations",
+            "Structured git operations (status, diff, log, add, commit, branch, etc.) with parsed JSON output. Use when: performing git tasks — safer than raw git via shell because it sanitizes inputs and blocks dangerous flags. Don't use when: you need advanced git features not supported by the structured interface.",
+        ),
+        (
+            "apply_patch",
+            "Apply unified diffs to the repository. Use when: applying patches from git diff output. Always does dry-run first. Don't use when: making simple edits — use file_edit.",
+        ),
+        // ── Memory ──
+        (
             "memory_store",
-            "Save to memory. Use when: preserving durable preferences, decisions, key context. Don't use when: information is transient/noisy/sensitive without need.",
+            "Save information to long-term memory. Use when: preserving user preferences, project decisions, recurring context that should survive across sessions. Don't use when: information is transient or already in workspace files.",
         ),
         (
             "memory_recall",
-            "Search memory. Use when: retrieving prior decisions, user preferences, historical context. Don't use when: answer is already in current context.",
+            "Search long-term memory by keywords. Use when: retrieving prior decisions, user preferences, stored facts. Don't use when: the answer is already in conversation context or workspace files.",
         ),
         (
             "memory_forget",
-            "Delete a memory entry. Use when: memory is incorrect/stale or explicitly requested for removal. Don't use when: impact is uncertain.",
+            "Delete a memory entry by key. Use when: memory is incorrect, outdated, or user requests removal. Don't use when: uncertain about impact.",
         ),
+        // ── Conversation history ──
+        (
+            "lossless_describe",
+            "List preserved conversation sessions with metadata. Use when: inspecting past conversation history across sessions.",
+        ),
+        (
+            "lossless_search",
+            "Search across preserved conversation messages and summaries. Use when: finding context from previous conversations by keyword.",
+        ),
+        // ── Planning ──
+        (
+            "task_plan",
+            "Create and manage in-session task checklists. Use when: breaking complex multi-step work into tracked subtasks. Not persisted across sessions. Don't use when: task is simple enough to do in one step.",
+        ),
+        // ── Scheduling ──
         (
             "schedule",
-            "Manage scheduled tasks (create/list/get/cancel/pause/resume). Supports recurring cron and one-shot delays.",
+            "Manage local scheduled tasks (cron, one-shot, interval). Use when: scheduling shell commands to run later or on a recurring basis. Output is logged locally. Don't use when: you need results delivered to a chat channel — use cron_add instead.",
         ),
         (
+            "cron_add",
+            "Create scheduled jobs (shell or agent) with optional channel delivery. Use when: scheduling tasks that should announce results in Discord/Telegram/Slack/etc. Supports cron expressions, at-syntax, and interval schedules.",
+        ),
+        (
+            "cron_list",
+            "List all scheduled cron jobs. Use when: checking what's scheduled.",
+        ),
+        (
+            "cron_remove",
+            "Remove a cron job by ID. Use when: canceling a scheduled task.",
+        ),
+        (
+            "cron_run",
+            "Manually trigger a cron job immediately. Use when: testing a scheduled job.",
+        ),
+        (
+            "cron_runs",
+            "List past cron job executions and their output. Use when: checking job history and results.",
+        ),
+        (
+            "cron_update",
+            "Update an existing cron job's schedule, command, or delivery. Use when: modifying a scheduled task without recreating it.",
+        ),
+        // ── Notifications ──
+        (
             "pushover",
-            "Send a Pushover notification to your device. Requires PUSHOVER_TOKEN and PUSHOVER_USER_KEY in .env file.",
+            "Send a push notification to the user's device. Use when: user wants mobile alerts. Requires PUSHOVER_TOKEN and PUSHOVER_USER_KEY in .env.",
+        ),
+        // ── Media ──
+        (
+            "screenshot",
+            "Capture the current screen as an image. Use when: user asks to see what's on screen or needs visual context. Returns base64 PNG.",
+        ),
+        (
+            "image_info",
+            "Extract image metadata (dimensions, format, size) and optionally base64 data. Use when: analyzing image files or preparing images for multimodal queries.",
+        ),
+        // ── Runtime configuration ──
+        (
+            "proxy_config",
+            "Read or write HTTP proxy settings at runtime. Use when: user needs to configure proxy for network access.",
+        ),
+        (
+            "model_routing_config",
+            "Read or write model routing and delegate agent configurations. Use when: dynamically switching models or configuring sub-agents.",
         ),
     ];
 
+    // ── Conditional: web tools ──
+    if config.web_search.enabled {
+        tool_descs.push((
+            "web_search",
+            "Search the internet for current information. Use when: user asks about current events, needs fresh data not in workspace, wants to look something up. Don't use when: answer is available locally in workspace files or memory.",
+        ));
+    }
+    if config.web_fetch.enabled {
+        tool_descs.push((
+            "web_fetch",
+            "Fetch a web page and convert to readable text/markdown. Use when: user provides a URL to read, or you need to retrieve specific web content. Don't use when: you just need search results — use web_search.",
+        ));
+    }
+    if config.http_request.enabled {
+        tool_descs.push((
+            "http_request",
+            "Make HTTP API requests (GET/POST/PUT/DELETE/etc.). Use when: interacting with REST APIs, webhooks, or services. Domain-allowlist enforced. Don't use when: fetching web pages for reading — use web_fetch.",
+        ));
+    }
+
+    // ── Conditional: browser ──
     if config.browser.enabled {
         tool_descs.push((
             "browser_open",
-            "Open approved HTTPS URLs in system browser (allowlist-only, no scraping)",
+            "Open approved HTTPS URLs in system browser (allowlist-only, no scraping).",
+        ));
+        tool_descs.push((
+            "browser",
+            "Full browser automation (navigate, click, type, scroll). Use when: complex web interactions that require DOM manipulation or multi-step flows. Don't use when: simple URL fetch works — prefer web_fetch or web_search.",
         ));
     }
+
+    // ── Conditional: composio ──
     if config.composio.enabled {
         tool_descs.push((
             "composio",
-            "Execute actions on 1000+ apps via Composio (Gmail, Notion, GitHub, Slack, etc.). Use action='list' to discover actions, 'list_accounts' to retrieve connected account IDs, 'execute' to run (optionally with connected_account_id), and 'connect' for OAuth.",
+            "Execute actions on 1000+ OAuth-integrated apps (Gmail, Notion, GitHub, Slack, etc.). Use action='list' to discover, 'execute' to run, 'connect' for OAuth setup.",
         ));
     }
+
+    // ── Conditional: discord history ──
     if config.channels_config.discord.is_some() {
         tool_descs.push((
             "discord_history_fetch",
-            "Fetch Discord message history on demand for current conversation context or explicit channel_id. Useful for tasks like selecting a random participant from recent chat history.",
+            "Fetch Discord message history for conversation context. Use when: need to reference recent Discord messages.",
         ));
     }
+
+    // ── Conditional: delegate agents ──
     if !config.agents.is_empty() {
         tool_descs.push((
             "delegate",
-            "Delegate a subtask to a specialized agent. Use when: a task benefits from a different model (e.g. fast summarization, deep reasoning, code generation). The sub-agent runs a single prompt and returns its response.",
+            "Delegate a subtask to a specialized agent (different model/provider). Use when: task benefits from a different model for speed, reasoning depth, or specialization.",
         ));
         tool_descs.push((
             "subagent_spawn",
-            "Spawn a delegate agent in the background. Returns immediately with a session_id. Use for long-running tasks that should not block.",
+            "Spawn a delegate agent in background, returns immediately with session_id. Use for long-running tasks that should not block the current conversation.",
         ));
         tool_descs.push((
             "subagent_list",
-            "List running and completed background sub-agents. Filter by status: running, completed, failed, killed, or all.",
+            "List background sub-agents. Filter by status: running, completed, failed, killed, all.",
         ));
         tool_descs.push((
             "subagent_manage",
-            "Manage a background sub-agent: 'status' to check progress/output, 'kill' to cancel a running session.",
+            "Check sub-agent progress ('status') or cancel ('kill') a running session.",
+        ));
+        tool_descs.push((
+            "delegate_coordination_status",
+            "Inspect delegate coordination runtime state for debugging multi-agent workflows.",
+        ));
+    }
+
+    // ── Conditional: IPC ──
+    if config.agents_ipc.enabled {
+        tool_descs.push((
+            "agents_list",
+            "List other TopClaw instances on this host. Use when: discovering agents for inter-process communication.",
+        ));
+        tool_descs.push((
+            "agents_send",
+            "Send a message to another agent. Use when: coordinating between agent instances.",
+        ));
+        tool_descs.push((
+            "agents_inbox",
+            "Read messages from other agents. Use when: checking for incoming inter-agent communications.",
+        ));
+        tool_descs.push((
+            "agents_state_get",
+            "Read shared IPC state by key. Use when: accessing state published by other agents.",
+        ));
+        tool_descs.push((
+            "agents_state_set",
+            "Write shared IPC state. Use when: publishing state for other agents to consume.",
         ));
     }
 

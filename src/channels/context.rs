@@ -5,17 +5,18 @@ use crate::memory::Memory;
 use crate::observability::Observer;
 use crate::providers::{self, Provider};
 use crate::tools::Tool;
+use serde::Deserialize;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::path::PathBuf;
-use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 
 use super::traits;
 
 /// Per-sender conversation history for channel messages.
-pub(super) type ConversationHistoryMap = Arc<Mutex<HashMap<String, Vec<crate::providers::ChatMessage>>>>;
+pub(super) type ConversationHistoryMap =
+    Arc<Mutex<HashMap<String, Vec<crate::providers::ChatMessage>>>>;
 /// Provider cache mapping provider names to provider instances.
 pub(super) type ProviderCacheMap = Arc<Mutex<HashMap<String, Arc<dyn Provider>>>>;
 /// Route selection overrides per sender.

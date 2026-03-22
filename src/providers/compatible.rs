@@ -372,7 +372,6 @@ impl OpenAiCompatibleProvider {
             format!("{normalized_base}/v1/responses")
         }
     }
-
 }
 
 #[derive(Debug, Serialize)]

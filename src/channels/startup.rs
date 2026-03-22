@@ -17,7 +17,7 @@ use super::context::*;
 use super::dispatch::{run_message_dispatch_loop, spawn_supervised_listener};
 use super::factory::collect_configured_channels;
 use super::helpers::*;
-use super::prompt::{build_system_prompt_with_mode, build_channel_tool_descriptions};
+use super::prompt::{build_channel_tool_descriptions, build_system_prompt_with_mode};
 use super::runtime_config::{
     config_file_stamp, runtime_config_store, runtime_defaults_from_config, RuntimeConfigState,
 };
@@ -289,7 +289,10 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
             }
             ChannelHealthState::Timeout => {
                 timeout += 1;
-                println!("  \u{23F1}\u{FE0F}  {:<9} timed out (>10s)", configured.display_name);
+                println!(
+                    "  \u{23F1}\u{FE0F}  {:<9} timed out (>10s)",
+                    configured.display_name
+                );
             }
         }
     }

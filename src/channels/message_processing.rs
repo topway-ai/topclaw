@@ -21,7 +21,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::capability_recovery::{
     infer_capability_recovery_plan, should_expose_internal_tool_details,
-    try_llm_capability_recovery_plan, CapabilityState,
+    try_llm_capability_recovery_plan, CapabilityRecoveryPlan, CapabilityState,
 };
 use super::command_handler::handle_runtime_command_if_needed;
 use super::context::*;
@@ -29,16 +29,54 @@ use super::dispatch::{spawn_progress_heartbeat_task, spawn_scoped_typing_task};
 use super::helpers::*;
 use super::prompt::build_channel_system_prompt;
 use super::route_state::{
-    append_sender_turn, compact_sender_history, get_route_selection,
-    rollback_orphan_user_turn, set_sender_history,
+    append_sender_turn, compact_sender_history, get_route_selection, rollback_orphan_user_turn,
+    set_sender_history,
 };
-use super::runtime_config::{maybe_apply_runtime_config_update, runtime_config_path, runtime_defaults_snapshot};
+use super::runtime_config::{
+    maybe_apply_runtime_config_update, runtime_config_path, runtime_defaults_snapshot,
+};
 use super::runtime_helpers::{
-    build_runtime_tool_visibility_prompt,
-    snapshot_non_cli_excluded_tools,
+    build_runtime_tool_visibility_prompt, snapshot_non_cli_excluded_tools,
 };
 use super::sanitize::sanitize_channel_response;
 use super::traits::{self, SendMessage};
+
+/// Trace + send a capability recovery plan. Returns `true` if a plan was dispatched.
+async fn dispatch_capability_recovery(
+    plan: &CapabilityRecoveryPlan,
+    msg: &traits::ChannelMessage,
+    target_channel: Option<&Arc<dyn traits::Channel>>,
+    source: Option<&str>,
+) {
+    let mut metadata = serde_json::json!({
+        "sender": msg.sender,
+        "message_id": msg.id,
+        "kind": format!("{:?}", plan.kind),
+        "tool_name": plan.tool_name.as_str(),
+        "state": format!("{:?}", plan.state),
+    });
+    if let Some(src) = source {
+        metadata["source"] = serde_json::Value::String(src.to_string());
+    }
+    runtime_trace::record_event(
+        "channel_message_capability_recovery",
+        Some(msg.channel.as_str()),
+        None,
+        None,
+        None,
+        Some(matches!(plan.state, CapabilityState::NeedsApproval)),
+        Some(plan.reason.as_str()),
+        metadata,
+    );
+    if let Some(channel) = target_channel {
+        let _ = channel
+            .send(
+                &SendMessage::new(&plan.message, &msg.reply_target)
+                    .in_thread(msg.thread_ts.clone()),
+            )
+            .await;
+    }
+}
 
 #[allow(clippy::large_futures)]
 pub(super) async fn process_channel_message(
@@ -284,31 +322,7 @@ pub(super) async fn process_channel_message_with_options(
         if let Some(plan) =
             infer_capability_recovery_plan(ctx.as_ref(), &msg, &excluded_tools_snapshot)
         {
-            runtime_trace::record_event(
-                "channel_message_capability_recovery",
-                Some(msg.channel.as_str()),
-                None,
-                None,
-                None,
-                Some(matches!(plan.state, CapabilityState::NeedsApproval)),
-                Some(plan.reason.as_str()),
-                serde_json::json!({
-                    "sender": msg.sender,
-                    "message_id": msg.id,
-                    "kind": format!("{:?}", plan.kind),
-                    "tool_name": plan.tool_name.as_str(),
-                    "state": format!("{:?}", plan.state),
-                }),
-            );
-
-            if let Some(channel) = target_channel.as_ref() {
-                let _ = channel
-                    .send(
-                        &SendMessage::new(plan.message, &msg.reply_target)
-                            .in_thread(msg.thread_ts.clone()),
-                    )
-                    .await;
-            }
+            dispatch_capability_recovery(&plan, &msg, target_channel.as_ref(), None).await;
             return;
         }
 
@@ -322,35 +336,15 @@ pub(super) async fn process_channel_message_with_options(
         )
         .await
         {
-            runtime_trace::record_event(
-                "channel_message_capability_recovery",
-                Some(msg.channel.as_str()),
-                None,
-                None,
-                None,
-                Some(matches!(plan.state, CapabilityState::NeedsApproval)),
-                Some(plan.reason.as_str()),
-                serde_json::json!({
-                    "sender": msg.sender,
-                    "message_id": msg.id,
-                    "kind": format!("{:?}", plan.kind),
-                    "tool_name": plan.tool_name.as_str(),
-                    "state": format!("{:?}", plan.state),
-                    "source": "llm_classifier",
-                }),
-            );
-
-            if let Some(channel) = target_channel.as_ref() {
-                let _ = channel
-                    .send(
-                        &SendMessage::new(plan.message, &msg.reply_target)
-                            .in_thread(msg.thread_ts.clone()),
-                    )
-                    .await;
-            }
+            dispatch_capability_recovery(
+                &plan,
+                &msg,
+                target_channel.as_ref(),
+                Some("llm_classifier"),
+            )
+            .await;
             return;
         }
-
     }
 
     let mut system_prompt = build_channel_system_prompt(
@@ -1117,7 +1111,9 @@ pub(super) async fn process_channel_message_with_options(
                     append_sender_turn(
                         ctx.as_ref(),
                         &history_key,
-                        ChatMessage::assistant("[Task failed \u{2014} not continuing this request]"),
+                        ChatMessage::assistant(
+                            "[Task failed \u{2014} not continuing this request]",
+                        ),
                     );
                     let _ = lossless_context.record_raw_message(&ChatMessage::assistant(
                         "[Task failed \u{2014} not continuing this request]",
@@ -1141,13 +1137,20 @@ pub(super) async fn process_channel_message_with_options(
                 if let Some(channel) = target_channel.as_ref() {
                     if let Some(ref draft_id) = draft_message_id {
                         let _ = channel
-                            .finalize_draft(&msg.reply_target, draft_id, &format!("\u{26A0}\u{FE0F} Error: {e}"))
+                            .finalize_draft(
+                                &msg.reply_target,
+                                draft_id,
+                                &format!("\u{26A0}\u{FE0F} Error: {e}"),
+                            )
                             .await;
                     } else {
                         let _ = channel
                             .send(
-                                &SendMessage::new(format!("\u{26A0}\u{FE0F} Error: {e}"), &msg.reply_target)
-                                    .in_thread(msg.thread_ts.clone()),
+                                &SendMessage::new(
+                                    format!("\u{26A0}\u{FE0F} Error: {e}"),
+                                    &msg.reply_target,
+                                )
+                                .in_thread(msg.thread_ts.clone()),
                             )
                             .await;
                     }

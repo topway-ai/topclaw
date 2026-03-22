@@ -40,7 +40,7 @@ mod route_state;
 mod runtime_commands;
 mod runtime_config;
 mod runtime_help;
-mod runtime_helpers;
+pub(crate) mod runtime_helpers;
 mod sanitize;
 mod startup;
 pub mod telegram;
@@ -86,31 +86,33 @@ use runtime_config::{load_runtime_defaults_from_config_file, ChannelRuntimeDefau
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::capability_detection::*;
+    use super::capability_recovery::*;
     use super::command_handler::*;
     use super::context::*;
     use super::dispatch::*;
     use super::helpers::*;
     use super::message_processing::*;
-    use super::sanitize::*;
-    use super::startup::*;
-    use super::capability_detection::*;
-    use super::capability_recovery::*;
     use super::prompt::build_channel_system_prompt;
-    use super::route_state::{append_sender_turn, compact_sender_history, rollback_orphan_user_turn};
+    use super::route_state::{
+        append_sender_turn, compact_sender_history, rollback_orphan_user_turn,
+    };
     use super::runtime_commands::*;
     use super::runtime_config::*;
     use super::runtime_helpers::*;
+    use super::sanitize::*;
+    use super::startup::*;
+    use super::*;
     use crate::approval::ApprovalManager;
     use crate::config::Config;
     use crate::memory::{Memory, MemoryCategory, SqliteMemory};
     use crate::observability::NoopObserver;
     use crate::providers::{self, ChatMessage, Provider};
     use crate::tools::{Tool, ToolResult};
-    use std::sync::Mutex;
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::Mutex;
     use std::time::Duration;
     use tempfile::TempDir;
     use tokio_util::sync::CancellationToken;
