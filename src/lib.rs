@@ -160,13 +160,13 @@ configuration keys for that channel type.
 If you want a guided setup flow instead of hand-writing JSON, use:
   topclaw bootstrap --channels-only
 
-Supported types: telegram, discord, slack, whatsapp, matrix, imessage, email.
+Supported types: telegram, discord, bridge, webhook.
 
 Examples:
   topclaw channel add telegram '{\"bot_token\":\"123456:ABC...\",\"name\":\"my-bot\",\"allowed_users\":[\"topclaw_user\"]}'
   topclaw channel add discord '{\"bot_token\":\"MTIz...\",\"name\":\"my-discord\",\"allowed_users\":[\"topclaw_user\"]}'")]
     Add {
-        /// Channel type (telegram, discord, slack, whatsapp, matrix, imessage, email)
+        /// Channel type (telegram, discord, bridge, webhook)
         channel_type: String,
         /// Optional configuration as JSON
         config: String,
@@ -392,7 +392,7 @@ pub enum MemoryCommands {
     },
 }
 
-/// Hardware discovery subcommands
+/// Hardware discovery and peripheral management subcommands
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum HardwareCommands {
     /// Enumerate USB devices (VID/PID) and show known boards
@@ -434,11 +434,6 @@ Examples:
         #[arg(long, default_value = "STM32F401RETx")]
         chip: String,
     },
-}
-
-/// Peripheral (hardware) management subcommands
-#[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum PeripheralCommands {
     /// List configured peripherals
     List,
     /// Add a peripheral (board path, e.g. nucleo-f401re /dev/ttyACM0)
@@ -452,9 +447,9 @@ single-board computers like Raspberry Pi.
 Supported boards: nucleo-f401re, rpi-gpio, esp32, arduino-uno.
 
 Examples:
-  topclaw peripheral add nucleo-f401re /dev/ttyACM0
-  topclaw peripheral add rpi-gpio native
-  topclaw peripheral add esp32 /dev/ttyUSB0")]
+  topclaw hardware add nucleo-f401re /dev/ttyACM0
+  topclaw hardware add rpi-gpio native
+  topclaw hardware add esp32 /dev/ttyUSB0")]
     Add {
         /// Board type (nucleo-f401re, rpi-gpio, esp32)
         board: String,
@@ -469,9 +464,9 @@ Generates the .ino sketch, installs arduino-cli if it is not \
 already available, compiles, and uploads the firmware.
 
 Examples:
-  topclaw peripheral flash
-  topclaw peripheral flash --port /dev/cu.usbmodem12345
-  topclaw peripheral flash -p COM3")]
+  topclaw hardware flash
+  topclaw hardware flash --port /dev/cu.usbmodem12345
+  topclaw hardware flash -p COM3")]
     Flash {
         /// Serial port (e.g. /dev/cu.usbmodem12345). If omitted, uses first arduino-uno from config.
         #[arg(short, long)]

@@ -244,7 +244,7 @@ Simple JSON over serial for boards without gRPC support:
 
 ### Phase 1: Skeleton ✅ (Done)
 
-- [x] Add `Peripheral` trait, config schema, CLI (`topclaw peripheral list/add`)
+- [x] Add `Peripheral` trait, config schema, CLI (`topclaw hardware list/add`)
 - [x] Add `--peripheral` flag to agent
 - [x] Document in AGENTS.md
 

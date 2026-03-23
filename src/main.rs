@@ -52,7 +52,7 @@ use main_handlers::{
 // Re-export so binary modules can use crate::<CommandEnum> while keeping a single source of truth.
 pub use topclaw::{
     BackupCommands, ChannelCommands, CronCommands, HardwareCommands, MemoryCommands,
-    PeripheralCommands, ServiceCommands, SkillCommands,
+    ServiceCommands, SkillCommands,
 };
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
@@ -112,7 +112,6 @@ Extensions and setup:
   topclaw channel list
   topclaw models refresh
   topclaw skills list
-  topclaw integrations info <name>
 
 Full uninstall:
   topclaw uninstall              # remove the installed binary, keep ~/.topclaw data
@@ -250,7 +249,7 @@ Examples:
 Start the long-running autonomous daemon.
 
 Launches the full TopClaw runtime: gateway server, all configured \
-channels (Telegram, Discord, Slack, etc.), heartbeat monitor, and \
+channels (Telegram, Discord, etc.), heartbeat monitor, and \
 the cron scheduler. This is the recommended way to run TopClaw in \
 production or as an always-on assistant.
 
@@ -457,7 +456,7 @@ Manage communication channels.
 
 Add, remove, list, and health-check channels that connect TopClaw \
 to messaging platforms. Supported channel types: telegram, discord, \
-slack, whatsapp, matrix, imessage, email.
+bridge, webhook.
 
 Examples:
   topclaw bootstrap --channels-only # guided channel setup without touching provider settings
@@ -483,40 +482,24 @@ Examples:
         auth_command: AuthCommands,
     },
 
-    /// Discover connected hardware
+    /// Discover, manage, and flash hardware boards
     #[command(long_about = "\
-Discover and introspect USB hardware.
+Discover, manage, and flash hardware boards.
 
-Enumerate connected USB devices, identify known development boards \
-(STM32 Nucleo, Arduino, ESP32), and retrieve chip information via \
-probe-rs / ST-Link.
+Enumerate connected USB devices, identify known development boards, \
+add peripherals, and flash firmware. Supported boards: \
+nucleo-f401re, rpi-gpio, esp32, arduino-uno.
 
 Examples:
   topclaw hardware discover
   topclaw hardware introspect /dev/ttyACM0
-  topclaw hardware info --chip STM32F401RETx")]
+  topclaw hardware info --chip STM32F401RETx
+  topclaw hardware list
+  topclaw hardware add nucleo-f401re /dev/ttyACM0
+  topclaw hardware flash --port /dev/cu.usbmodem12345")]
     Hardware {
         #[command(subcommand)]
         hardware_command: topclaw::HardwareCommands,
-    },
-
-    /// Manage hardware peripherals and boards
-    #[command(long_about = "\
-Manage hardware peripherals.
-
-Add, list, flash, and configure hardware boards that expose tools \
-to the agent (GPIO, sensors, actuators). Supported boards: \
-nucleo-f401re, rpi-gpio, esp32, arduino-uno.
-
-Examples:
-  topclaw peripheral list
-  topclaw peripheral add nucleo-f401re /dev/ttyACM0
-  topclaw peripheral add rpi-gpio native
-  topclaw peripheral flash --port /dev/cu.usbmodem12345
-  topclaw peripheral flash-nucleo")]
-    Peripheral {
-        #[command(subcommand)]
-        peripheral_command: topclaw::PeripheralCommands,
     },
 
     /// Inspect and manage stored memory
@@ -708,15 +691,6 @@ enum AuthCommands {
         /// Auth kind override (`authorization` or `api-key`)
         #[arg(long)]
         auth_kind: Option<String>,
-    },
-    /// Alias for `paste-token` (interactive by default)
-    SetupToken {
-        /// Provider (`anthropic`)
-        #[arg(long)]
-        provider: String,
-        /// Profile name (default: default)
-        #[arg(long, default_value = "default")]
-        profile: String,
     },
     /// Refresh OpenAI Codex access token using refresh token
     Refresh {
@@ -1275,13 +1249,20 @@ async fn main() -> Result<()> {
 
         Commands::Auth { auth_command } => handle_auth_command(auth_command, &config).await,
 
-        Commands::Hardware { hardware_command } => {
-            hardware::handle_command(hardware_command.clone(), &config)
-        }
-
-        Commands::Peripheral { peripheral_command } => {
-            peripherals::handle_command(peripheral_command.clone(), &config).await
-        }
+        Commands::Hardware { hardware_command } => match &hardware_command {
+            HardwareCommands::Discover
+            | HardwareCommands::Introspect { .. }
+            | HardwareCommands::Info { .. } => {
+                hardware::handle_command(hardware_command.clone(), &config)
+            }
+            HardwareCommands::List
+            | HardwareCommands::Add { .. }
+            | HardwareCommands::Flash { .. }
+            | HardwareCommands::SetupUnoQ { .. }
+            | HardwareCommands::FlashNucleo => {
+                peripherals::handle_command_from_hardware(hardware_command.clone(), &config).await
+            }
+        },
 
         Commands::Config { config_command } => match config_command {
             ConfigCommands::Schema => {

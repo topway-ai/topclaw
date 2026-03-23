@@ -864,28 +864,6 @@ pub(crate) async fn handle_auth_command(auth_command: AuthCommands, config: &Con
             Ok(())
         }
 
-        AuthCommands::SetupToken { provider, profile } => {
-            let provider = auth::normalize_provider(&provider)?;
-            let token = read_auth_input("Paste token")?;
-            if token.is_empty() {
-                bail!("Token cannot be empty");
-            }
-
-            let kind = auth::anthropic_token::detect_auth_kind(&token, Some("authorization"));
-            let mut metadata = std::collections::HashMap::new();
-            metadata.insert(
-                "auth_kind".to_string(),
-                kind.as_metadata_value().to_string(),
-            );
-
-            auth_service
-                .store_provider_token(&provider, &profile, &token, metadata, true)
-                .await?;
-            println!("Saved profile {profile}");
-            println!("Active profile for {provider}: {profile}");
-            Ok(())
-        }
-
         AuthCommands::Refresh { provider, profile } => {
             let provider = auth::normalize_provider(&provider)?;
 
