@@ -18,10 +18,12 @@
 
 pub mod anthropic;
 pub mod bedrock;
+pub mod circuit_breaker;
 pub mod compatible;
 pub mod copilot;
 pub mod error_parser;
 pub mod gemini;
+pub mod health_probe;
 pub mod ollama;
 pub mod openai;
 pub mod openai_codex;
@@ -43,10 +45,12 @@ pub use traits::{
 };
 
 use crate::auth::AuthService;
+use crate::security::SecretStore;
 use compatible::{AuthStyle, CompatibleApiMode, OpenAiCompatibleProvider};
 use reliable::ReliableProvider;
 use serde::Deserialize;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 const MAX_API_ERROR_CHARS: usize = 200;
 const MINIMAX_INTL_BASE_URL: &str = "https://api.minimax.io/v1";
@@ -586,6 +590,7 @@ pub struct ProviderRuntimeOptions {
     pub provider_api_url: Option<String>,
     pub topclaw_dir: Option<PathBuf>,
     pub secrets_encrypt: bool,
+    pub secret_store: Option<Arc<SecretStore>>,
     pub reasoning_enabled: Option<bool>,
     pub reasoning_level: Option<String>,
     pub custom_provider_api_mode: Option<CompatibleApiMode>,
@@ -600,6 +605,7 @@ impl Default for ProviderRuntimeOptions {
             provider_api_url: None,
             topclaw_dir: None,
             secrets_encrypt: true,
+            secret_store: None,
             reasoning_enabled: None,
             reasoning_level: None,
             custom_provider_api_mode: None,
@@ -612,11 +618,16 @@ impl Default for ProviderRuntimeOptions {
 impl ProviderRuntimeOptions {
     /// Build provider runtime options from the canonical TopClaw config.
     pub fn from_config(config: &crate::config::Config) -> Self {
+        let secret_store = config
+            .config_path
+            .parent()
+            .map(|dir| Arc::new(SecretStore::new(dir, config.secrets.encrypt)));
         Self {
             auth_profile_override: None,
             provider_api_url: config.api_url.clone(),
             topclaw_dir: config.config_path.parent().map(PathBuf::from),
             secrets_encrypt: config.secrets.encrypt,
+            secret_store,
             reasoning_enabled: config.runtime.reasoning_enabled,
             reasoning_level: config.effective_provider_reasoning_level(),
             custom_provider_api_mode: config.provider_api.map(|mode| mode.as_compatible_mode()),
@@ -922,7 +933,26 @@ fn create_provider_with_url_and_options(
     } else {
         resolve_provider_credential(name, api_key)
     }
-    .map(|v| String::from_utf8(v.into_bytes()).unwrap_or_default());
+    .map(|v| String::from_utf8(v.into_bytes()).unwrap_or_default())
+    // Decrypt enc2:-prefixed credentials via the secret store.
+    .map(|v| {
+        if v.starts_with("enc2:") {
+            if let Some(store) = options.secret_store.as_ref() {
+                match store.decrypt(&v) {
+                    Ok(decrypted) => decrypted,
+                    Err(e) => {
+                        tracing::warn!("Failed to decrypt provider credential: {e}");
+                        v
+                    }
+                }
+            } else {
+                tracing::warn!("Encrypted credential found but no secret store available");
+                v
+            }
+        } else {
+            v
+        }
+    });
     #[allow(clippy::option_as_ref_deref)]
     let key = resolved_credential.as_ref().map(String::as_str);
     match name {
@@ -1343,14 +1373,20 @@ pub fn create_resilient_provider_with_options(
         }
     }
 
-    let reliable = ReliableProvider::new(
+    let mut reliable = ReliableProvider::new(
         providers,
         reliability.provider_retries,
         reliability.provider_backoff_ms,
     )
     .with_api_keys(reliability.api_keys.clone())
     .with_model_fallbacks(reliability.model_fallbacks.clone())
+    .with_provider_model_fallbacks(reliability.provider_model_fallbacks.clone())
     .with_vision_override(options.model_support_vision);
+
+    if let Some(threshold) = reliability.circuit_breaker_threshold {
+        let cooldown = reliability.circuit_breaker_cooldown_ms.unwrap_or(30_000);
+        reliable = reliable.with_circuit_breaker(threshold, cooldown);
+    }
 
     Ok(Box::new(reliable))
 }
@@ -2560,6 +2596,7 @@ mod tests {
             channel_max_backoff_secs: 60,
             scheduler_poll_secs: 15,
             scheduler_retries: 2,
+            ..Default::default()
         };
 
         let provider = create_resilient_provider(
@@ -2600,6 +2637,7 @@ mod tests {
             channel_max_backoff_secs: 60,
             scheduler_poll_secs: 15,
             scheduler_retries: 2,
+            ..Default::default()
         };
 
         // Primary uses a ZAI key; fallbacks (lmstudio, ollama) should NOT
@@ -2623,6 +2661,7 @@ mod tests {
             channel_max_backoff_secs: 60,
             scheduler_poll_secs: 15,
             scheduler_retries: 2,
+            ..Default::default()
         };
 
         let provider =
@@ -2650,6 +2689,7 @@ mod tests {
             channel_max_backoff_secs: 60,
             scheduler_poll_secs: 15,
             scheduler_retries: 2,
+            ..Default::default()
         };
 
         let provider = create_resilient_provider("zai", Some("zai-test-key"), None, &reliability);
@@ -2683,6 +2723,7 @@ mod tests {
             channel_max_backoff_secs: 60,
             scheduler_poll_secs: 15,
             scheduler_retries: 2,
+            ..Default::default()
         };
 
         let provider = create_resilient_provider("zai", Some("zai-test-key"), None, &reliability);
@@ -3098,6 +3139,7 @@ mod tests {
             channel_max_backoff_secs: 60,
             scheduler_poll_secs: 15,
             scheduler_retries: 2,
+            ..Default::default()
         };
 
         // openai-codex resolves its own OAuth credential; it should not
@@ -3128,6 +3170,7 @@ mod tests {
             channel_max_backoff_secs: 60,
             scheduler_poll_secs: 15,
             scheduler_retries: 2,
+            ..Default::default()
         };
 
         let provider = create_resilient_provider("ollama", None, None, &reliability);

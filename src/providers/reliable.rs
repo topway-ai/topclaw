@@ -1,3 +1,4 @@
+use super::circuit_breaker::CircuitBreaker;
 use super::traits::{
     ChatMessage, ChatRequest, ChatResponse, StreamChunk, StreamEvent, StreamOptions, StreamResult,
 };
@@ -221,7 +222,8 @@ fn push_failure(
 // Loop invariant: `failures` accumulates every failed attempt so the final
 // error message gives operators a complete diagnostic trail.
 
-/// Provider wrapper with retry, fallback, auth rotation, and model failover.
+/// Provider wrapper with retry, fallback, auth rotation, model failover,
+/// and per-provider circuit breaking.
 pub struct ReliableProvider {
     providers: Vec<(String, Box<dyn Provider>)>,
     max_retries: u32,
@@ -235,6 +237,8 @@ pub struct ReliableProvider {
     provider_model_fallbacks: HashMap<String, Vec<String>>,
     /// Vision support override from config (`None` = defer to provider).
     vision_override: Option<bool>,
+    /// Per-provider circuit breakers (indexed by provider position).
+    circuit_breakers: Vec<CircuitBreaker>,
 }
 
 impl ReliableProvider {
@@ -243,6 +247,7 @@ impl ReliableProvider {
         max_retries: u32,
         base_backoff_ms: u64,
     ) -> Self {
+        let provider_count = providers.len();
         Self {
             providers,
             max_retries,
@@ -252,7 +257,20 @@ impl ReliableProvider {
             model_fallbacks: HashMap::new(),
             provider_model_fallbacks: HashMap::new(),
             vision_override: None,
+            // Default: disabled circuit breakers (threshold=0)
+            circuit_breakers: (0..provider_count)
+                .map(|_| CircuitBreaker::new(0, 0))
+                .collect(),
         }
+    }
+
+    /// Configure per-provider circuit breakers. A threshold of 0 disables
+    /// circuit breaking (the default).
+    pub fn with_circuit_breaker(mut self, threshold: u32, cooldown_ms: u64) -> Self {
+        self.circuit_breakers = (0..self.providers.len())
+            .map(|_| CircuitBreaker::new(threshold, cooldown_ms))
+            .collect();
+        self
     }
 
     /// Set additional API keys for round-robin rotation on rate-limit errors.
@@ -279,6 +297,20 @@ impl ReliableProvider {
             }
         }
 
+        self
+    }
+
+    /// Set explicit provider-scoped model fallback chains.
+    ///
+    /// Keys are provider names; values are model lists to try only on that
+    /// provider. This prevents invalid combinations like "gpt-4o" on Anthropic.
+    pub fn with_provider_model_fallbacks(
+        mut self,
+        fallbacks: HashMap<String, Vec<String>>,
+    ) -> Self {
+        for (key, chain) in fallbacks {
+            self.provider_model_fallbacks.insert(key, chain);
+        }
         self
     }
 
@@ -338,6 +370,15 @@ impl ReliableProvider {
         Some(&self.api_keys[idx])
     }
 
+    /// Returns provider names and their circuit breakers for external health probing.
+    pub fn provider_circuit_breakers(&self) -> Vec<(&str, &CircuitBreaker)> {
+        self.providers
+            .iter()
+            .zip(self.circuit_breakers.iter())
+            .map(|((name, _), cb)| (name.as_str(), cb))
+            .collect()
+    }
+
     /// Compute backoff duration, respecting Retry-After if present.
     fn compute_backoff(&self, base: u64, err: &anyhow::Error) -> u64 {
         if let Some(retry_after) = parse_retry_after_ms(err) {
@@ -377,6 +418,13 @@ impl Provider for ReliableProvider {
         // retryable error, sleep with exponential backoff and retry.
         for current_model in &models {
             for (provider_index, (provider_name, provider)) in self.providers.iter().enumerate() {
+                if self.circuit_breakers[provider_index].is_open() {
+                    tracing::debug!(
+                        provider = provider_name,
+                        "Circuit breaker open, skipping provider"
+                    );
+                    continue;
+                }
                 let sent_models =
                     self.provider_model_chain(current_model, provider_name, provider_index == 0);
                 for sent_model in sent_models {
@@ -388,6 +436,7 @@ impl Provider for ReliableProvider {
                             .await
                         {
                             Ok(resp) => {
+                                self.circuit_breakers[provider_index].record_success();
                                 if attempt > 0 || sent_model != model {
                                     tracing::info!(
                                         provider = provider_name,
@@ -468,6 +517,7 @@ impl Provider for ReliableProvider {
                         }
                     }
 
+                    self.circuit_breakers[provider_index].record_failure();
                     tracing::warn!(
                         provider = provider_name,
                         model = sent_model,
@@ -502,6 +552,13 @@ impl Provider for ReliableProvider {
 
         for current_model in &models {
             for (provider_index, (provider_name, provider)) in self.providers.iter().enumerate() {
+                if self.circuit_breakers[provider_index].is_open() {
+                    tracing::debug!(
+                        provider = provider_name,
+                        "Circuit breaker open, skipping provider"
+                    );
+                    continue;
+                }
                 let sent_models =
                     self.provider_model_chain(current_model, provider_name, provider_index == 0);
                 for sent_model in sent_models {
@@ -513,6 +570,7 @@ impl Provider for ReliableProvider {
                             .await
                         {
                             Ok(resp) => {
+                                self.circuit_breakers[provider_index].record_success();
                                 if attempt > 0 || sent_model != model {
                                     tracing::info!(
                                         provider = provider_name,
@@ -591,6 +649,7 @@ impl Provider for ReliableProvider {
                         }
                     }
 
+                    self.circuit_breakers[provider_index].record_failure();
                     tracing::warn!(
                         provider = provider_name,
                         model = sent_model,
@@ -633,6 +692,13 @@ impl Provider for ReliableProvider {
 
         for current_model in &models {
             for (provider_index, (provider_name, provider)) in self.providers.iter().enumerate() {
+                if self.circuit_breakers[provider_index].is_open() {
+                    tracing::debug!(
+                        provider = provider_name,
+                        "Circuit breaker open, skipping provider"
+                    );
+                    continue;
+                }
                 let sent_models =
                     self.provider_model_chain(current_model, provider_name, provider_index == 0);
                 for sent_model in sent_models {
@@ -644,6 +710,7 @@ impl Provider for ReliableProvider {
                             .await
                         {
                             Ok(resp) => {
+                                self.circuit_breakers[provider_index].record_success();
                                 if attempt > 0 || sent_model != model {
                                     tracing::info!(
                                         provider = provider_name,
@@ -722,6 +789,7 @@ impl Provider for ReliableProvider {
                         }
                     }
 
+                    self.circuit_breakers[provider_index].record_failure();
                     tracing::warn!(
                         provider = provider_name,
                         model = sent_model,
@@ -748,6 +816,13 @@ impl Provider for ReliableProvider {
 
         for current_model in &models {
             for (provider_index, (provider_name, provider)) in self.providers.iter().enumerate() {
+                if self.circuit_breakers[provider_index].is_open() {
+                    tracing::debug!(
+                        provider = provider_name,
+                        "Circuit breaker open, skipping provider"
+                    );
+                    continue;
+                }
                 let sent_models =
                     self.provider_model_chain(current_model, provider_name, provider_index == 0);
                 for sent_model in sent_models {
@@ -760,6 +835,7 @@ impl Provider for ReliableProvider {
                         };
                         match provider.chat(req, sent_model, temperature).await {
                             Ok(resp) => {
+                                self.circuit_breakers[provider_index].record_success();
                                 if attempt > 0 || sent_model != model {
                                     tracing::info!(
                                         provider = provider_name,
@@ -838,6 +914,7 @@ impl Provider for ReliableProvider {
                         }
                     }
 
+                    self.circuit_breakers[provider_index].record_failure();
                     tracing::warn!(
                         provider = provider_name,
                         model = sent_model,
@@ -881,6 +958,13 @@ impl Provider for ReliableProvider {
         let needs_tool_events = request.tools.is_some_and(|tools| !tools.is_empty());
 
         for (provider_index, (provider_name, provider)) in self.providers.iter().enumerate() {
+            if self.circuit_breakers[provider_index].is_open() {
+                tracing::debug!(
+                    provider = provider_name,
+                    "Circuit breaker open, skipping provider"
+                );
+                continue;
+            }
             if !provider.supports_streaming() || !options.enabled {
                 continue;
             }
@@ -950,6 +1034,13 @@ impl Provider for ReliableProvider {
         // Try each provider/model combination for streaming
         // For streaming, we use the first provider that supports it and has streaming enabled
         for (provider_index, (provider_name, provider)) in self.providers.iter().enumerate() {
+            if self.circuit_breakers[provider_index].is_open() {
+                tracing::debug!(
+                    provider = provider_name,
+                    "Circuit breaker open, skipping provider"
+                );
+                continue;
+            }
             if !provider.supports_streaming() || !options.enabled {
                 continue;
             }

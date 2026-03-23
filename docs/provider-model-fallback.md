@@ -154,6 +154,43 @@ Monitor these logs to:
 - Identify which fallback paths are used most
 - Optimize your provider and model configuration
 
+## Circuit Breaker
+
+When a provider fails repeatedly, the circuit breaker skips it temporarily to avoid wasting latency:
+
+```toml
+[reliability]
+circuit_breaker_threshold = 5    # Skip after 5 consecutive failures
+circuit_breaker_cooldown_ms = 30000  # Re-try after 30 seconds
+```
+
+States: **Closed** (healthy) → **Open** (skipped after threshold failures) → **Half-open** (one probe allowed after cooldown). A successful call resets the counter.
+
+Disabled by default (`circuit_breaker_threshold` unset or `0`).
+
+## Provider-Scoped Model Fallbacks
+
+Unlike `model_fallbacks` (which tries the same chain on all providers), `provider_model_fallbacks` restricts models to compatible providers:
+
+```toml
+[reliability.provider_model_fallbacks]
+anthropic = ["claude-sonnet-4", "claude-haiku-4"]
+openai = ["gpt-4o", "gpt-4o-mini"]
+```
+
+This prevents invalid combinations like attempting `gpt-4o` on Anthropic.
+
+## Health Probes
+
+Optional background health checks pre-warm circuit breaker state so the first user request after an outage doesn't eat full failover latency:
+
+```toml
+[reliability]
+health_probe_interval_secs = 30  # Probe each provider every 30 seconds
+```
+
+Disabled by default (`health_probe_interval_secs` unset).
+
 ## Best Practices
 
 1. **Test your fallback chain** - Ensure all providers in your chain have valid credentials

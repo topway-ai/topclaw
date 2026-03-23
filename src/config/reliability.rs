@@ -49,6 +49,29 @@ pub struct ReliabilityConfig {
     /// Max retries for cron job execution attempts.
     #[serde(default = "default_scheduler_retries")]
     pub scheduler_retries: u32,
+    /// Consecutive failures before the circuit breaker trips for a provider.
+    /// `None` or `0` disables circuit breaking (default).
+    #[serde(default)]
+    pub circuit_breaker_threshold: Option<u32>,
+    /// Cooldown in milliseconds before a tripped circuit breaker allows a
+    /// half-open probe attempt.
+    #[serde(default)]
+    pub circuit_breaker_cooldown_ms: Option<u64>,
+    /// Provider-scoped model fallback chains.
+    /// Keys are provider names; values are model lists to try on that provider.
+    /// Example: `{ "anthropic" = ["claude-sonnet-4", "claude-haiku-4"] }`
+    ///
+    /// Unlike `model_fallbacks` (which applies the same chain to all providers),
+    /// these chains are only attempted on the matching provider, preventing
+    /// invalid combinations like "gpt-4o" on Anthropic.
+    #[serde(default)]
+    pub provider_model_fallbacks: HashMap<String, Vec<String>>,
+    /// Interval in seconds for background provider health probes.
+    /// `None` disables health probing (default). When enabled, a background
+    /// task periodically calls `warmup()` on each provider to pre-warm circuit
+    /// breaker state.
+    #[serde(default)]
+    pub health_probe_interval_secs: Option<u64>,
 }
 
 const fn default_provider_retries() -> u32 {
@@ -88,6 +111,10 @@ impl Default for ReliabilityConfig {
             channel_max_backoff_secs: default_channel_backoff_max_secs(),
             scheduler_poll_secs: default_scheduler_poll_secs(),
             scheduler_retries: default_scheduler_retries(),
+            circuit_breaker_threshold: None,
+            circuit_breaker_cooldown_ms: None,
+            provider_model_fallbacks: HashMap::new(),
+            health_probe_interval_secs: None,
         }
     }
 }
