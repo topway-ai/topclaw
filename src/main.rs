@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 // Lint configuration is in [lints] section of Cargo.toml.
 
 use anyhow::{bail, Context, Result};

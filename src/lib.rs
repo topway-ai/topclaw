@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! TopClaw is a trait-driven Rust runtime for agentic CLI, channel, gateway,
 //! and hardware workflows.
 //!
