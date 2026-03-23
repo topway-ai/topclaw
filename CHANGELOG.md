@@ -7,25 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **CLI simplification**: merged `topclaw peripheral` into `topclaw hardware`; removed obsolete `auth setup-token` (use `auth add-key`).
+- **Streaming think-tag stripping**: `<think>` blocks from reasoning models (MiniMax M2.7, Qwen3, GLM-4) are now stripped from both streaming drafts and final channel responses.
+- **Crate safety**: added `#![forbid(unsafe_code)]` to `src/lib.rs` and `src/main.rs`.
+
 ### Removed
-- Deprecated CLI aliases such as `topclaw onboard`, `topclaw init`, `chat`, `run`, `info`, `check`, `channels`, `skill`, and `self-improve`.
+- Deprecated CLI aliases (`topclaw onboard`, `topclaw init`, `chat`, `run`, `info`, `check`, `channels`, `skill`, `self-improve`).
 - Deprecated Unix installer wrappers `topclaw_install.sh` and `scripts/install.sh`.
-- Deprecated config alias `runtime.reasoning_level` and its `TOPCLAW_REASONING_LEVEL` / `REASONING_LEVEL` environment aliases.
-- Legacy `enc:` XOR-encrypted secret support and the associated migration helpers.
-- Dashboard `localStorage` auth-token migration path; session tokens now load only from memory + `sessionStorage`.
+- Deprecated config alias `runtime.reasoning_level` and its environment aliases.
+- Legacy `enc:` XOR-encrypted secret support and migration helpers.
+- All phantom channel code (Slack, Mattermost, Matrix, WhatsApp, Signal, Email, IRC, Lark, Feishu, DingTalk, QQ, Nextcloud Talk, Linq, iMessage, Nostr). Only Telegram, Discord, bridge, and webhook channels remain.
+- Phantom channel config secret encryption/decryption blocks.
+- Stale integration API gateway routes.
 
 ### Fixed
-- **Gemini thinking model support** — Responses from thinking models (e.g. `gemini-3-pro-preview`)
-  are now handled correctly. The provider skips internal reasoning parts (`thought: true`) and
-  signature parts (`thoughtSignature`), extracting only the final answer text. Falls back to
-  thinking content when no non-thinking response is available.
+- **Gemini thinking model support** — provider skips internal reasoning parts (`thought: true`) and signature parts, extracting only the final answer text.
 - Updated default gateway port to `42617`.
-- Removed all user-facing references to port `3000`.
-- **Onboarding channel menu dispatch** now uses an enum-backed selector instead of hard-coded
-  numeric match arms, preventing duplicated pattern arms and related `unreachable pattern`
-  compiler warnings in `src/onboard/wizard.rs`.
-- **OpenAI native tool spec parsing** now uses owned serializable/deserializable structs,
-  fixing a compile-time type mismatch when validating tool schemas before API calls.
+- **Onboarding channel menu dispatch** uses enum-backed selector instead of hard-coded numeric match arms.
+- **OpenAI native tool spec parsing** uses owned serializable/deserializable structs, fixing compile-time type mismatch.
+- **Unsafe Debt Audit CI** now passes (crate roots declare `#![forbid(unsafe_code)]`).
 
 ## [0.1.0] - 2026-02-13
 

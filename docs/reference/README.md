@@ -16,7 +16,6 @@ Use this section when you need exact command names, config keys, provider IDs, o
 
 - Custom OpenAI-compatible endpoints: [../custom-providers.md](../custom-providers.md)
 - Z.AI and GLM setup: [../zai-glm-setup.md](../zai-glm-setup.md)
-- Nextcloud Talk setup: [../nextcloud-talk-setup.md](../nextcloud-talk-setup.md)
 - LangGraph integration notes: [../langgraph-integration.md](../langgraph-integration.md)
 - Proxy scope playbook: [../proxy-agent-playbook.md](../proxy-agent-playbook.md)
 

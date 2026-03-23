@@ -2,7 +2,7 @@
 
 This inventory classifies documentation by intent and canonical location.
 
-Last reviewed: **March 12, 2026**.
+Last reviewed: **March 23, 2026**.
 
 ## Classification Legend
 
@@ -19,12 +19,6 @@ Last reviewed: **March 12, 2026**.
 | Doc | Type | Audience |
 |---|---|---|
 | `README.md` | Current Guide | all readers |
-| `docs/i18n/zh-CN/README.md` | Current Guide (localized) | Chinese readers |
-| `docs/i18n/ja/README.md` | Current Guide (localized) | Japanese readers |
-| `docs/i18n/ru/README.md` | Current Guide (localized) | Russian readers |
-| `docs/i18n/fr/README.md` | Current Guide (localized) | French readers |
-| `docs/i18n/vi/README.md` | Current Guide (localized) | Vietnamese readers |
-| `docs/i18n/el/README.md` | Current Guide (localized) | Greek readers |
 
 ### Docs system
 
@@ -33,22 +27,6 @@ Last reviewed: **March 12, 2026**.
 | `docs/README.md` | Current Guide (hub) | all readers |
 | `docs/SUMMARY.md` | Current Guide (unified TOC) | all readers |
 | `docs/structure/README.md` | Current Guide (structure map) | maintainers |
-| `docs/i18n-guide.md` | Current Guide (i18n completion contract) | contributors/agents |
-| `docs/i18n/README.md` | Current Guide (locale index) | maintainers/translators |
-| `docs/i18n-coverage.md` | Current Guide (coverage matrix) | maintainers/translators |
-
-## Locale Hubs (Canonical)
-
-| Locale | Canonical hub | Type |
-|---|---|---|
-| `zh-CN` | `docs/i18n/zh-CN/README.md` | Current Guide (localized hub scaffold) |
-| `ja` | `docs/i18n/ja/README.md` | Current Guide (localized hub scaffold) |
-| `ru` | `docs/i18n/ru/README.md` | Current Guide (localized hub scaffold) |
-| `fr` | `docs/i18n/fr/README.md` | Current Guide (localized hub scaffold) |
-| `vi` | `docs/i18n/vi/README.md` | Current Guide (localized hub + bridge pages) |
-| `el` | `docs/i18n/el/README.md` | Current Guide (localized hub + bridge pages) |
-
-Compatibility shims such as `docs/SUMMARY.<locale>.md` and `docs/vi/**` remain valid but are non-canonical.
 
 ## Collection Index Docs (English canonical)
 
@@ -81,8 +59,6 @@ Compatibility shims such as `docs/SUMMARY.<locale>.md` and `docs/vi/**` remain v
 | `docs/operations/connectivity-probes-runbook.md` | Current CI/ops Runbook | maintainers/operators |
 | `docs/troubleshooting.md` | Current Guide | users/operators |
 | `docs/network-deployment.md` | Current Guide | operators |
-| `docs/mattermost-setup.md` | Current Guide | operators |
-| `docs/nextcloud-talk-setup.md` | Current Guide | operators |
 | `docs/cargo-slicer-speedup.md` | Current Build/CI Guide | maintainers |
 | `docs/adding-boards-and-tools.md` | Current Guide | hardware builders |
 | `docs/arduino-uno-q-setup.md` | Current Guide | hardware builders |
@@ -119,6 +95,4 @@ These are valuable context, but **not strict runtime contracts**.
 ## Maintenance Contract
 
 1. Update `docs/SUMMARY.md` and nearest category index when adding a major doc.
-2. Keep locale navigation parity across all supported locales (`en`, `zh-CN`, `ja`, `ru`, `fr`, `vi`, `el`).
-3. Use `docs/i18n-guide.md` whenever docs IA/shared wording changes.
-4. Keep canonical localized hubs under `docs/i18n/<locale>/`; treat shim paths as compatibility only.
+2. Keep proposal/roadmap docs explicitly labeled; avoid mixing proposal text into runtime-contract docs.

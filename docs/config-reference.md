@@ -873,7 +873,6 @@ Notes:
 
 - Webhook endpoint is `POST /nextcloud-talk`.
 - `TOPCLAW_NEXTCLOUD_TALK_WEBHOOK_SECRET` overrides `webhook_secret` when set.
-- See [nextcloud-talk-setup.md](nextcloud-talk-setup.md) for setup and troubleshooting.
 
 ## `[hardware]`
 

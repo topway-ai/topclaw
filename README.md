@@ -9,9 +9,9 @@ TopClaw combines several runtime surfaces in one codebase:
 - a CLI for setup, diagnostics, and direct chat
 - an agent loop that can call tools and persist memory
 - provider adapters for multiple model APIs
-- channel adapters for Telegram, Discord, Slack, and others
+- channel adapters for Telegram and Discord (plus bridge and webhook transports)
 - an HTTP, WebSocket, and OpenAI-compatible gateway
-- optional hardware and peripheral integrations
+- optional hardware integrations (STM32, Arduino, RPi GPIO)
 
 The implementation is trait-driven. Most extensions are added by implementing an existing trait and registering it in the matching factory.
 
@@ -157,7 +157,8 @@ High-signal paths:
 - `src/security/`: policy, pairing, and secrets
 - `src/gateway/`: HTTP, SSE, WebSocket, and OpenAI-compatible endpoints
 - `src/runtime/`: runtime adapters
-- `src/peripherals/` and `src/hardware/`: hardware-facing integrations
+- `src/peripherals/`: hardware peripherals (STM32, RPi GPIO, Arduino)
+- `src/hardware/`: USB discovery and device introspection
 - `examples/`: custom provider, tool, channel, and memory examples
 - `tests/`: integration and regression coverage
 - `docs/`: user-facing reference, operations, security, and architecture docs
