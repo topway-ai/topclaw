@@ -93,7 +93,7 @@ async-trait = "0.1"
 ring = "0.17"
 
 # Memory / persistence
-rusqlite = { version = "0.37", features = ["bundled"] }
+rusqlite = { version = "0.39", features = ["bundled"] }
 postgres = { version = "0.19", features = ["with-chrono-0_4"], optional = true }
 tokio-postgres-rustls = { version = "0.12", optional = true }
 mysql = { version = "28", optional = true }
