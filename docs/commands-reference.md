@@ -30,8 +30,7 @@ Last verified: **March 21, 2026**.
 | `skills` | List/install/remove skills |
 | `config` | Export machine-readable config schema |
 | `completions` | Generate shell completion scripts to stdout |
-| `hardware` | Discover and introspect USB hardware |
-| `peripheral` | Configure and flash peripherals |
+| `hardware` | Discover, manage, and flash hardware boards |
 
 Canonical command names:
 
@@ -354,7 +353,6 @@ Skill manifests (`SKILL.toml`) support `prompts` and `[[tools]]`; both are injec
 - `topclaw auth login --provider <PROVIDER> [--profile <NAME>] [--device-code]`
 - `topclaw auth paste-redirect --provider <PROVIDER> [--profile <NAME>] [--input <URL_OR_CODE>]`
 - `topclaw auth paste-token --provider <PROVIDER> [--profile <NAME>] [--token <TOKEN>] [--auth-kind <KIND>]`
-- `topclaw auth setup-token --provider <PROVIDER> [--profile <NAME>]`
 - `topclaw auth refresh --provider <PROVIDER> [--profile <NAME>]`
 - `topclaw auth logout --provider <PROVIDER> [--profile <NAME>]`
 - `topclaw auth use --provider <PROVIDER> --profile <NAME>`
@@ -365,7 +363,7 @@ Notes:
 
 - `login` starts an OAuth flow for supported providers (for example `openai-codex`, `gemini`). Use `--device-code` for device-code flow.
 - `paste-redirect` completes an OAuth flow by pasting the redirect URL or auth code.
-- `paste-token` and `setup-token` handle Anthropic subscription auth tokens.
+- `paste-token` handles Anthropic subscription auth tokens.
 - `refresh` refreshes an access token using a saved refresh token.
 - `use` switches the active profile for a provider.
 - `list` and `status` show saved profiles and active token expiry information.
@@ -433,11 +431,11 @@ Notes:
 
 ### `peripheral`
 
-- `topclaw peripheral list`
-- `topclaw peripheral add <board> <path>`
-- `topclaw peripheral flash [--port <serial_port>]`
-- `topclaw peripheral setup-uno-q [--host <ip_or_host>]`
-- `topclaw peripheral flash-nucleo`
+- `topclaw hardware list`
+- `topclaw hardware add <board> <path>`
+- `topclaw hardware flash [--port <serial_port>]`
+- `topclaw hardware setup-uno-q [--host <ip_or_host>]`
+- `topclaw hardware flash-nucleo`
 
 ## Validation Tip
 

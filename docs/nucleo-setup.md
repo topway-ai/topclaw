@@ -43,7 +43,7 @@ TopClaw includes everything for Nucleo-F401RE:
 |-----------|----------|---------|
 | Firmware | `firmware/topclaw-nucleo/` | Embassy Rust — USART2 (115200), gpio_read, gpio_write |
 | Serial peripheral | `src/peripherals/serial.rs` | JSON-over-serial protocol (same as Arduino/ESP32) |
-| Flash command | `topclaw peripheral flash-nucleo` | Builds firmware, flashes via probe-rs |
+| Flash command | `topclaw hardware flash-nucleo` | Builds firmware, flashes via probe-rs |
 
 Protocol: newline-delimited JSON. Request: `{"id":"1","cmd":"gpio_write","args":{"pin":13,"value":1}}`. Response: `{"id":"1","ok":true,"result":"done"}`.
 
@@ -69,7 +69,7 @@ Protocol: newline-delimited JSON. Request: `{"id":"1","cmd":"gpio_write","args":
 From the topclaw repo root:
 
 ```bash
-topclaw peripheral flash-nucleo
+topclaw hardware flash-nucleo
 ```
 
 This builds `firmware/topclaw-nucleo` and runs `probe-rs run --chip STM32F401RETx`. The firmware runs immediately after flashing.
@@ -132,7 +132,7 @@ Pin 13 = PA5 = User LED (LD2) on Nucleo-F401RE.
 |------|---------|
 | 1 | Connect Nucleo via USB |
 | 2 | `cargo install probe-rs-tools --locked` |
-| 3 | `topclaw peripheral flash-nucleo` |
+| 3 | `topclaw hardware flash-nucleo` |
 | 4 | Add Nucleo to config.toml (path = your serial port) |
 | 5 | `topclaw daemon` or `topclaw agent -m "Turn on LED"` |
 
@@ -144,4 +144,4 @@ Pin 13 = PA5 = User LED (LD2) on Nucleo-F401RE.
 - **probe-rs not found** — `cargo install probe-rs-tools --locked` (the `probe-rs` crate is a library; the CLI is in `probe-rs-tools`)
 - **No probe detected** — Ensure Nucleo is connected. Try another USB cable/port.
 - **Serial port not found** — On Linux, add user to `dialout`: `sudo usermod -a -G dialout $USER`, then log out/in.
-- **GPIO commands ignored** — Check `path` in config matches your serial port. Run `topclaw peripheral list` to verify.
+- **GPIO commands ignored** — Check `path` in config matches your serial port. Run `topclaw hardware list` to verify.

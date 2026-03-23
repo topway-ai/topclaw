@@ -6,9 +6,9 @@ This guide explains how to add new hardware boards and custom tools to TopClaw.
 
 ```bash
 # Add a board (updates ~/.topclaw/config.toml)
-topclaw peripheral add nucleo-f401re /dev/ttyACM0
-topclaw peripheral add arduino-uno /dev/cu.usbmodem12345
-topclaw peripheral add rpi-gpio native   # for Raspberry Pi GPIO (Linux)
+topclaw hardware add nucleo-f401re /dev/ttyACM0
+topclaw hardware add arduino-uno /dev/cu.usbmodem12345
+topclaw hardware add rpi-gpio native   # for Raspberry Pi GPIO (Linux)
 
 # Restart daemon to apply
 topclaw daemon --host 127.0.0.1 --port 42617
@@ -87,7 +87,7 @@ Place PDFs in the datasheet directory. They are extracted and chunked for RAG.
 ## Adding a New Board Type
 
 1. **Create a datasheet** — `docs/datasheets/my-board.md` with pin aliases and GPIO info.
-2. **Add to config** — `topclaw peripheral add my-board /dev/ttyUSB0`
+2. **Add to config** — `topclaw hardware add my-board /dev/ttyUSB0`
 3. **Implement a peripheral** (optional) — For custom protocols, implement the `Peripheral` trait in `src/peripherals/` and register in `create_peripheral_tools`.
 
 See `docs/hardware-peripherals-design.md` for the full design.
@@ -102,10 +102,10 @@ See `docs/hardware-peripherals-design.md` for the full design.
 
 | Command | Description |
 |---------|-------------|
-| `topclaw peripheral list` | List configured boards |
-| `topclaw peripheral add <board> <path>` | Add board (writes config) |
-| `topclaw peripheral flash` | Flash Arduino firmware |
-| `topclaw peripheral flash-nucleo` | Flash Nucleo firmware |
+| `topclaw hardware list` | List configured boards |
+| `topclaw hardware add <board> <path>` | Add board (writes config) |
+| `topclaw hardware flash` | Flash Arduino firmware |
+| `topclaw hardware flash-nucleo` | Flash Nucleo firmware |
 | `topclaw hardware discover` | List USB devices |
 | `topclaw hardware info` | Chip info via probe-rs |
 

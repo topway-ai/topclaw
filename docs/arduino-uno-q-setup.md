@@ -12,7 +12,7 @@ TopClaw includes everything needed for Arduino Uno Q. **Clone the repo and follo
 |-----------|----------|---------|
 | Bridge app | `firmware/topclaw-uno-q-bridge/` | MCU sketch + Python socket server (port 9999) for GPIO |
 | Bridge tools | `src/peripherals/uno_q_bridge.rs` | `gpio_read` / `gpio_write` tools that talk to the Bridge over TCP |
-| Setup command | `src/peripherals/uno_q_setup.rs` | `topclaw peripheral setup-uno-q` deploys the Bridge via scp + arduino-app-cli |
+| Setup command | `src/peripherals/uno_q_setup.rs` | `topclaw hardware setup-uno-q` deploys the Bridge via scp + arduino-app-cli |
 | Config schema | `board = "arduino-uno-q"`, `transport = "bridge"` | Supported in `config.toml` |
 
 Build with `--features hardware` to include Uno Q support.
@@ -160,12 +160,12 @@ TopClaw includes the Bridge app and setup command.
 
 **From your Mac** (with topclaw repo):
 ```bash
-topclaw peripheral setup-uno-q --host 192.168.0.48
+topclaw hardware setup-uno-q --host 192.168.0.48
 ```
 
 **From the Uno Q** (SSH'd in):
 ```bash
-topclaw peripheral setup-uno-q
+topclaw hardware setup-uno-q
 ```
 
 This copies the Bridge app to `~/ArduinoApps/topclaw-uno-q-bridge` and starts it.
@@ -213,5 +213,5 @@ Now when you message your Telegram bot *"Turn on the LED"* or *"Set pin 13 high"
 - **"command not found: topclaw"** — Use full path: `/usr/local/bin/topclaw` or ensure `~/.cargo/bin` is in PATH.
 - **Telegram not responding** — Check bot_token, allowed_users, and that the Uno Q has internet (WiFi).
 - **Out of memory** — Keep features minimal (`--features hardware` for Uno Q); consider `compact_context = true`.
-- **GPIO commands ignored** — Ensure Bridge app is running (`topclaw peripheral setup-uno-q` deploys and starts it). Config must have `board = "arduino-uno-q"` and `transport = "bridge"`.
+- **GPIO commands ignored** — Ensure Bridge app is running (`topclaw hardware setup-uno-q` deploys and starts it). Config must have `board = "arduino-uno-q"` and `transport = "bridge"`.
 - **LLM provider (GLM/Zhipu)** — Use `default_provider = "glm"` or `"zhipu"` with `GLM_API_KEY` in env or config. TopClaw uses the correct v4 endpoint.
