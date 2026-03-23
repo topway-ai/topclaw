@@ -225,18 +225,12 @@ All contributors (human or agent) must follow the same collaboration flow:
 
 ### 6.1A PR Disposition and Workflow Authority (Required)
 
-- Decide merge/close outcomes from repository-local authority in this order: `.github/workflows/**`, GitHub branch protection/rulesets, `docs/pr-workflow.md`, then this `CLAUDE.md`.
-- External agent skills/templates are execution aids only; they must not override repository-local policy.
-- A normal contributor PR targeting `main` is valid under the main-first flow when required checks and review policy are satisfied; use `dev` only for explicit integration batching.
-- Direct-close the PR (do not supersede/replay) when high-confidence integrity-risk signals exist:
-  - unapproved or unrelated repository rebranding attempts (for example replacing project logo/identity assets)
-  - unauthorized platform-surface expansion (for example introducing `web` apps, dashboards, frontend stacks, or UI surfaces not requested by maintainers)
-  - title/scope deception that hides high-risk code changes (for example `docs:` title with broad `src/**` changes)
-  - spam-like or intentionally harmful payload patterns
-  - multi-domain dirty-bundle changes with no safe, auditable isolation path
-- If unauthorized platform-surface expansion is detected during review/implementation, report to maintainers immediately and pause further execution until explicit direction is given.
+- Merge/close authority order: `.github/workflows/**` → GitHub branch protection/rulesets → `docs/pr-workflow.md` → this `CLAUDE.md`. External agent skills/templates must not override repository-local policy.
+- PRs targeting `main` are valid when required checks and review policy pass; use `dev` only for explicit integration batching.
+- Direct-close (do not supersede) when integrity-risk signals exist: unauthorized rebranding, unauthorized platform-surface expansion (web apps/dashboards/UI not requested by maintainers), title/scope deception hiding high-risk code, spam, or dirty-bundle changes with no auditable isolation path.
+- If unauthorized platform-surface expansion is detected, report to maintainers and pause until directed.
 - Use supersede flow only when maintainers explicitly want to preserve valid work and attribution.
-- In public PR close/block comments, state only direct actionable reasons; do not include internal decision-process narration or "non-reason" qualifiers.
+- In public PR close comments, state only direct actionable reasons.
 
 ### 6.1B Assignee-First Gate (Required)
 
@@ -255,7 +249,6 @@ Use Git worktrees to isolate every active task stream safely and predictably:
 - Run validation commands inside the corresponding worktree before commit/PR.
 - Name worktrees clearly by scope (for example: `wt/ci-hardening`, `wt/provider-fix`).
 - After PR merge/close (or task abandonment), remove stale worktrees/branches and prune refs (`git worktree prune`, `git fetch --prune`).
-- Local Codex automation may use one-command cleanup helper: `~/.codex/skills/topclaw-pr-issue-automation/scripts/cleanup_track.sh --repo-dir <repo_dir> --worktree <worktree_path> --branch <branch_name>`.
 - PR checkpoint rules from section 6.1 still apply to worktree-based development.
 
 ### 6.3 Code Naming Contract (Required)
@@ -322,7 +315,6 @@ Use these rules to keep the trait/factory architecture stable under growth.
 - When runtime surfaces change, update related references (`commands/providers/channels/config/runbook/troubleshooting`).
 - For docs snapshots, add new date-stamped files for new sprints rather than rewriting historical context.
 
-
 ## 8) Validation Matrix
 
 Default local checks for code changes:
@@ -378,10 +370,7 @@ Treat privacy and neutrality as merge gates, not best-effort guidelines.
 - Use neutral project-scoped placeholders (for example: `user_a`, `test_user`, `project_bot`, `example.com`) instead of real identity data.
 - Test names/messages/fixtures must be impersonal and system-focused; avoid first-person or identity-specific language.
 - If identity-like context is unavoidable, use TopClaw-scoped roles/labels only (for example: `TopClawAgent`, `TopClawOperator`, `topclaw_user`) and avoid real-world personas.
-- Recommended identity-safe naming palette (use when identity-like context is required):
-    - actor labels: `TopClawAgent`, `TopClawOperator`, `TopClawMaintainer`, `topclaw_user`
-    - service/runtime labels: `topclaw_bot`, `topclaw_service`, `topclaw_runtime`, `topclaw_node`
-    - environment labels: `topclaw_project`, `topclaw_workspace`, `topclaw_channel`
+- Identity-safe naming palette: `TopClawAgent`, `TopClawOperator`, `TopClawMaintainer`, `topclaw_user`, `topclaw_bot`, `topclaw_service`, `topclaw_node`, `topclaw_project`.
 - If reproducing external incidents, redact and anonymize all payloads before committing.
 - Before push, review `git diff --cached` specifically for accidental sensitive strings and identity leakage.
 
@@ -389,87 +378,28 @@ Treat privacy and neutrality as merge gates, not best-effort guidelines.
 
 When a PR supersedes another contributor's PR and carries forward substantive code or design decisions, preserve authorship explicitly.
 
-- In the integrating commit message, add one `Co-authored-by: Name <email>` trailer per superseded contributor whose work is materially incorporated.
-- Use a GitHub-recognized email (`<login@users.noreply.github.com>` or the contributor's verified commit email) so attribution is rendered correctly.
-- Keep trailers on their own lines after a blank line at commit-message end; never encode them as escaped `\\n` text.
-- In the PR body, list superseded PR links and briefly state what was incorporated from each.
-- If no actual code/design was incorporated (only inspiration), do not use `Co-authored-by`; give credit in PR notes instead.
+- Add one `Co-authored-by: Name <email>` trailer per superseded contributor whose work is materially incorporated.
+- Use a GitHub-recognized email (`<login@users.noreply.github.com>` or the contributor's verified commit email).
+- Keep trailers on their own lines after a blank line at commit-message end; never encode as escaped `\\n` text.
+- In the PR body, list superseded PR links and state what was incorporated from each.
+- If no actual code/design was incorporated (only inspiration), give credit in PR notes instead of `Co-authored-by`.
 
-### 9.3 Superseded-PR PR Template (Recommended)
+Recommended title format: `feat(<scope>): unify and supersede #<pr_a>, #<pr_b>`
 
-When superseding multiple PRs, use a consistent title/body structure to reduce reviewer ambiguity.
-
-- Recommended title format: `feat(<scope>): unify and supersede #<pr_a>, #<pr_b> [and #<pr_n>]`
-- If this is docs/chore/meta only, keep the same supersede suffix and use the appropriate conventional-commit type.
-- In the PR body, include the following template (fill placeholders, remove non-applicable lines):
-
-```md
-## Supersedes
-- #<pr_a> by @<author_a>
-- #<pr_b> by @<author_b>
-- #<pr_n> by @<author_n>
-
-## Integrated Scope
-- From #<pr_a>: <what was materially incorporated>
-- From #<pr_b>: <what was materially incorporated>
-- From #<pr_n>: <what was materially incorporated>
-
-## Attribution
-- Co-authored-by trailers added for materially incorporated contributors: Yes/No
-- If No, explain why (for example: no direct code/design carry-over)
-
-## Non-goals
-- <explicitly list what was not carried over>
-
-## Risk and Rollback
-- Risk: <summary>
-- Rollback: <revert commit/PR strategy>
-```
-
-### 9.4 Superseded-PR Commit Template (Recommended)
-
-When a commit unifies or supersedes prior PR work, use a deterministic commit message layout so attribution is machine-parsed and reviewer-friendly.
-
-- Keep one blank line between message sections, and exactly one blank line before trailer lines.
-- Keep each trailer on its own line; do not wrap, indent, or encode as escaped `\n` text.
-- Add one `Co-authored-by` trailer per materially incorporated contributor, using GitHub-recognized email.
-- If no direct code/design is carried over, omit `Co-authored-by` and explain attribution in the PR body instead.
+Commit template:
 
 ```text
-feat(<scope>): unify and supersede #<pr_a>, #<pr_b> [and #<pr_n>]
+feat(<scope>): unify and supersede #<pr_a>, #<pr_b>
 
 <one-paragraph summary of integrated outcome>
 
 Supersedes:
 - #<pr_a> by @<author_a>
 - #<pr_b> by @<author_b>
-- #<pr_n> by @<author_n>
-
-Integrated scope:
-- <subsystem_or_feature_a>: from #<pr_x>
-- <subsystem_or_feature_b>: from #<pr_y>
 
 Co-authored-by: <Name A> <login_a@users.noreply.github.com>
 Co-authored-by: <Name B> <login_b@users.noreply.github.com>
 ```
-
-Reference docs:
-
-- `CONTRIBUTING.md`
-- `docs/README.md`
-- `docs/SUMMARY.md`
-- `docs/docs-inventory.md`
-- `docs/commands-reference.md`
-- `docs/providers-reference.md`
-- `docs/channels-reference.md`
-- `docs/config-reference.md`
-- `docs/operations-runbook.md`
-- `docs/troubleshooting.md`
-- `docs/one-click-bootstrap.md`
-- `docs/pr-workflow.md`
-- `docs/reviewer-playbook.md`
-- `docs/ci-map.md`
-- `docs/actions-source-policy.md`
 
 ## 10) Anti-Patterns (Do Not)
 
