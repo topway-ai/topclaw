@@ -25,7 +25,6 @@ This file is the canonical table of contents for the documentation system.
 - [commands-reference.md](commands-reference.md)
 - [providers-reference.md](providers-reference.md)
 - [channels-reference.md](channels-reference.md)
-- [nextcloud-talk-setup.md](nextcloud-talk-setup.md)
 - [config-reference.md](config-reference.md)
 - [custom-providers.md](custom-providers.md)
 - [zai-glm-setup.md](zai-glm-setup.md)
@@ -40,7 +39,6 @@ This file is the canonical table of contents for the documentation system.
 - [release-process.md](release-process.md)
 - [troubleshooting.md](troubleshooting.md)
 - [network-deployment.md](network-deployment.md)
-- [mattermost-setup.md](mattermost-setup.md)
 
 ### 4) Security
 

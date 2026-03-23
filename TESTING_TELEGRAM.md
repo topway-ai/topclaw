@@ -349,4 +349,4 @@ topclaw channel doctor
 - [Telegram Bot API Documentation](https://core.telegram.org/bots/api)
 - [TopClaw Main README](README.md)
 - [Contributing Guide](CONTRIBUTING.md)
-- [Issue Tracker](https://github.com/theonlyhennygod/topclaw/issues)
+- [Issue Tracker](https://github.com/topway-ai/topclaw/issues)

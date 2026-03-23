@@ -140,7 +140,7 @@ Required:
 - `src/security/` — policy, pairing, secret store
 - `src/memory/` — markdown/sqlite memory backends + embeddings/vector merge
 - `src/providers/` — model providers and resilient wrapper
-- `src/channels/` — Telegram/Discord/Slack/etc channels
+- `src/channels/` — Telegram/Discord channels (+ bridge/webhook)
 - `src/tools/` — tool execution surface (shell, file, memory, browser)
 - `src/peripherals/` — hardware peripherals (STM32, RPi GPIO); see `docs/hardware-peripherals-design.md`
 - `src/runtime/` — runtime adapters (currently native)

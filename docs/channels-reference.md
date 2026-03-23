@@ -2,15 +2,15 @@
 
 This document is the canonical reference for channel configuration in TopClaw.
 
-Last verified: **March 21, 2026**.
+Last verified: **March 23, 2026**.
 
-> **Implementation status:** CLI, Telegram, and Discord channels are currently implemented and tested. All other channels listed below (Slack, Mattermost, Matrix, Signal, WhatsApp, Email, IRC, Lark, Feishu, DingTalk, QQ, Nextcloud Talk, Linq, iMessage, Nostr) have config schema support and are planned or in progress.
+> **Implemented channels:** CLI, Telegram, Discord, Bridge, and Webhook.
+> All other channel types (Slack, Mattermost, Matrix, etc.) were removed in v2026.3.22.
 
 ## Quick Paths
 
 - Need a full config reference by channel: jump to [Per-Channel Config Examples](#4-per-channel-config-examples).
 - Need a no-response diagnosis flow: jump to [Troubleshooting Checklist](#6-troubleshooting-checklist).
-- Need Nextcloud Talk bot setup: use [Nextcloud Talk Setup](./nextcloud-talk-setup.md).
 - Need deployment/network assumptions (polling vs webhook): use [Network Deployment](./network-deployment.md).
 
 ---
@@ -113,22 +113,8 @@ If a channel sub-table is present in config but the corresponding feature is not
 | CLI | local stdin/stdout | No |
 | Telegram | polling | No |
 | Discord | gateway/websocket | No |
-| Slack | events API | No (token-based channel flow) |
-| Mattermost | polling | No |
-| Matrix | sync API (supports E2EE) | No |
-| Signal | signal-cli HTTP bridge | No (local bridge endpoint) |
-| WhatsApp | webhook (Cloud API) or websocket (Web mode) | Cloud API: Yes (public HTTPS callback), Web mode: No |
-| Nextcloud Talk | webhook (`/nextcloud-talk`) | Yes (public HTTPS callback) |
+| Bridge | external bridge process | No |
 | Webhook | gateway endpoint (`/webhook`) | Usually yes |
-| Email | IMAP polling + SMTP send | No |
-| IRC | IRC socket | No |
-| Lark | websocket (default) or webhook | Webhook mode only |
-| Feishu | websocket (default) or webhook | Webhook mode only |
-| DingTalk | stream mode | No |
-| QQ | bot gateway | No |
-| Linq | webhook (`/linq`) | Yes (public HTTPS callback) |
-| iMessage | local integration | No |
-| Nostr | relay websocket (NIP-04 / NIP-17) | No |
 
 ---
 
@@ -140,16 +126,9 @@ For channels with inbound sender allowlists:
 - `"*"`: allow all inbound senders (use for temporary verification only).
 - Explicit list: allow only listed senders.
 
-Field names differ by channel:
+Field name: `allowed_users` (Telegram, Discord).
 
-- `allowed_users` (Telegram/Discord/Slack/Mattermost/Matrix/IRC/Lark/Feishu/DingTalk/QQ/Nextcloud Talk)
-- `allowed_from` (Signal)
-- `allowed_numbers` (WhatsApp)
-- `allowed_senders` (Email/Linq)
-- `allowed_contacts` (iMessage)
-- `allowed_pubkeys` (Nostr)
-
-### Group-Chat Trigger Policy (Telegram/Discord/Slack/Mattermost/Lark/Feishu)
+### Group-Chat Trigger Policy (Telegram/Discord)
 
 These channels support an explicit `group_reply` policy:
 
@@ -208,101 +187,7 @@ mode = "all_messages"             # optional: all_messages | mention_only
 allowed_sender_ids = []           # optional: sender IDs that bypass mention gate
 ```
 
-### 4.3 Slack
-
-```toml
-[channels_config.slack]
-bot_token = "xoxb-..."
-app_token = "xapp-..."             # optional
-channel_id = "C1234567890"         # optional: single channel; omit or "*" for all accessible channels
-allowed_users = ["*"]
-
-[channels_config.slack.group_reply]
-mode = "all_messages"              # optional: all_messages | mention_only
-allowed_sender_ids = []            # optional: sender IDs that bypass mention gate
-```
-
-Slack listen behavior:
-
-- `channel_id = "C123..."`: listen only on that channel.
-- `channel_id = "*"` or omitted: auto-discover and listen across all accessible channels.
-
-### 4.4 Mattermost
-
-```toml
-[channels_config.mattermost]
-url = "https://mm.example.com"
-bot_token = "mattermost-token"
-channel_id = "channel-id"          # required for listening
-allowed_users = ["*"]
-
-[channels_config.mattermost.group_reply]
-mode = "all_messages"              # optional: all_messages | mention_only
-allowed_sender_ids = []            # optional: sender IDs that bypass mention gate
-```
-
-### 4.5 Matrix
-
-```toml
-[channels_config.matrix]
-homeserver = "https://matrix.example.com"
-access_token = "syt_..."
-user_id = "@topclaw:matrix.example.com"   # optional, recommended for E2EE
-device_id = "DEVICEID123"                  # optional, recommended for E2EE
-room_id = "!room:matrix.example.com"       # or room alias (#ops:matrix.example.com)
-allowed_users = ["*"]
-mention_only = false                       # optional: when true, only DM / @mention / reply-to-bot
-```
-
-Matrix channel support is config-schema only (planned).
-
-### 4.6 Signal
-
-```toml
-[channels_config.signal]
-http_url = "http://127.0.0.1:8686"
-account = "+1234567890"
-group_id = "dm"                    # optional: "dm" / group id / omitted
-allowed_from = ["*"]
-ignore_attachments = false
-ignore_stories = true
-```
-
-### 4.7 WhatsApp
-
-TopClaw supports two WhatsApp backends:
-
-- **Cloud API mode** (`phone_number_id` + `access_token` + `verify_token`)
-- **WhatsApp Web mode** (`session_path`, requires build flag `--features whatsapp-web`)
-
-Cloud API mode:
-
-```toml
-[channels_config.whatsapp]
-access_token = "EAAB..."
-phone_number_id = "123456789012345"
-verify_token = "your-verify-token"
-app_secret = "your-app-secret"     # optional but recommended
-allowed_numbers = ["*"]
-```
-
-WhatsApp Web mode:
-
-```toml
-[channels_config.whatsapp]
-session_path = "~/.topclaw/state/whatsapp-web/session.db"
-pair_phone = "15551234567"         # optional; omit to use QR flow
-pair_code = ""                     # optional custom pair code
-allowed_numbers = ["*"]
-```
-
-Notes:
-
-- Build with `cargo build --features whatsapp-web` (or equivalent run command).
-- Keep `session_path` on persistent storage to avoid relinking after restart.
-- Reply routing uses the originating chat JID, so direct and group replies work correctly.
-
-### 4.8 Webhook Channel Config (Gateway)
+### 4.3 Webhook (Gateway)
 
 `channels_config.webhook` enables webhook-specific gateway behavior.
 
@@ -313,178 +198,6 @@ secret = "optional-shared-secret"
 ```
 
 Run with gateway/daemon and verify `/health`.
-
-### 4.9 Email
-
-```toml
-[channels_config.email]
-imap_host = "imap.example.com"
-imap_port = 993
-imap_folder = "INBOX"
-smtp_host = "smtp.example.com"
-smtp_port = 465
-smtp_tls = true
-username = "bot@example.com"
-password = "email-password"
-from_address = "bot@example.com"
-idle_timeout_secs = 60
-allowed_senders = ["*"]
-```
-
-### 4.10 IRC
-
-```toml
-[channels_config.irc]
-server = "irc.libera.chat"
-port = 6697
-nickname = "topclaw-bot"
-username = "topclaw"              # optional
-channels = ["#topclaw"]
-allowed_users = ["*"]
-server_password = ""                # optional
-nickserv_password = ""              # optional
-sasl_password = ""                  # optional
-verify_tls = true
-```
-
-### 4.11 Lark
-
-```toml
-[channels_config.lark]
-app_id = "your_lark_app_id"
-app_secret = "your_lark_app_secret"
-encrypt_key = ""                    # optional
-verification_token = ""             # optional
-allowed_users = ["*"]
-receive_mode = "websocket"          # or "webhook"
-port = 8081                          # required for webhook mode
-
-[channels_config.lark.group_reply]
-mode = "all_messages"               # optional: all_messages | mention_only
-allowed_sender_ids = []             # optional: sender open_ids that bypass mention gate
-```
-
-### 4.12 Feishu
-
-```toml
-[channels_config.feishu]
-app_id = "your_lark_app_id"
-app_secret = "your_lark_app_secret"
-encrypt_key = ""                    # optional
-verification_token = ""             # optional
-allowed_users = ["*"]
-receive_mode = "websocket"          # or "webhook"
-port = 8081                          # required for webhook mode
-
-[channels_config.feishu.group_reply]
-mode = "all_messages"               # optional: all_messages | mention_only
-allowed_sender_ids = []             # optional: sender open_ids that bypass mention gate
-```
-
-- Inbound `image` messages are converted to multimodal markers (`[IMAGE:data:image/...;base64,...]`).
-- If image download fails, TopClaw forwards fallback text instead of silently dropping the message.
-
-### 4.13 Nostr
-
-```toml
-[channels_config.nostr]
-private_key = "nsec1..."                   # hex or nsec bech32 (encrypted at rest)
-# relays default to relay.damus.io, nos.lol, relay.primal.net, relay.snort.social
-# relays = ["wss://relay.damus.io", "wss://nos.lol"]
-allowed_pubkeys = ["hex-or-npub"]          # empty = deny all, "*" = allow all
-```
-
-Nostr supports both NIP-04 (legacy encrypted DMs) and NIP-17 (gift-wrapped private messages).
-Replies automatically use the same protocol the sender used. The private key is encrypted at rest
-via the `SecretStore` when `secrets.encrypt = true` (the default).
-
-Interactive onboarding support:
-
-```bash
-topclaw bootstrap --interactive
-```
-
-The wizard now includes dedicated **Lark** and **Feishu** steps with:
-
-- credential verification against official Open Platform auth endpoint
-- receive mode selection (`websocket` or `webhook`)
-- optional webhook verification token prompt (recommended for stronger callback authenticity checks)
-
-Runtime token behavior:
-
-- `tenant_access_token` is cached with a refresh deadline based on `expire`/`expires_in` from the auth response.
-- send requests automatically retry once after token invalidation when Feishu/Lark returns either HTTP `401` or business error code `99991663` (`Invalid access token`).
-- if the retry still returns token-invalid responses, the send call fails with the upstream status/body for easier troubleshooting.
-
-### 4.14 DingTalk
-
-```toml
-[channels_config.dingtalk]
-client_id = "ding-app-key"
-client_secret = "ding-app-secret"
-allowed_users = ["*"]
-```
-
-### 4.15 QQ
-
-```toml
-[channels_config.qq]
-app_id = "qq-app-id"
-app_secret = "qq-app-secret"
-allowed_users = ["*"]
-receive_mode = "webhook" # webhook (default) or websocket
-```
-
-Notes:
-
-- `webhook` mode is now the default and serves inbound callbacks at `POST /qq`.
-- QQ validation challenge payloads (`op = 13`) are auto-signed using `app_secret`.
-- `X-Bot-Appid` is checked when present and must match `app_id`.
-- Set `receive_mode = "websocket"` to use the gateway WebSocket receive path.
-
-### 4.16 Nextcloud Talk
-
-```toml
-[channels_config.nextcloud_talk]
-base_url = "https://cloud.example.com"
-app_token = "nextcloud-talk-app-token"
-webhook_secret = "optional-webhook-secret"  # optional but recommended
-allowed_users = ["*"]
-```
-
-Notes:
-
-- Inbound webhook endpoint: `POST /nextcloud-talk`.
-- Signature verification uses `X-Nextcloud-Talk-Random` and `X-Nextcloud-Talk-Signature`.
-- If `webhook_secret` is set, invalid signatures are rejected with `401`.
-- `TOPCLAW_NEXTCLOUD_TALK_WEBHOOK_SECRET` overrides config secret.
-- See [nextcloud-talk-setup.md](./nextcloud-talk-setup.md) for a full runbook.
-
-### 4.16 Linq
-
-```toml
-[channels_config.linq]
-api_token = "linq-partner-api-token"
-from_phone = "+15551234567"
-signing_secret = "optional-webhook-signing-secret"  # optional but recommended
-allowed_senders = ["*"]
-```
-
-Notes:
-
-- Linq uses the Partner V3 API for iMessage, RCS, and SMS.
-- Inbound webhook endpoint: `POST /linq`.
-- Signature verification uses `X-Webhook-Signature` (HMAC-SHA256) and `X-Webhook-Timestamp`.
-- If `signing_secret` is set, invalid or stale (>300s) signatures are rejected.
-- `TOPCLAW_LINQ_SIGNING_SECRET` overrides config secret.
-- `allowed_senders` uses E.164 phone number format (e.g. `+1234567890`).
-
-### 4.17 iMessage
-
-```toml
-[channels_config.imessage]
-allowed_contacts = ["*"]
-```
 
 ---
 
@@ -532,7 +245,7 @@ RUST_LOG=info topclaw daemon 2>&1 | tee /tmp/topclaw.log
 Then filter channel/gateway events:
 
 ```bash
-rg -n "Matrix|Telegram|Discord|Slack|Mattermost|Signal|WhatsApp|Email|IRC|Lark|DingTalk|QQ|iMessage|Nostr|Webhook|Channel" /tmp/topclaw.log
+rg -n "Telegram|Discord|Webhook|Channel" /tmp/topclaw.log
 ```
 
 ### 7.2 Keyword table
@@ -541,20 +254,7 @@ rg -n "Matrix|Telegram|Discord|Slack|Mattermost|Signal|WhatsApp|Email|IRC|Lark|D
 |---|---|---|---|
 | Telegram | `Telegram channel listening for messages...` | `Telegram: ignoring message from unauthorized user:` | `Telegram poll error:` / `Telegram parse error:` / `Telegram polling conflict (409):` |
 | Discord | `Discord: connected and identified` | `Discord: ignoring message from unauthorized user:` | `Discord: received Reconnect (op 7)` / `Discord: received Invalid Session (op 9)` |
-| Slack | `Slack channel listening on #` / `Slack channel_id not set (or '*'); listening across all accessible channels.` | `Slack: ignoring message from unauthorized user:` | `Slack poll error:` / `Slack parse error:` / `Slack channel discovery failed:` |
-| Mattermost | `Mattermost channel listening on` | `Mattermost: ignoring message from unauthorized user:` | `Mattermost poll error:` / `Mattermost parse error:` |
-| Matrix | `Matrix channel listening on room` / `Matrix room ... is encrypted; E2EE decryption is enabled via matrix-sdk.` | `Matrix whoami failed; falling back to configured session hints for E2EE session restore:` / `Matrix whoami failed while resolving listener user_id; using configured user_id hint:` | `Matrix sync error: ... retrying...` |
-| Signal | `Signal channel listening via SSE on` | (allowlist checks are enforced by `allowed_from`) | `Signal SSE returned ...` / `Signal SSE connect error:` |
-| WhatsApp (channel) | `WhatsApp channel active (webhook mode).` / `WhatsApp Web connected successfully` | `WhatsApp: ignoring message from unauthorized number:` / `WhatsApp Web: message from ... not in allowed list` | `WhatsApp send failed:` / `WhatsApp Web stream error:` |
-| Webhook / WhatsApp (gateway) | `WhatsApp webhook verified successfully` | `Webhook: rejected — not paired / invalid bearer token` / `Webhook: rejected request — invalid or missing X-Webhook-Secret` / `WhatsApp webhook verification failed — token mismatch` | `Webhook JSON parse error:` |
-| Email | `Email polling every ...` / `Email sent to ...` | `Blocked email from ...` | `Email poll failed:` / `Email poll task panicked:` |
-| IRC | `IRC channel connecting to ...` / `IRC registered as ...` | (allowlist checks are enforced by `allowed_users`) | `IRC SASL authentication failed (...)` / `IRC server does not support SASL...` / `IRC nickname ... is in use, trying ...` |
-| Lark / Feishu | `Lark: WS connected` / `Lark event callback server listening on` | `Lark WS: ignoring ... (not in allowed_users)` / `Lark: ignoring message from unauthorized user:` | `Lark: ping failed, reconnecting` / `Lark: heartbeat timeout, reconnecting` / `Lark: WS read error:` |
-| DingTalk | `DingTalk: connected and listening for messages...` | `DingTalk: ignoring message from unauthorized user:` | `DingTalk WebSocket error:` / `DingTalk: message channel closed` |
-| QQ | `QQ: connected and identified` | `QQ: ignoring C2C message from unauthorized user:` / `QQ: ignoring group message from unauthorized user:` | `QQ: received Reconnect (op 7)` / `QQ: received Invalid Session (op 9)` / `QQ: message channel closed` |
-| Nextcloud Talk (gateway) | `POST /nextcloud-talk — Nextcloud Talk bot webhook` | `Nextcloud Talk webhook signature verification failed` / `Nextcloud Talk: ignoring message from unauthorized actor:` | `Nextcloud Talk send failed:` / `LLM error for Nextcloud Talk message:` |
-| iMessage | `iMessage channel listening (AppleScript bridge)...` | (contact allowlist enforced by `allowed_contacts`) | `iMessage poll error:` |
-| Nostr | `Nostr channel listening as npub1...` | `Nostr: ignoring NIP-04 message from unauthorized pubkey:` / `Nostr: ignoring NIP-17 message from unauthorized pubkey:` | `Failed to decrypt NIP-04 message:` / `Failed to unwrap NIP-17 gift wrap:` / `Nostr relay pool shut down` |
+| Webhook (gateway) | gateway startup log | `Webhook: rejected — not paired / invalid bearer token` / `Webhook: rejected request — invalid or missing X-Webhook-Secret` | `Webhook JSON parse error:` |
 
 ### 7.3 Runtime supervisor keywords
 

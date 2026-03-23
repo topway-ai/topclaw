@@ -76,7 +76,7 @@ If you only need the common day-1/day-2 commands, the table above is the fastest
 - `topclaw agent`
 - `topclaw agent -m "Hello"`
 - `topclaw agent --provider <ID> --model <MODEL> --temperature <0.0-2.0>`
-- `topclaw agent --peripheral <board:path>`
+- `topclaw agent --hardware <board:path>`
 
 Tip:
 
@@ -428,8 +428,6 @@ Notes:
 - `topclaw hardware discover`
 - `topclaw hardware introspect <path>`
 - `topclaw hardware info [--chip <chip_name>]`
-
-### `peripheral`
 
 - `topclaw hardware list`
 - `topclaw hardware add <board> <path>`

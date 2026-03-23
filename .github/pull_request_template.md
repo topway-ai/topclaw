@@ -29,8 +29,6 @@ Describe this PR in 2-5 bullets:
 - Depends on # (if stacked)
 - Existing overlapping PR(s) reviewed for this issue (list `#<pr> by @<author>` or `N/A`):
 - Supersedes # (if replacing older PR)
-- Linear issue key(s) (required, e.g. `RMN-123`):
-- Linear issue URL(s):
 
 ## Supersede Attribution (required when `Supersedes #` is used)
 
@@ -74,14 +72,6 @@ cargo test
 - Migration needed? (`Yes/No`)
 - If yes, exact upgrade steps:
 
-## i18n Follow-Through (required when docs or user-facing wording changes)
-
-- i18n follow-through triggered? (`Yes/No`)
-- If `Yes`, locale navigation parity updated in `README*`, `docs/README*`, and `docs/SUMMARY.md` for supported locales (`en`, `zh-CN`, `ja`, `ru`, `fr`, `vi`)? (`Yes/No`)
-- If `Yes`, localized runtime-contract docs updated where equivalents exist (minimum for `fr`/`vi`: `commands-reference`, `config-reference`, `troubleshooting`)? (`Yes/No/N.A.`)
-- If `Yes`, Vietnamese canonical docs under `docs/i18n/vi/**` synced and compatibility shims under `docs/*.vi.md` validated? (`Yes/No/N.A.`)
-- If any `No`/`N.A.`, link follow-up issue/PR and explain scope decision:
-
 ## Human Verification (required)
 
 What was personally validated beyond CI:
@@ -101,7 +91,7 @@ What was personally validated beyond CI:
 - Agent tools used (if any):
 - Workflow/plan summary (if any):
 - Verification focus:
-- Confirmation: naming + architecture boundaries followed (`AGENTS.md` + `CONTRIBUTING.md`):
+- Confirmation: naming + architecture boundaries followed (`CLAUDE.md` + `CONTRIBUTING.md`):
 
 ## Rollback Plan (required)
 

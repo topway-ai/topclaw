@@ -14,7 +14,6 @@ Use this section once TopClaw is installed and you need to run, debug, or mainta
 | Connectivity probes | [connectivity-probes-runbook.md](connectivity-probes-runbook.md) |
 | Release workflow | [../release-process.md](../release-process.md) |
 | Network deployment | [../network-deployment.md](../network-deployment.md) |
-| Mattermost setup | [../mattermost-setup.md](../mattermost-setup.md) |
 
 ## Recommended Workflow
 
