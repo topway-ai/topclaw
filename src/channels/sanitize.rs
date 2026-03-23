@@ -124,12 +124,35 @@ pub(super) fn strip_tool_call_tags(message: &str) -> String {
 }
 
 pub(crate) fn sanitize_channel_response(response: &str, tools: &[Box<dyn Tool>]) -> String {
-    let without_tool_tags = strip_tool_call_tags(response);
+    let without_think = strip_think_blocks(response);
+    let without_tool_tags = strip_tool_call_tags(&without_think);
     let known_tool_names: HashSet<String> = tools
         .iter()
         .map(|tool| tool.name().to_ascii_lowercase())
         .collect();
     strip_isolated_tool_json_artifacts(&without_tool_tags, &known_tool_names)
+}
+
+/// Strip `<think>…</think>` blocks from final model output.
+/// Defense-in-depth: the provider layer strips these on parse, but this
+/// ensures no reasoning leaks to any channel even if a provider path misses it.
+fn strip_think_blocks(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut rest = s;
+    loop {
+        if let Some(start) = rest.find("<think>") {
+            result.push_str(&rest[..start]);
+            if let Some(end) = rest[start..].find("</think>") {
+                rest = &rest[start + end + "</think>".len()..];
+            } else {
+                break;
+            }
+        } else {
+            result.push_str(rest);
+            break;
+        }
+    }
+    result.trim().to_string()
 }
 
 fn is_tool_call_payload(value: &serde_json::Value, known_tool_names: &HashSet<String>) -> bool {

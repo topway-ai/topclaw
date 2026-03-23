@@ -474,7 +474,12 @@ pub(super) async fn process_channel_message_with_options(
                     last_sanitized_progress = None;
                 }
 
-                if accumulated.is_empty() {
+                // Strip <think>…</think> blocks so reasoning models
+                // (e.g. MiniMax M2.7) don't leak chain-of-thought to the user.
+                // Also suppress everything after an unclosed <think> tag
+                // (the closing tag hasn't streamed in yet).
+                let visible = strip_think_blocks_streaming(&accumulated);
+                if visible.is_empty() {
                     continue;
                 }
 
@@ -485,7 +490,7 @@ pub(super) async fn process_channel_message_with_options(
 
                 if let Some(draft_id) = current_draft_id {
                     match channel
-                        .update_draft(&reply_target, &draft_id, &accumulated)
+                        .update_draft(&reply_target, &draft_id, &visible)
                         .await
                     {
                         Ok(Some(new_id)) => {
@@ -502,7 +507,7 @@ pub(super) async fn process_channel_message_with_options(
 
                 match channel
                     .send_draft(
-                        &SendMessage::new(&accumulated, &reply_target).in_thread(thread_ts.clone()),
+                        &SendMessage::new(&visible, &reply_target).in_thread(thread_ts.clone()),
                     )
                     .await
                 {
@@ -1233,4 +1238,31 @@ pub(super) async fn process_channel_message_with_options(
             .add_reaction(&msg.reply_target, &msg.id, reaction_done_emoji)
             .await;
     }
+}
+
+/// Strip `<think>…</think>` blocks from streaming accumulated text.
+///
+/// Handles three cases:
+/// 1. Complete `<think>…</think>` blocks — removed entirely.
+/// 2. Unclosed `<think>` at the end — everything from the opening tag onward
+///    is suppressed (the closing tag hasn't streamed in yet).
+/// 3. No think tags — returned as-is.
+fn strip_think_blocks_streaming(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut rest = s;
+    loop {
+        if let Some(start) = rest.find("<think>") {
+            result.push_str(&rest[..start]);
+            if let Some(end) = rest[start..].find("</think>") {
+                rest = &rest[start + end + "</think>".len()..];
+            } else {
+                // Unclosed <think> — suppress the rest (still streaming).
+                break;
+            }
+        } else {
+            result.push_str(rest);
+            break;
+        }
+    }
+    result.trim().to_string()
 }
