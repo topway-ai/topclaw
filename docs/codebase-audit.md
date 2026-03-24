@@ -1,5 +1,7 @@
 # TopClaw Codebase Audit Report
 
+> **Historical snapshot.** This audit was conducted on 2026-03-18 before the v2026.3.22 simplification. Many findings (phantom channel flags, WhatsApp Web feature, dead SOP tools) have since been resolved. See `audit-2026-03-22-simplification.md` for the cleanup that followed.
+
 **Date**: 2026-03-18
 **Scope**: Phase 1 Architecture Audit for Simplification
 

@@ -52,14 +52,14 @@ fn base64url_encode_bytes(data: &[u8]) -> String {
     let mut result = String::new();
     let mut i = 0;
     while i < data.len() {
-        let b0 = data[i] as u32;
+        let b0 = u32::from(data[i]);
         let b1 = if i + 1 < data.len() {
-            data[i + 1] as u32
+            u32::from(data[i + 1])
         } else {
             0
         };
         let b2 = if i + 2 < data.len() {
-            data[i + 2] as u32
+            u32::from(data[i + 2])
         } else {
             0
         };
@@ -109,6 +109,7 @@ impl GlmProvider {
             );
         }
 
+        #[allow(clippy::cast_possible_truncation)]
         let now_ms = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
 
         // Check cache (valid for 3 minutes, token expires at 3.5 min)

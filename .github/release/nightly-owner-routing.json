@@ -2,7 +2,6 @@
   "schema_version": "topclaw.nightly-owner-routing.v1",
   "owners": {
     "default": "@jackfly8",
-    "whatsapp-web": "@jackfly8",
     "browser-native": "@jackfly8",
     "nightly-all-features": "@jackfly8"
   }

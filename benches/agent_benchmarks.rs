@@ -182,11 +182,11 @@ Let me know if you need more."#
     };
 
     c.bench_function("xml_parse_single_tool_call", |b| {
-        b.iter(|| dispatcher.parse_response(black_box(&single_tool)))
+        b.iter(|| dispatcher.parse_response(black_box(&single_tool)));
     });
 
     c.bench_function("xml_parse_multi_tool_call", |b| {
-        b.iter(|| dispatcher.parse_response(black_box(&multi_tool)))
+        b.iter(|| dispatcher.parse_response(black_box(&multi_tool)));
     });
 }
 
@@ -216,7 +216,7 @@ fn bench_native_parsing(c: &mut Criterion) {
     };
 
     c.bench_function("native_parse_tool_calls", |b| {
-        b.iter(|| dispatcher.parse_response(black_box(&response)))
+        b.iter(|| dispatcher.parse_response(black_box(&response)));
     });
 }
 

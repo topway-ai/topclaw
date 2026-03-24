@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "topclaw"
-version = "2026.3.23"
+version = "2026.3.24"
 edition = "2021"
 authors = ["theonlyhennygod"]
 license = "MIT OR Apache-2.0"
@@ -234,8 +234,8 @@ name = "agent_benchmarks"
 harness = false
 
 [lints.clippy]
-all = "warn"
-pedantic = "warn"
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
 assigning_clones = "allow"
 bool_to_int_with_if = "allow"
 case_sensitive_file_extension_comparisons = "allow"
@@ -268,6 +268,7 @@ unnecessary_literal_bound = "allow"
 unnecessary_map_or = "allow"
 unnecessary_wraps = "allow"
 unused_self = "allow"
+wildcard_imports = "allow"
 
 [lints.rust]
 unsafe_code = "forbid"

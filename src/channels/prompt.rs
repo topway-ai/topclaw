@@ -39,17 +39,6 @@ pub(crate) fn channel_delivery_instructions(channel_name: &str) -> Option<&'stat
              - Keep attachment markers outside code fences: [IMAGE:<path-or-url>], [DOCUMENT:<path-or-url>], [VIDEO:<path-or-url>], [AUDIO:<path-or-url>]\n\
              - Use tool results silently: answer the latest user message directly, and do not narrate delayed/internal tool execution bookkeeping.",
         ),
-        "whatsapp" => Some(
-            "When responding on WhatsApp:\n\
-             - Use *bold* for emphasis (WhatsApp uses single asterisks).\n\
-             - Be concise. No markdown headers (## etc.) — they don't render.\n\
-             - No markdown tables — use bullet lists instead.\n\
-             - For sending images, documents, videos, or audio files use markers: [IMAGE:<absolute-path>], [DOCUMENT:<absolute-path>], [VIDEO:<absolute-path>], [AUDIO:<absolute-path>]\n\
-             - The path MUST be an absolute filesystem path to a local file (e.g. [IMAGE:/home/nicolas/.topclaw/workspace/images/chart.png]).\n\
-             - Keep normal text outside markers and never wrap markers in code fences.\n\
-             - You can combine text and media in one response — text is sent first, then each attachment.\n\
-             - Use tool results silently: answer the latest user message directly, and do not narrate delayed/internal tool execution bookkeeping.",
-        ),
         _ => None,
     }
 }

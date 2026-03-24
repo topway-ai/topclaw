@@ -81,7 +81,6 @@ Operational notes:
 
 - Marker parsing applies to user-role messages before provider calls.
 - Provider capability is enforced at runtime: if the selected provider does not support vision, the request fails with a structured capability error (`capability=vision`).
-- Linq webhook `media` parts with `image/*` MIME type are automatically converted to this marker format.
 
 ## Channel Matrix
 

@@ -257,7 +257,7 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
     let has_runtime_channels = !channels.is_empty();
 
     for failure in &init_failures {
-        println!("  \u{274C} {:<9} {failure}", "Nostr");
+        println!("  \u{274C} {failure}");
     }
 
     for configured in channels {

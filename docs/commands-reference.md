@@ -2,7 +2,7 @@
 
 This reference is derived from the current CLI surface (`topclaw --help`).
 
-Last verified: **March 21, 2026**.
+Last verified: **March 24, 2026**.
 
 ## Top-Level Commands
 
@@ -10,7 +10,7 @@ Last verified: **March 21, 2026**.
 |---|---|
 | `bootstrap` | Initialize workspace/config quickly or interactively |
 | `agent` | Run interactive chat or single-message mode |
-| `gateway` | Start webhook and WhatsApp HTTP gateway |
+| `gateway` | Start webhook HTTP gateway |
 | `daemon` | Start supervised runtime (gateway + channels + optional heartbeat/scheduler) |
 | `service` | Manage user-level OS service lifecycle |
 | `doctor` | Run diagnostics and freshness checks |

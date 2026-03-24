@@ -5,7 +5,7 @@ TopClaw enables microcontrollers (MCUs) and Single Board Computers (SBCs) to **d
 ## 1. Vision
 
 **Goal:** TopClaw acts as a hardware-aware AI agent that:
-- Receives natural language triggers (e.g. "Move X arm", "Turn on LED") via channels (WhatsApp, Telegram)
+- Receives natural language triggers (e.g. "Move X arm", "Turn on LED") via channels (Telegram, CLI)
 - Fetches accurate hardware documentation (datasheets, register maps)
 - Synthesizes Rust code/logic using an LLM (Gemini, local open-source models)
 - Executes the logic to manipulate peripherals (GPIO, I2C, SPI)
@@ -27,8 +27,8 @@ TopClaw runs **directly on the device**. The board spins up a gRPC/nanoRPC serve
 │                                                                             │
 │  ┌─────────────┐    ┌──────────────┐    ┌─────────────────────────────────┐ │
 │  │ Channels    │───►│ Agent Loop   │───►│ RAG: datasheets, register maps  │ │
-│  │ WhatsApp    │    │ (LLM calls)  │    │ → LLM context                    │ │
-│  │ Telegram    │    └──────┬───────┘    └─────────────────────────────────┘ │
+│  │ Telegram    │    │ (LLM calls)  │    │ → LLM context                    │ │
+│  │ CLI         │    └──────┬───────┘    └─────────────────────────────────┘ │
 │  └─────────────┘           │                                                 │
 │                            ▼                                                 │
 │  ┌─────────────────────────────────────────────────────────────────────────┐│
@@ -40,7 +40,7 @@ TopClaw runs **directly on the device**. The board spins up a gRPC/nanoRPC serve
 ```
 
 **Workflow:**
-1. User sends WhatsApp: *"Turn on LED on pin 13"*
+1. User sends via Telegram: *"Turn on LED on pin 13"*
 2. TopClaw fetches board-specific docs (e.g. ESP32 GPIO mapping)
 3. LLM synthesizes Rust code
 4. Code runs in a sandbox (Wasm or dynamic linking)
@@ -91,7 +91,7 @@ TopClaw runs on the **host** and maintains a hardware-aware link to the target. 
 | Hardware link    | Local (GPIO, I2C, SPI)        | USB, J-Link, Aardvark            |
 | LLM              | On-device or cloud (Gemini)   | Host (cloud or local)            |
 | Use case         | Production, standalone         | Dev, debug, introspection       |
-| Channels         | WhatsApp, etc. (via WiFi)      | Telegram, CLI, etc.              |
+| Channels         | Telegram, etc. (via WiFi)      | Telegram, CLI, etc.              |
 
 ## 3. Legacy / Simpler Modes (Pre-LLM-on-Edge)
 
@@ -319,6 +319,6 @@ Simple JSON over serial for boards without gRPC support:
 
 ## 14. Raw Prompt Summary
 
-> *"Boards like ESP, Raspberry Pi, or boards with WiFi can connect to an LLM (Gemini or open-source). TopClaw runs on the device, creates its own gRPC, spins it up, and communicates with peripherals. User asks via WhatsApp: 'move X arm' or 'turn on LED'. TopClaw gets accurate documentation, writes code, executes it, stores it optimally, runs it, and turns on the LED — all on the development board.*
+> *"Boards like ESP, Raspberry Pi, or boards with WiFi can connect to an LLM (Gemini or open-source). TopClaw runs on the device, creates its own gRPC, spins it up, and communicates with peripherals. User asks via Telegram: 'move X arm' or 'turn on LED'. TopClaw gets accurate documentation, writes code, executes it, stores it optimally, runs it, and turns on the LED — all on the development board.*
 >
 > *For STM Nucleo connected via USB/J-Link/Aardvark to my Mac: TopClaw from my Mac accesses the hardware, installs or writes what it wants on the device, and returns the result. Example: 'Hey TopClaw, what are the available/readable addresses on this USB device?' It can figure out what's connected where and suggest."*

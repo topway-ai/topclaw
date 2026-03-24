@@ -1,5 +1,5 @@
 use super::path_resolution::{
-    resolve_allowed_parent_and_target, verify_write_target_still_allowed,
+    resolve_allowed_parent_and_target, verify_write_target_still_allowed, write_text_atomically,
 };
 use super::traits::{Tool, ToolResult};
 use crate::security::SecurityPolicy;
@@ -16,28 +16,6 @@ impl FileWriteTool {
     pub fn new(security: Arc<SecurityPolicy>) -> Self {
         Self { security }
     }
-}
-
-async fn write_text_atomically(target: &std::path::Path, content: &str) -> anyhow::Result<()> {
-    let tmp_name = format!(
-        ".{}.tmp.{}.{}",
-        target
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("topclaw-write"),
-        std::process::id(),
-        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    );
-    let tmp_path = target.with_file_name(tmp_name);
-    tokio::fs::write(&tmp_path, content).await?;
-    if let Ok(meta) = tokio::fs::symlink_metadata(target).await {
-        if meta.file_type().is_symlink() {
-            let _ = tokio::fs::remove_file(&tmp_path).await;
-            anyhow::bail!("Refusing to write through symlink: {}", target.display());
-        }
-    }
-    tokio::fs::rename(&tmp_path, target).await?;
-    Ok(())
 }
 
 #[async_trait]

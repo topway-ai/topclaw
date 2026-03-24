@@ -13,21 +13,16 @@
     ],
     "beta": [
       "CI Required Gate",
-      "Security Audit",
-      "Feature Matrix Summary"
+      "Security Audit"
     ],
     "rc": [
       "CI Required Gate",
-      "Security Audit",
-      "Feature Matrix Summary",
-      "Nightly Summary & Routing"
+      "Security Audit"
     ],
     "stable": [
       "CI Required Gate",
       "Security Audit",
-      "Feature Matrix Summary",
-      "Verify Artifact Set",
-      "Nightly Summary & Routing"
+      "Verify Artifact Set"
     ]
   }
 }

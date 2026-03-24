@@ -19,6 +19,7 @@ use std::sync::LazyLock;
 
 /// Descriptor for an OpenAI-compatible provider endpoint.
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct RegistryEntry {
     /// Display name shown in logs and diagnostics.
     pub display_name: &'static str,

@@ -285,8 +285,8 @@ impl<I: Iterator<Item = char>> QuoteAwareChars<I> {
     }
 
     /// Consume the next raw character if it equals `expected`.
-    fn next_if_eq(&mut self, expected: &char) -> Option<char> {
-        self.inner.next_if_eq(expected)
+    fn next_if_eq(&mut self, expected: char) -> Option<char> {
+        self.inner.next_if_eq(&expected)
     }
 }
 
@@ -403,11 +403,11 @@ fn split_unquoted_segments(command: &str) -> Vec<String> {
             ';' | '\n' => push_segment(&mut segments, &mut current),
             '|' => {
                 // Consume full `||`; both characters are separators.
-                let _ = iter.next_if_eq(&'|');
+                let _ = iter.next_if_eq('|');
                 push_segment(&mut segments, &mut current);
             }
             '&' => {
-                if iter.next_if_eq(&'&').is_some() {
+                if iter.next_if_eq('&').is_some() {
                     // `&&` is a separator; single `&` is handled separately.
                     push_segment(&mut segments, &mut current);
                 } else {
@@ -433,7 +433,7 @@ fn split_unquoted_segments(command: &str) -> Vec<String> {
 fn contains_unquoted_single_ampersand(command: &str) -> bool {
     let mut iter = QuoteAwareChars::new(command.chars());
     while let Some(item) = iter.next() {
-        if item.unquoted && item.ch == '&' && iter.next_if_eq(&'&').is_none() {
+        if item.unquoted && item.ch == '&' && iter.next_if_eq('&').is_none() {
             return true;
         }
     }
@@ -801,7 +801,7 @@ impl SecurityPolicy {
         let mut saw_medium = false;
 
         for segment in segments {
-            let cmd_part = skip_env_assignments(&segment);
+            let cmd_part = skip_env_assignments(segment);
             let mut words = cmd_part.split_whitespace();
             let Some(base_raw) = words.next() else {
                 continue;
@@ -1118,7 +1118,7 @@ impl SecurityPolicy {
 
     fn forbidden_path_argument_with_segments(&self, segments: &[String]) -> Option<String> {
         for segment in segments {
-            let cmd_part = skip_env_assignments(&segment);
+            let cmd_part = skip_env_assignments(segment);
             let mut words = cmd_part.split_whitespace();
             let Some(executable) = words.next() else {
                 continue;

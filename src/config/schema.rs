@@ -223,7 +223,7 @@ pub struct Config {
     #[serde(default)]
     pub cron: CronConfig,
 
-    /// Channel configurations: Telegram, Discord, Slack, etc. (`[channels_config]`).
+    /// Channel configurations: Telegram, Discord, etc. (`[channels_config]`).
     #[serde(default)]
     pub channels_config: ChannelsConfig,
 
