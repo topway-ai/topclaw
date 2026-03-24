@@ -125,53 +125,6 @@ pub fn curated_skill_catalog() -> &'static [CuratedSkillCatalogEntry] {
     &CURATED_SKILL_CATALOG
 }
 
-const DEFAULT_PRELOADED_SKILL_SOURCES: [(&str, &str); 11] = [
-    (
-        "find-skills",
-        "https://github.com/topway-ai/topclaw/tree/main/skills/find-skills",
-    ),
-    (
-        "skill-creator",
-        "https://github.com/topway-ai/topclaw/tree/main/skills/skill-creator",
-    ),
-    (
-        "local-file-analyzer",
-        "https://github.com/topway-ai/topclaw/tree/main/skills/local-file-analyzer",
-    ),
-    (
-        "workspace-search",
-        "https://github.com/topway-ai/topclaw/tree/main/skills/workspace-search",
-    ),
-    (
-        "code-explainer",
-        "https://github.com/topway-ai/topclaw/tree/main/skills/code-explainer",
-    ),
-    (
-        "change-summary",
-        "https://github.com/topway-ai/topclaw/tree/main/skills/change-summary",
-    ),
-    (
-        "safe-web-search",
-        "https://github.com/topway-ai/topclaw/tree/main/skills/safe-web-search",
-    ),
-    (
-        "self-improving-agent",
-        "https://github.com/topway-ai/topclaw/tree/main/skills/self-improving-agent",
-    ),
-    (
-        "multi-search-engine",
-        "https://github.com/topway-ai/topclaw/tree/main/skills/multi-search-engine",
-    ),
-    (
-        "agent-browser-extension",
-        "https://github.com/topway-ai/topclaw/tree/main/skills/agent-browser-extension",
-    ),
-    (
-        "desktop-computer-use",
-        "https://github.com/topway-ai/topclaw/tree/main/skills/desktop-computer-use",
-    ),
-];
-
 #[cfg(feature = "builtin-preloaded-skills")]
 struct BuiltinPreloadedSkill {
     dir_name: &'static str,
@@ -489,9 +442,9 @@ fn default_policy_version() -> u32 {
 }
 
 fn default_preloaded_skill_aliases() -> BTreeMap<String, String> {
-    DEFAULT_PRELOADED_SKILL_SOURCES
+    CURATED_SKILL_CATALOG
         .iter()
-        .map(|(alias, source)| ((*alias).to_string(), (*source).to_string()))
+        .map(|entry| (entry.slug.to_string(), entry.source_url.to_string()))
         .collect()
 }
 
@@ -1125,8 +1078,12 @@ fn render_skill_location(skill: &Skill, workspace_dir: &Path, prefer_relative: b
     location.display().to_string()
 }
 
-fn skill_prompt_guard() -> crate::security::PromptGuard {
-    crate::security::PromptGuard::with_config(crate::security::GuardAction::Block, 0.45)
+fn skill_prompt_guard() -> &'static crate::security::PromptGuard {
+    use std::sync::OnceLock;
+    static GUARD: OnceLock<crate::security::PromptGuard> = OnceLock::new();
+    GUARD.get_or_init(|| {
+        crate::security::PromptGuard::with_config(crate::security::GuardAction::Block, 0.45)
+    })
 }
 
 fn screened_skill_description(skill: &Skill) -> String {
@@ -1677,7 +1634,7 @@ fn install_curated_skill_from_source(
     entry: &CuratedSkillCatalogEntry,
 ) -> Result<PathBuf> {
     let allow_non_low_risk = entry.risk == CuratedSkillRisk::Higher;
-    let (installed_dir, _files_scanned) = if let Some(local_source_dir) =
+    let (installed_dir, _report) = if let Some(local_source_dir) =
         resolve_curated_repo_local_source(entry.source_url)
     {
         install_local_skill_source_with_override(
@@ -2062,7 +2019,7 @@ fn install_local_skill_source_with_override(
     source: &str,
     skills_path: &Path,
     allow_non_low_risk: bool,
-) -> Result<(PathBuf, usize)> {
+) -> Result<(PathBuf, audit::SkillVettingReport)> {
     let source_path = PathBuf::from(source);
     if !source_path.exists() {
         anyhow::bail!("Source path does not exist: {source}");
@@ -2087,7 +2044,7 @@ fn install_local_skill_source_with_override(
     }
 
     match enforce_skill_security_audit_with_override(&dest, allow_non_low_risk) {
-        Ok(report) => Ok((dest, report.static_audit.files_scanned)),
+        Ok(report) => Ok((dest, report)),
         Err(err) => {
             let _ = std::fs::remove_dir_all(&dest);
             Err(err)
@@ -2095,18 +2052,14 @@ fn install_local_skill_source_with_override(
     }
 }
 
-fn install_local_skill_source(source: &str, skills_path: &Path) -> Result<(PathBuf, usize)> {
-    install_local_skill_source_with_override(source, skills_path, false)
-}
-
 fn install_git_skill_source_with_override(
     source: &str,
     skills_path: &Path,
     allow_non_low_risk: bool,
-) -> Result<(PathBuf, usize)> {
+) -> Result<(PathBuf, audit::SkillVettingReport)> {
     let before = snapshot_skill_children(skills_path)?;
     let output = std::process::Command::new("git")
-        .args(["clone", "--depth", "1", source])
+        .args(["clone", "--depth", "1", "--single-branch", source])
         .current_dir(skills_path)
         .output()?;
     if !output.status.success() {
@@ -2117,7 +2070,7 @@ fn install_git_skill_source_with_override(
     let installed_dir = detect_newly_installed_directory(skills_path, &before)?;
     remove_git_metadata(&installed_dir)?;
     match enforce_skill_security_audit_with_override(&installed_dir, allow_non_low_risk) {
-        Ok(report) => Ok((installed_dir, report.static_audit.files_scanned)),
+        Ok(report) => Ok((installed_dir, report)),
         Err(err) => {
             let _ = std::fs::remove_dir_all(&installed_dir);
             Err(err)
@@ -2125,15 +2078,11 @@ fn install_git_skill_source_with_override(
     }
 }
 
-fn install_git_skill_source(source: &str, skills_path: &Path) -> Result<(PathBuf, usize)> {
-    install_git_skill_source_with_override(source, skills_path, false)
-}
-
 fn install_github_tree_skill_source_with_override(
     source: &str,
     skills_path: &Path,
     allow_non_low_risk: bool,
-) -> Result<(PathBuf, usize)> {
+) -> Result<(PathBuf, audit::SkillVettingReport)> {
     let parsed = parse_github_tree_source(source)
         .ok_or_else(|| anyhow::anyhow!("invalid GitHub tree source: {source}"))?;
     let checkout_root = tempfile::tempdir().context("failed to create temporary checkout dir")?;
@@ -2144,6 +2093,7 @@ fn install_github_tree_skill_source_with_override(
             "clone",
             "--depth",
             "1",
+            "--single-branch",
             "--branch",
             &parsed.git_ref,
             &repo_url,
@@ -2175,7 +2125,7 @@ fn install_skills_sh_source_with_override(
     source: &str,
     skills_path: &Path,
     allow_non_low_risk: bool,
-) -> Result<(PathBuf, usize)> {
+) -> Result<(PathBuf, audit::SkillVettingReport)> {
     let parsed = parse_skills_sh_source(source).ok_or_else(|| {
         anyhow::anyhow!(
             "invalid skills.sh source '{source}': expected https://skills.sh/<owner>/<repo>/<skill>"
@@ -2187,7 +2137,7 @@ fn install_skills_sh_source_with_override(
     let checkout_dir = checkout_root.path().join("repo");
 
     let output = std::process::Command::new("git")
-        .args(["clone", "--depth", "1", &repo_url])
+        .args(["clone", "--depth", "1", "--single-branch", &repo_url])
         .arg(&checkout_dir)
         .output()?;
     if !output.status.success() {
@@ -2247,7 +2197,7 @@ fn install_skills_sh_source_with_override(
     }
 
     match enforce_skill_security_audit_with_override(&dest, allow_non_low_risk) {
-        Ok(report) => Ok((dest, report.static_audit.files_scanned)),
+        Ok(report) => Ok((dest, report)),
         Err(err) => {
             let _ = std::fs::remove_dir_all(&dest);
             Err(err)
@@ -2255,8 +2205,21 @@ fn install_skills_sh_source_with_override(
     }
 }
 
-fn install_skills_sh_source(source: &str, skills_path: &Path) -> Result<(PathBuf, usize)> {
-    install_skills_sh_source_with_override(source, skills_path, false)
+/// Resolve a skill source string to a path, checking enabled dir then disabled dir.
+fn resolve_skill_target(workspace_dir: &Path, source: &str) -> Result<PathBuf> {
+    let source_path = PathBuf::from(source);
+    if source_path.exists() {
+        return Ok(source_path);
+    }
+    let enabled_target = skills_dir(workspace_dir).join(source);
+    if enabled_target.exists() {
+        return Ok(enabled_target);
+    }
+    let disabled_target = disabled_skills_dir(workspace_dir).join(source);
+    if disabled_target.exists() {
+        return Ok(disabled_target);
+    }
+    anyhow::bail!("Skill source or installed skill not found: {source}");
 }
 
 /// Handle the `skills` CLI command
@@ -2331,21 +2294,7 @@ pub fn handle_command(command: crate::SkillCommands, config: &crate::config::Con
             json,
             sandbox,
         } => {
-            let source_path = PathBuf::from(&source);
-            let target = if source_path.exists() {
-                source_path
-            } else {
-                let enabled_target = skills_dir(workspace_dir).join(&source);
-                if enabled_target.exists() {
-                    enabled_target
-                } else {
-                    disabled_skills_dir(workspace_dir).join(&source)
-                }
-            };
-
-            if !target.exists() {
-                anyhow::bail!("Skill source or installed skill not found: {source}");
-            }
+            let target = resolve_skill_target(workspace_dir, &source)?;
 
             let options = vetting_options_from_cli_sandbox(sandbox.as_deref())?;
             let report = audit::vet_skill_directory_with_options(&target, options)?;
@@ -2379,21 +2328,7 @@ pub fn handle_command(command: crate::SkillCommands, config: &crate::config::Con
             }
         }
         crate::SkillCommands::Audit { source } => {
-            let source_path = PathBuf::from(&source);
-            let target = if source_path.exists() {
-                source_path
-            } else {
-                let enabled_target = skills_dir(workspace_dir).join(&source);
-                if enabled_target.exists() {
-                    enabled_target
-                } else {
-                    disabled_skills_dir(workspace_dir).join(&source)
-                }
-            };
-
-            if !target.exists() {
-                anyhow::bail!("Skill source or installed skill not found: {source}");
-            }
+            let target = resolve_skill_target(workspace_dir, &source)?;
 
             let report = audit::vet_skill_directory(&target)?;
             if report.install_allowed {
@@ -2425,64 +2360,39 @@ pub fn handle_command(command: crate::SkillCommands, config: &crate::config::Con
             }
             ensure_source_domain_trust(&resolved_source, &mut download_policy, &skills_path)?;
 
-            if is_skills_sh_source(&resolved_source) {
-                let (installed_dir, files_scanned) =
-                    install_skills_sh_source(&resolved_source, &skills_path).with_context(
-                        || format!("failed to install skills.sh skill: {resolved_source}"),
-                    )?;
-                println!(
-                    "  {} Skill installed from skills.sh: {} ({} files scanned)",
-                    console::style("✓").green().bold(),
-                    installed_dir.display(),
-                    files_scanned
-                );
-                let report = audit::vet_skill_directory(&installed_dir)?;
-                print_skill_vetting_report(&report);
-            } else if is_github_tree_source(&resolved_source) {
-                let (installed_dir, files_scanned) =
-                    install_github_tree_skill_source_with_override(
-                        &resolved_source,
-                        &skills_path,
-                        false,
-                    )
+            let (installed_dir, report) = if is_skills_sh_source(&resolved_source) {
+                install_skills_sh_source_with_override(&resolved_source, &skills_path, false)
                     .with_context(|| {
-                        format!("failed to install GitHub tree skill source: {resolved_source}")
-                    })?;
-                println!(
-                    "  {} Skill installed and audited: {} ({} files scanned)",
-                    console::style("✓").green().bold(),
-                    installed_dir.display(),
-                    files_scanned
-                );
-                let report = audit::vet_skill_directory(&installed_dir)?;
-                print_skill_vetting_report(&report);
+                        format!("failed to install skills.sh skill: {resolved_source}")
+                    })?
+            } else if is_github_tree_source(&resolved_source) {
+                install_github_tree_skill_source_with_override(
+                    &resolved_source,
+                    &skills_path,
+                    false,
+                )
+                .with_context(|| {
+                    format!("failed to install GitHub tree skill source: {resolved_source}")
+                })?
             } else if is_git_source(&resolved_source) {
-                let (installed_dir, files_scanned) =
-                    install_git_skill_source(&resolved_source, &skills_path).with_context(
-                        || format!("failed to install git skill source: {resolved_source}"),
-                    )?;
-                println!(
-                    "  {} Skill installed and audited: {} ({} files scanned)",
-                    console::style("✓").green().bold(),
-                    installed_dir.display(),
-                    files_scanned
-                );
-                let report = audit::vet_skill_directory(&installed_dir)?;
-                print_skill_vetting_report(&report);
+                install_git_skill_source_with_override(&resolved_source, &skills_path, false)
+                    .with_context(|| {
+                        format!("failed to install git skill source: {resolved_source}")
+                    })?
             } else {
-                let (dest, files_scanned) =
-                    install_local_skill_source(&resolved_source, &skills_path).with_context(
-                        || format!("failed to install local skill source: {resolved_source}"),
-                    )?;
-                println!(
-                    "  {} Skill installed and audited: {} ({} files scanned)",
-                    console::style("✓").green().bold(),
-                    dest.display(),
-                    files_scanned
-                );
-                let report = audit::vet_skill_directory(&dest)?;
-                print_skill_vetting_report(&report);
-            }
+                install_local_skill_source_with_override(&resolved_source, &skills_path, false)
+                    .with_context(|| {
+                        format!("failed to install local skill source: {resolved_source}")
+                    })?
+            };
+
+            println!(
+                "  {} Skill installed and audited: {} ({} files scanned)",
+                console::style("✓").green().bold(),
+                installed_dir.display(),
+                report.static_audit.files_scanned
+            );
+            print_skill_vetting_report(&report);
 
             println!("  Security audit completed successfully.");
             Ok(())

@@ -602,7 +602,7 @@ fn audit_markdown_file(root: &Path, path: &Path, report: &mut SkillAuditReport) 
         push_finding(
             report,
             SkillRiskLevel::Critical,
-            pattern_category(pattern),
+            "high-risk-pattern",
             format!("{rel}: detected high-risk command pattern ({pattern})."),
         );
     }
@@ -665,7 +665,7 @@ fn audit_manifest_file(root: &Path, path: &Path, report: &mut SkillAuditReport) 
                     push_finding(
                         report,
                         SkillRiskLevel::Critical,
-                        pattern_category(pattern),
+                        "high-risk-pattern",
                         format!(
                             "{rel}: tools[{idx}].command matches high-risk pattern ({pattern})."
                         ),
@@ -700,7 +700,7 @@ fn audit_manifest_file(root: &Path, path: &Path, report: &mut SkillAuditReport) 
                     push_finding(
                         report,
                         SkillRiskLevel::Critical,
-                        pattern_category(pattern),
+                        "high-risk-pattern",
                         format!("{rel}: prompts[{idx}] contains high-risk pattern ({pattern})."),
                     );
                 }
@@ -1144,27 +1144,6 @@ fn detect_external_installer_command(content: &str) -> Option<&'static str> {
     patterns
         .iter()
         .find_map(|(regex, label)| regex.is_match(content).then_some(*label))
-}
-
-fn pattern_category(pattern: &str) -> &'static str {
-    match pattern {
-        "prompt-injection-override"
-        | "prompt-injection-exfiltration"
-        | "phishing-credential-harvest"
-        | "curl-pipe-shell"
-        | "wget-pipe-shell"
-        | "powershell-iex"
-        | "destructive-rm-rf-root"
-        | "netcat-remote-exec"
-        | "obfuscated-base64-exec"
-        | "browser-sandbox-bypass"
-        | "browser-persistent-profile"
-        | "gui-automation-escalation"
-        | "disk-overwrite-dd"
-        | "filesystem-format"
-        | "fork-bomb" => "high-risk-pattern",
-        _ => "high-risk-pattern",
-    }
 }
 
 fn is_cross_skill_reference(target: &str) -> bool {
