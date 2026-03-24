@@ -2,7 +2,7 @@
 
 This is a high-signal reference for common config sections and defaults.
 
-Last verified: **March 21, 2026**.
+Last verified: **March 24, 2026**.
 
 Config path resolution at startup:
 
@@ -633,7 +633,7 @@ Notes:
   - `direct` (default): natural-language approval grants immediately (private-chat friendly).
   - `request_confirm`: natural-language approval creates a pending request that needs explicit confirm.
   - `disabled`: natural-language approval commands are rejected; use slash commands only.
-- `non_cli_natural_language_approval_mode_by_channel` can override that mode for specific channels (keys are channel names like `telegram`, `discord`, `slack`).
+- `non_cli_natural_language_approval_mode_by_channel` can override that mode for specific channels (keys are channel names like `telegram`, `discord`).
   - Example: keep global `direct`, but force `discord = "request_confirm"` for team chats.
 - `non_cli_approval_approvers` can restrict who is allowed to run approval commands (`/approve*`, `/unapprove`, `/approvals`):
   - `*` allows all channel-admitted senders.
@@ -775,11 +775,6 @@ Examples:
 
 - `[channels_config.telegram]`
 - `[channels_config.discord]`
-- `[channels_config.whatsapp]`
-- `[channels_config.linq]`
-- `[channels_config.nextcloud_talk]`
-- `[channels_config.email]`
-- `[channels_config.nostr]`
 
 Notes:
 
@@ -791,88 +786,11 @@ Notes:
 - When a timeout occurs, users receive: `⚠️ Request timed out while waiting for the model. Please try again.`
 - Telegram-only interruption behavior is controlled with `channels_config.telegram.interrupt_on_new_message` (default `false`).
   When enabled, a newer message from the same sender in the same chat cancels the in-flight request and preserves interrupted user context.
-- Telegram/Discord/Slack/Mattermost/Lark/Feishu support `[channels_config.<channel>.group_reply]`:
+- Telegram/Discord support `[channels_config.<channel>.group_reply]`:
   - `mode = "all_messages"` or `mode = "mention_only"`
   - `allowed_sender_ids = ["..."]` to bypass mention gating in groups
   - `allowed_users` allowlist checks still run first
 - While `topclaw channel start` is running, updates to `default_provider`, `default_model`, `default_temperature`, `api_key`, `api_url`, and `reliability.*` are hot-applied from `config.toml` on the next inbound message.
-
-### `[channels_config.nostr]`
-
-| Key | Default | Purpose |
-|---|---|---|
-| `private_key` | _required_ | Nostr private key (hex or `nsec1…` bech32); encrypted at rest when `secrets.encrypt = true` |
-| `relays` | see note | List of relay WebSocket URLs; defaults to `relay.damus.io`, `nos.lol`, `relay.primal.net`, `relay.snort.social` |
-| `allowed_pubkeys` | `[]` (deny all) | Sender allowlist (hex or `npub1…`); use `"*"` to allow all senders |
-
-Notes:
-
-- Supports both NIP-04 (legacy encrypted DMs) and NIP-17 (gift-wrapped private messages). Replies mirror the sender's protocol automatically.
-- The `private_key` is a high-value secret; keep `secrets.encrypt = true` (the default) in production.
-
-See detailed channel matrix and allowlist behavior in [channels-reference.md](channels-reference.md).
-
-### `[channels_config.whatsapp]`
-
-WhatsApp supports two backends under one config table.
-
-Cloud API mode (Meta webhook):
-
-| Key | Required | Purpose |
-|---|---|---|
-| `access_token` | Yes | Meta Cloud API bearer token |
-| `phone_number_id` | Yes | Meta phone number ID |
-| `verify_token` | Yes | Webhook verification token |
-| `app_secret` | Optional | Enables webhook signature verification (`X-Hub-Signature-256`) |
-| `allowed_numbers` | Recommended | Allowed inbound numbers (`[]` = deny all, `"*"` = allow all) |
-
-WhatsApp Web mode (native client):
-
-| Key | Required | Purpose |
-|---|---|---|
-| `session_path` | Yes | Persistent SQLite session path |
-| `pair_phone` | Optional | Pair-code flow phone number (digits only) |
-| `pair_code` | Optional | Custom pair code (otherwise auto-generated) |
-| `allowed_numbers` | Recommended | Allowed inbound numbers (`[]` = deny all, `"*"` = allow all) |
-
-Notes:
-
-- WhatsApp Web requires build flag `whatsapp-web`.
-- If both Cloud and Web fields are present, Cloud mode wins for backward compatibility.
-
-### `[channels_config.linq]`
-
-Linq Partner V3 API integration for iMessage, RCS, and SMS.
-
-| Key | Required | Purpose |
-|---|---|---|
-| `api_token` | Yes | Linq Partner API bearer token |
-| `from_phone` | Yes | Phone number to send from (E.164 format) |
-| `signing_secret` | Optional | Webhook signing secret for HMAC-SHA256 signature verification |
-| `allowed_senders` | Recommended | Allowed inbound phone numbers (`[]` = deny all, `"*"` = allow all) |
-
-Notes:
-
-- Webhook endpoint is `POST /linq`.
-- `TOPCLAW_LINQ_SIGNING_SECRET` overrides `signing_secret` when set.
-- Signatures use `X-Webhook-Signature` and `X-Webhook-Timestamp` headers; stale timestamps (>300s) are rejected.
-- See [channels-reference.md](channels-reference.md) for full config examples.
-
-### `[channels_config.nextcloud_talk]`
-
-Native Nextcloud Talk bot integration (webhook receive + OCS send API).
-
-| Key | Required | Purpose |
-|---|---|---|
-| `base_url` | Yes | Nextcloud base URL (e.g. `https://cloud.example.com`) |
-| `app_token` | Yes | Bot app token used for OCS bearer auth |
-| `webhook_secret` | Optional | Enables webhook signature verification |
-| `allowed_users` | Recommended | Allowed Nextcloud actor IDs (`[]` = deny all, `"*"` = allow all) |
-
-Notes:
-
-- Webhook endpoint is `POST /nextcloud-talk`.
-- `TOPCLAW_NEXTCLOUD_TALK_WEBHOOK_SECRET` overrides `webhook_secret` when set.
 
 ## `[hardware]`
 

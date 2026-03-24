@@ -1,5 +1,7 @@
 # TopClaw Codebase Simplification Audit — 2026-03-22
 
+> **Historical snapshot.** This audit documented findings that were acted on during v2026.3.22. Channel removals, feature flag cleanup, and gateway simplification referenced here have been completed.
+
 ## EXECUTIVE SUMMARY
 
 - **Overall health score: 6.5/10**

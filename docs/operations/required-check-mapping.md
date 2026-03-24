@@ -8,28 +8,19 @@ This document maps merge-critical workflows to expected check names.
 | --- | --- | --- |
 | `CI Required Gate` | `.github/workflows/ci-run.yml` | core Rust/doc merge gate |
 | `Security Audit` | `.github/workflows/sec-audit.yml` | dependencies, secrets, governance |
-| `Feature Matrix Summary` | `.github/workflows/feature-matrix.yml` | feature-combination compile matrix |
 | `Workflow Sanity` | `.github/workflows/workflow-sanity.yml` | workflow syntax and lint |
 
-Feature matrix lane check names (informational, non-required):
-
-- `Matrix Lane (default)`
-- `Matrix Lane (whatsapp-web)`
-- `Matrix Lane (browser-native)`
-- `Matrix Lane (nightly-all-features)`
+> `Feature Matrix Summary` was removed in v2026.3.22 along with `feature-matrix.yml`.
 
 ## Release / Pre-release
 
 | Required check name | Source workflow | Scope |
 | --- | --- | --- |
 | `Verify Artifact Set` | `.github/workflows/pub-release.yml` | release completeness |
-| `Pre-release Guard` | `.github/workflows/pub-prerelease.yml` | stage progression + tag integrity |
-| `Nightly Summary & Routing` | `.github/workflows/feature-matrix.yml` (`profile=nightly`) | overnight integration signal |
 
 ## Verification Procedure
 
 1. Resolve latest workflow run IDs:
-   - `gh run list --repo topway-ai/topclaw --workflow feature-matrix.yml --limit 1`
    - `gh run list --repo topway-ai/topclaw --workflow ci-run.yml --limit 1`
 2. Enumerate check/job names and compare to this mapping:
    - `gh run view <run_id> --repo topway-ai/topclaw --json jobs --jq '.jobs[].name'`

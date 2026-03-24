@@ -2,7 +2,7 @@
 
 This document maps provider IDs, aliases, and credential environment variables.
 
-Last verified: **March 21, 2026**.
+Last verified: **March 24, 2026**.
 
 ## How to List Providers
 
@@ -29,6 +29,7 @@ credential is not reused for fallback providers.
 | `openrouter` | — | No | `OPENROUTER_API_KEY` |
 | `anthropic` | — | No | `ANTHROPIC_OAUTH_TOKEN`, `ANTHROPIC_API_KEY` |
 | `openai` | — | No | `OPENAI_API_KEY` |
+| `openai-codex` | `openai_codex`, `codex` | No | (OAuth-based; see [OpenAI Codex Reasoning Level](#openai-codex-reasoning-level)) |
 | `ollama` | — | Yes | `OLLAMA_API_KEY` (optional) |
 | `gemini` | `google`, `google-gemini` | No | `GEMINI_API_KEY`, `GOOGLE_API_KEY` |
 | `venice` | — | No | `VENICE_API_KEY` |

@@ -12,6 +12,7 @@ use serde::Deserialize;
 use std::collections::HashSet;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 pub(super) enum CapabilityRecoveryKind {
     WebAccess,
     ShellAccess,

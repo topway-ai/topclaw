@@ -16,10 +16,6 @@ impl CronRemoveTool {
     pub fn new(config: Arc<Config>, security: Arc<SecurityPolicy>) -> Self {
         Self { config, security }
     }
-
-    fn enforce_mutation_allowed(&self, action: &str) -> Option<ToolResult> {
-        enforce_action(&self.security, action)
-    }
 }
 
 #[async_trait]
@@ -62,7 +58,7 @@ impl Tool for CronRemoveTool {
             }
         };
 
-        if let Some(blocked) = self.enforce_mutation_allowed("cron_remove") {
+        if let Some(blocked) = enforce_action(&self.security, "cron_remove") {
             return Ok(blocked);
         }
 

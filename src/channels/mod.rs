@@ -78,17 +78,9 @@ use helpers::*;
 use sanitize::strip_tool_call_tags;
 
 #[cfg(test)]
-use capability_detection::looks_like_remote_repo_review_request;
-#[cfg(test)]
-use capability_recovery::capability_tool_state;
-#[cfg(test)]
-use runtime_config::{load_runtime_defaults_from_config_file, ChannelRuntimeDefaults};
-
-#[cfg(test)]
 mod tests {
     use super::capability_detection::*;
     use super::capability_recovery::*;
-    use super::command_handler::*;
     use super::context::*;
     use super::dispatch::*;
     use super::helpers::*;

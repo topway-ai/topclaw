@@ -1,5 +1,7 @@
 # TopClaw Simplification Plan
 
+> **Historical snapshot.** This plan was written on 2026-03-18 and largely executed in v2026.3.22. Phantom channel flags, WhatsApp Web deps, and dead SOP tools have been removed. See `audit-2026-03-22-simplification.md` for the execution record.
+
 **Date**: 2026-03-18
 **Phase**: Phase 2 - Implementation Strategy
 

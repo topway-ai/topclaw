@@ -9,14 +9,12 @@ This document covers deploying TopClaw on a Raspberry Pi or other host on your l
 | Mode | Inbound port needed? | Use case |
 |------|----------------------|----------|
 | **Telegram polling** | No | TopClaw polls Telegram API; works from anywhere |
-| **Matrix sync (including E2EE)** | No | TopClaw syncs via Matrix client API; no inbound webhook required |
-| **Discord/Slack** | No | Same — outbound only |
-| **Nostr** | No | Connects to relays via WebSocket; outbound only |
-| **Gateway webhook** | Yes | POST /webhook, /whatsapp, /linq, /nextcloud-talk need a public URL |
+| **Discord** | No | Same — outbound only |
+| **Gateway webhook** | Yes | POST /webhook needs a public URL |
 | **Gateway pairing** | Yes | If you pair clients via the gateway |
 | **Alpine/OpenRC service** | No | System-wide background service on Alpine Linux |
 
-**Key:** Telegram, Discord, Slack, and Nostr use **outbound connections** — TopClaw connects to external servers/relays. No port forwarding or public IP required.
+**Key:** Telegram and Discord use **outbound connections** — TopClaw connects to external servers. No port forwarding or public IP required.
 
 ---
 
@@ -99,7 +97,7 @@ topclaw daemon --host 0.0.0.0 --port 42617
 
 ### 3.2 Option B: Tunnel (Recommended for Webhooks)
 
-If you need a **public URL** (e.g. WhatsApp webhook, external clients):
+If you need a **public URL** (e.g. webhook receivers, external clients):
 
 1. Run gateway on localhost:
    ```bash
@@ -158,9 +156,9 @@ you have a polling conflict. Stop extra instances and restart only one daemon.
 
 ---
 
-## 5. Webhook Channels (WhatsApp, Nextcloud Talk, Custom)
+## 5. Webhook Channels
 
-Webhook-based channels need a **public URL** so Meta (WhatsApp) or your client can POST events.
+Webhook-based channels need a **public URL** so external clients can POST events.
 
 ### 5.1 Tailscale Funnel
 

@@ -76,10 +76,12 @@ impl CircuitBreaker {
 }
 
 fn now_epoch_ms() -> u64 {
-    SystemTime::now()
+    #[allow(clippy::cast_possible_truncation)] // epoch ms fits u64 until year 584M+
+    let ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_millis() as u64
+        .as_millis() as u64;
+    ms
 }
 
 #[cfg(test)]

@@ -28,6 +28,7 @@ fn active_workspace_state_path(marker_root: &Path) -> PathBuf {
 }
 
 /// Returns `true` if `path` lives under the OS temp directory.
+#[cfg(not(test))]
 fn is_temp_directory(path: &Path) -> bool {
     let temp = std::env::temp_dir();
     // Canonicalize when possible to handle symlinks (macOS /var -> /private/var)

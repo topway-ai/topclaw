@@ -2,14 +2,14 @@
 
 Use this page when you are unsure which runtime command you actually need after onboarding.
 
-Last verified: **March 9, 2026**.
+Last verified: **March 24, 2026**.
 
 ## The Short Version
 
 | Goal | Command | Normal use |
 |---|---|---|
 | Talk to TopClaw directly in this terminal | `topclaw agent` | quick local chats and one-off prompts |
-| Keep configured channels running in the background | `topclaw service install`, `topclaw service start`, `topclaw service status` | always-on Telegram, Discord, Slack, and similar setups |
+| Keep configured channels running in the background | `topclaw service install`, `topclaw service start`, `topclaw service status` | always-on Telegram, Discord, and similar setups |
 | Run the full runtime in the foreground | `topclaw daemon` | debugging startup and watching live logs |
 | Run only the HTTP/webhook gateway | `topclaw gateway` | webhook testing and gateway-only scenarios |
 | Start channel listeners manually in one foreground process | `topclaw channel start` | advanced/manual troubleshooting |

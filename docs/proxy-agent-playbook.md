@@ -187,7 +187,7 @@ Expected behavior:
 ### 8.2 Add one more proxied service
 
 ```json
-{"action":"set","scope":"services","services":["provider.openai","tool.http_request","channel.slack"]}
+{"action":"set","scope":"services","services":["provider.openai","tool.http_request","channel.telegram"]}
 {"action":"get"}
 ```
 

@@ -33,14 +33,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
     - Purpose: PR Docker smoke check on `dev`/`main` PRs and publish images on tag pushes (`v*`) only
     - Additional behavior: `ghcr_publish_contract_guard.py` enforces GHCR publish contract from `.github/release/ghcr-tag-policy.json` (`vX.Y.Z`, `sha-<12>`, `latest` digest parity + rollback mapping evidence)
     - Additional behavior: `ghcr_vulnerability_gate.py` enforces policy-driven Trivy gate + parity checks from `.github/release/ghcr-vulnerability-policy.json` and emits `ghcr-vulnerability-gate` audit evidence
-- `.github/workflows/feature-matrix.yml` (`Feature Matrix`)
-    - Purpose: compile-time matrix validation for `default`, `whatsapp-web`, `browser-native`, and `nightly-all-features` lanes
-    - Additional behavior: each lane emits machine-readable result artifacts; summary lane aggregates owner routing from `.github/release/nightly-owner-routing.json`
-    - Additional behavior: supports `compile` (merge-gate) and `nightly` (integration-oriented) profiles with bounded retry policy and trend snapshot artifact (`nightly-history.json`)
-    - Additional behavior: required-check mapping is anchored to stable job name `Feature Matrix Summary`; lane jobs stay informational
-- `.github/workflows/nightly-all-features.yml` (`Nightly All-Features`)
-    - Purpose: legacy/dev-only nightly template; primary nightly signal is emitted by `feature-matrix.yml` nightly profile
-    - Additional behavior: owner routing + escalation policy is documented in `docs/operations/nightly-all-features-runbook.md`
+- _`feature-matrix.yml` and `nightly-all-features.yml` were removed during the v2026.3.22 simplification._
 - `.github/workflows/sec-audit.yml` (`Security Audit`)
     - Purpose: dependency advisories (`rustsec/audit-check`, pinned SHA), policy/license checks (`cargo deny`), gitleaks-based secrets governance (allowlist policy metadata + expiry guard), and SBOM snapshot artifacts (`CycloneDX` + `SPDX`)
     - Additional behavior: `pull_request` and `merge_group` runs execute on GitHub-hosted runners so `Security Required Gate` remains available for merge-blocking checks; `push`, `schedule`, and `workflow_dispatch` lanes stay on self-hosted runners
@@ -97,8 +90,6 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 
 - `CI`: push to `dev` and `main`, PRs to `dev` and `main`, merge queue `merge_group` for `dev`/`main`
 - `Docker`: tag push (`v*`) for publish, matching PRs to `dev`/`main` for smoke build, manual dispatch for smoke only
-- `Feature Matrix`: PR/push on Rust + workflow paths, merge queue, weekly schedule, manual dispatch
-- `Nightly All-Features`: daily schedule and manual dispatch
 - `Release`: tag push (`v*`), weekly schedule (verification-only), manual dispatch (verification or publish)
 - `Security Audit`: push to `dev` and `main`, PRs to `dev` and `main`, weekly schedule
 - `Test Coverage`: push/PR on Rust paths to `dev` and `main`, manual dispatch
