@@ -1,9 +1,10 @@
 use super::parsing::ParsedToolCall;
 use super::{scrub_credentials, ToolLoopCancelled};
-use crate::approval::ApprovalManager;
+use crate::approval::{ApprovalManager, NonCliTurnApprovalGrant};
 use crate::observability::{Observer, ObserverEvent};
 use crate::tools::Tool;
 use anyhow::Result;
+use serde_json::Value;
 use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
@@ -31,12 +32,56 @@ pub(super) fn blocked_non_cli_approval_plan_reason(
     None
 }
 
+fn tool_uses_shell_command(call_name: &str, args: &Value) -> bool {
+    match call_name {
+        "shell" => true,
+        "process" => matches!(
+            args.get("action").and_then(serde_json::Value::as_str),
+            Some("spawn_shell")
+        ),
+        _ => false,
+    }
+}
+
+fn apply_turn_grant_to_tool_args(
+    call_name: &str,
+    mut call_arguments: Value,
+    turn_grant: Option<&NonCliTurnApprovalGrant>,
+) -> Value {
+    let Some(grant) = turn_grant else {
+        return call_arguments;
+    };
+    let uses_shell_command = tool_uses_shell_command(call_name, &call_arguments);
+    let Some(args_obj) = call_arguments.as_object_mut() else {
+        return call_arguments;
+    };
+
+    args_obj.insert("approved".to_string(), Value::Bool(true));
+
+    if uses_shell_command && !grant.approved_shell_commands.is_empty() {
+        args_obj.insert(
+            crate::tools::shell::APPROVED_PLAN_SHELL_COMMANDS_ARG.to_string(),
+            Value::Array(
+                grant
+                    .approved_shell_commands
+                    .iter()
+                    .cloned()
+                    .map(Value::String)
+                    .collect(),
+            ),
+        );
+    }
+
+    call_arguments
+}
+
 async fn execute_one_tool(
     call_name: &str,
     call_arguments: serde_json::Value,
     tools_registry: &[Box<dyn Tool>],
     observer: &dyn Observer,
     cancellation_token: Option<&CancellationToken>,
+    turn_grant: Option<&NonCliTurnApprovalGrant>,
 ) -> Result<ToolExecutionOutcome> {
     observer.record_event(&ObserverEvent::ToolCallStart {
         tool: call_name.to_string(),
@@ -59,7 +104,8 @@ async fn execute_one_tool(
         });
     };
 
-    let tool_future = tool.execute(call_arguments);
+    let effective_arguments = apply_turn_grant_to_tool_args(call_name, call_arguments, turn_grant);
+    let tool_future = tool.execute(effective_arguments);
     let tool_result = if let Some(token) = cancellation_token {
         tokio::select! {
             () = token.cancelled() => return Err(ToolLoopCancelled.into()),
@@ -122,9 +168,14 @@ pub(super) struct ToolExecutionOutcome {
 pub(super) fn should_execute_tools_in_parallel(
     tool_calls: &[ParsedToolCall],
     approval: Option<&ApprovalManager>,
+    approval_bypassed_for_turn: bool,
 ) -> bool {
     if tool_calls.len() <= 1 {
         return false;
+    }
+
+    if approval_bypassed_for_turn {
+        return true;
     }
 
     if let Some(mgr) = approval {
@@ -143,6 +194,7 @@ pub(super) async fn execute_tools_parallel(
     tools_registry: &[Box<dyn Tool>],
     observer: &dyn Observer,
     cancellation_token: Option<&CancellationToken>,
+    turn_grant: Option<&NonCliTurnApprovalGrant>,
 ) -> Result<Vec<ToolExecutionOutcome>> {
     let futures: Vec<_> = tool_calls
         .iter()
@@ -153,6 +205,7 @@ pub(super) async fn execute_tools_parallel(
                 tools_registry,
                 observer,
                 cancellation_token,
+                turn_grant,
             )
         })
         .collect();
@@ -166,6 +219,7 @@ pub(super) async fn execute_tools_sequential(
     tools_registry: &[Box<dyn Tool>],
     observer: &dyn Observer,
     cancellation_token: Option<&CancellationToken>,
+    turn_grant: Option<&NonCliTurnApprovalGrant>,
 ) -> Result<Vec<ToolExecutionOutcome>> {
     let mut outcomes = Vec::with_capacity(tool_calls.len());
 
@@ -177,6 +231,7 @@ pub(super) async fn execute_tools_sequential(
                 tools_registry,
                 observer,
                 cancellation_token,
+                turn_grant,
             )
             .await?,
         );

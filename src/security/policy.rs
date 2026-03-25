@@ -918,12 +918,27 @@ impl SecurityPolicy {
         command: &str,
         approved: bool,
     ) -> Result<CommandRiskLevel, String> {
+        self.validate_command_execution_with_temporary_allowlist(command, approved, &[])
+    }
+
+    /// Validate full command execution policy with an optional turn-scoped
+    /// exact-command allowlist granted by a human-approved execution plan.
+    pub fn validate_command_execution_with_temporary_allowlist(
+        &self,
+        command: &str,
+        approved: bool,
+        temporary_allowed_commands: &[String],
+    ) -> Result<CommandRiskLevel, String> {
         let effective_command = self.apply_shell_redirect_policy(command);
 
         // Pre-compute segments once; shared by allowlist, path, and risk checks.
         let segments = split_unquoted_segments(&effective_command);
 
-        if !self.is_command_allowed_with_segments(&effective_command, &segments) {
+        if !self.is_command_allowed_with_segments_and_temporary(
+            &effective_command,
+            &segments,
+            temporary_allowed_commands,
+        ) {
             return Err(format!("Command not allowed by security policy: {command}"));
         }
 
@@ -973,13 +988,61 @@ impl SecurityPolicy {
     /// - Blocks shell redirections (`<`, `>`, `>>`) that can bypass path policy
     /// - Blocks dangerous arguments (e.g. `find -exec`, `git config`)
     pub fn is_command_allowed(&self, command: &str) -> bool {
-        self.is_command_allowed_with_segments(command, &split_unquoted_segments(command))
+        self.is_command_allowed_with_temporary_allowlist(command, &[])
     }
 
-    fn is_command_allowed_with_segments(&self, command: &str, segments: &[String]) -> bool {
+    pub fn is_command_allowed_with_temporary_allowlist(
+        &self,
+        command: &str,
+        temporary_allowed_commands: &[String],
+    ) -> bool {
+        self.is_command_allowed_with_segments_and_temporary(
+            command,
+            &split_unquoted_segments(command),
+            temporary_allowed_commands,
+        )
+    }
+
+    pub(crate) fn command_matches_temporary_allowlist(
+        &self,
+        command: &str,
+        temporary_allowed_commands: &[String],
+    ) -> bool {
+        let trimmed = command.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+
+        let effective_trimmed = self.apply_shell_redirect_policy(command);
+        let effective_trimmed = effective_trimmed.trim();
+
+        temporary_allowed_commands.iter().any(|allowed| {
+            let allowed_trimmed = allowed.trim();
+            if allowed_trimmed.is_empty() {
+                return false;
+            }
+            if allowed_trimmed == trimmed || allowed_trimmed == effective_trimmed {
+                return true;
+            }
+
+            let effective_allowed = self.apply_shell_redirect_policy(allowed);
+            let effective_allowed = effective_allowed.trim();
+            effective_allowed == trimmed || effective_allowed == effective_trimmed
+        })
+    }
+
+    fn is_command_allowed_with_segments_and_temporary(
+        &self,
+        command: &str,
+        segments: &[String],
+        temporary_allowed_commands: &[String],
+    ) -> bool {
         if self.autonomy == AutonomyLevel::ReadOnly {
             return false;
         }
+
+        let temporarily_approved = self
+            .command_matches_temporary_allowlist(command, temporary_allowed_commands);
 
         // Block subshell/expansion operators — these allow hiding arbitrary
         // commands inside an allowed command (e.g. `echo $(rm -rf /)`) and
@@ -1028,10 +1091,11 @@ impl SecurityPolicy {
                 continue;
             }
 
-            if !self
-                .allowed_commands
-                .iter()
-                .any(|allowed| is_allowlist_entry_match(allowed, executable, base_cmd))
+            if !temporarily_approved
+                && !self
+                    .allowed_commands
+                    .iter()
+                    .any(|allowed| is_allowlist_entry_match(allowed, executable, base_cmd))
             {
                 return false;
             }
@@ -1822,6 +1886,40 @@ mod tests {
 
         let allowed = p.validate_command_execution("touch test.txt", true);
         assert_eq!(allowed.unwrap(), CommandRiskLevel::Medium);
+    }
+
+    #[test]
+    fn validate_command_allows_exact_temporary_plan_command() {
+        let p = SecurityPolicy {
+            autonomy: AutonomyLevel::Supervised,
+            require_approval_for_medium_risk: true,
+            allowed_commands: vec![],
+            ..SecurityPolicy::default()
+        };
+
+        let allowed = p.validate_command_execution_with_temporary_allowlist(
+            "touch test.txt",
+            true,
+            &["touch test.txt".to_string()],
+        );
+        assert_eq!(allowed.unwrap(), CommandRiskLevel::Medium);
+    }
+
+    #[test]
+    fn validate_command_temporary_plan_still_blocks_high_risk_command() {
+        let p = SecurityPolicy {
+            autonomy: AutonomyLevel::Supervised,
+            allowed_commands: vec![],
+            ..SecurityPolicy::default()
+        };
+
+        let blocked = p.validate_command_execution_with_temporary_allowlist(
+            "rm -rf tmp_test_dir",
+            true,
+            &["rm -rf tmp_test_dir".to_string()],
+        );
+        assert!(blocked.is_err());
+        assert!(blocked.unwrap_err().contains("high-risk"));
     }
 
     #[test]

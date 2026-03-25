@@ -132,6 +132,38 @@ pub(super) fn build_non_cli_approval_plan_prompt(
     (title, details)
 }
 
+pub(super) fn collect_planned_shell_commands(tool_calls: &[ParsedToolCall]) -> Vec<String> {
+    tool_calls
+        .iter()
+        .filter_map(|call| match call.name.as_str() {
+            "shell" => call
+                .arguments
+                .get("command")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|command| !command.is_empty())
+                .map(ToString::to_string),
+            "process"
+                if matches!(
+                    call.arguments
+                        .get("action")
+                        .and_then(serde_json::Value::as_str),
+                    Some("spawn_shell")
+                ) =>
+            {
+                call.arguments
+                    .get("shell_command")
+                    .and_then(serde_json::Value::as_str)
+                    .or_else(|| call.arguments.get("command").and_then(serde_json::Value::as_str))
+                    .map(str::trim)
+                    .filter(|command| !command.is_empty())
+                    .map(ToString::to_string)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 pub(super) fn maybe_inject_cron_add_delivery(
     tool_name: &str,
     tool_args: &mut serde_json::Value,

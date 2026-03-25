@@ -17,6 +17,7 @@ const MAX_OUTPUT_BYTES: usize = 1_048_576;
 const SAFE_ENV_VARS: &[&str] = &[
     "PATH", "HOME", "TERM", "LANG", "LC_ALL", "LC_CTYPE", "USER", "SHELL", "TMPDIR",
 ];
+pub(crate) const APPROVED_PLAN_SHELL_COMMANDS_ARG: &str = "__approved_plan_shell_commands";
 
 /// Shell command execution tool with sandboxing
 pub struct ShellTool {
@@ -69,6 +70,21 @@ pub(super) fn collect_allowed_shell_env_vars(security: &SecurityPolicy) -> Vec<S
         }
     }
     out
+}
+
+pub(crate) fn extract_approved_plan_shell_commands(args: &serde_json::Value) -> Vec<String> {
+    args.get(APPROVED_PLAN_SHELL_COMMANDS_ARG)
+        .and_then(serde_json::Value::as_array)
+        .map(|commands| {
+            commands
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|command| !command.is_empty())
+                .map(ToString::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn extract_command_argument(args: &serde_json::Value) -> Option<String> {
@@ -142,8 +158,13 @@ impl Tool for ShellTool {
         let command = extract_command_argument(args)
             .ok_or_else(|| "Missing 'command' parameter".to_string())?;
         let effective_command = self.security.apply_shell_redirect_policy(&command);
+        let temporary_allowlist = vec![command.clone()];
 
-        self.security.validate_command_execution(&command, true)?;
+        self.security.validate_command_execution_with_temporary_allowlist(
+            &command,
+            true,
+            &temporary_allowlist,
+        )?;
         self.runtime
             .build_shell_command(&effective_command, &self.security.workspace_dir)
             .map(|_| ())
@@ -155,15 +176,24 @@ impl Tool for ShellTool {
         let command = extract_command_argument(&args)
             .ok_or_else(|| anyhow::anyhow!("Missing 'command' parameter"))?;
         let effective_command = self.security.apply_shell_redirect_policy(&command);
+        let temporary_allowed_commands = extract_approved_plan_shell_commands(&args);
         let approved = args
             .get("approved")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        let approved = approved
+            || self
+                .security
+                .command_matches_temporary_allowlist(&command, &temporary_allowed_commands);
         let otp_code = args.get("otp_code").and_then(|v| v.as_str());
 
         // validate_command_execution already applies redirect policy internally,
         // checks the allowlist, forbidden paths, and risk classification.
-        match self.security.validate_command_execution(&command, approved) {
+        match self.security.validate_command_execution_with_temporary_allowlist(
+            &command,
+            approved,
+            &temporary_allowed_commands,
+        ) {
             Ok(_) => {}
             Err(reason) => {
                 return Ok(ToolResult {
@@ -473,16 +503,26 @@ mod tests {
     }
 
     #[test]
-    fn shell_approval_precheck_rejects_disallowed_command() {
+    fn shell_approval_precheck_accepts_safe_command_that_needs_plan_approval() {
+        let tool = ShellTool::new(
+            test_security(AutonomyLevel::Supervised),
+            Arc::new(ApprovalPrecheckRuntime { build_error: None }),
+        );
+
+        assert!(tool.approval_precheck(&json!({"command": "git status"})).is_ok());
+    }
+
+    #[test]
+    fn shell_approval_precheck_rejects_high_risk_blocked_command() {
         let tool = ShellTool::new(
             test_security(AutonomyLevel::Supervised),
             Arc::new(ApprovalPrecheckRuntime { build_error: None }),
         );
 
         let err = tool
-            .approval_precheck(&json!({"command": "git status"}))
-            .expect_err("disallowed command should fail precheck");
-        assert!(err.contains("Command not allowed by security policy"));
+            .approval_precheck(&json!({"command": "rm -rf tmp_shell_precheck_test"}))
+            .expect_err("high-risk blocked command should fail precheck");
+        assert!(err.contains("high-risk"));
     }
 
     #[test]
@@ -892,6 +932,58 @@ mod tests {
 
         let _ =
             tokio::fs::remove_file(std::env::temp_dir().join("topclaw_shell_approval_test")).await;
+    }
+
+    #[tokio::test]
+    async fn shell_execute_honors_temporary_approved_plan_command_without_static_allowlist() {
+        let workspace = tempfile::tempdir().expect("temp dir should be created");
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Supervised,
+            allowed_commands: vec![],
+            workspace_dir: workspace.path().to_path_buf(),
+            ..SecurityPolicy::default()
+        });
+
+        let tool = ShellTool::new(security, test_runtime());
+        let result = tool
+            .execute(json!({
+                "command": "touch topclaw_shell_plan_approval_test",
+                APPROVED_PLAN_SHELL_COMMANDS_ARG: ["touch topclaw_shell_plan_approval_test"]
+            }))
+            .await
+            .expect("temporarily approved command should return a result");
+        assert!(result.success);
+        assert!(workspace.path().join("topclaw_shell_plan_approval_test").exists());
+    }
+
+    #[tokio::test]
+    async fn shell_execute_rejects_different_command_than_temporary_approval() {
+        let workspace = tempfile::tempdir().expect("temp dir should be created");
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Supervised,
+            allowed_commands: vec!["touch".into()],
+            workspace_dir: workspace.path().to_path_buf(),
+            ..SecurityPolicy::default()
+        });
+
+        let tool = ShellTool::new(security, test_runtime());
+        let result = tool
+            .execute(json!({
+                "command": "touch topclaw_shell_plan_mismatch_test",
+                APPROVED_PLAN_SHELL_COMMANDS_ARG: ["git status"]
+            }))
+            .await
+            .expect("mismatched approval should return a result");
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("explicit approval"));
+        assert!(!workspace
+            .path()
+            .join("topclaw_shell_plan_mismatch_test")
+            .exists());
     }
 
     // ── §5.2 Shell timeout enforcement tests ─────────────────

@@ -8,7 +8,7 @@ use crate::security::AutonomyLevel;
 use chrono::{Duration, Utc};
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{self, BufRead, Write};
 use uuid::Uuid;
 
@@ -55,6 +55,8 @@ pub struct PendingNonCliApprovalRequest {
     pub created_at: String,
     pub expires_at: String,
     pub resume_request: Option<PendingNonCliResumeRequest>,
+    #[serde(default)]
+    pub approved_shell_commands: Vec<String>,
 }
 
 /// Original non-CLI request payload to resume automatically after approval.
@@ -71,6 +73,13 @@ pub enum PendingApprovalError {
     NotFound,
     Expired,
     RequesterMismatch,
+}
+
+/// One-turn non-CLI approval grant metadata consumed by the next resumed turn.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NonCliTurnApprovalGrant {
+    #[serde(default)]
+    pub approved_shell_commands: Vec<String>,
 }
 
 // ── ApprovalManager ──────────────────────────────────────────────
@@ -91,8 +100,8 @@ pub struct ApprovalManager {
     session_allowlist: Mutex<HashSet<String>>,
     /// Session-scoped allowlist for non-CLI channels after explicit human approval.
     non_cli_allowlist: Mutex<HashSet<String>>,
-    /// One-time non-CLI bypass tokens that allow a full tool loop turn without prompts.
-    non_cli_allow_all_once_remaining: Mutex<u32>,
+    /// One-time non-CLI bypass grants that allow a full tool loop turn without prompts.
+    non_cli_turn_grants: Mutex<VecDeque<NonCliTurnApprovalGrant>>,
     /// Optional allowlist of senders allowed to manage non-CLI approvals.
     non_cli_approval_approvers: RwLock<HashSet<String>>,
     /// Default natural-language handling mode for non-CLI approval-management commands.
@@ -142,7 +151,7 @@ impl ApprovalManager {
             autonomy_level: config.level,
             session_allowlist: Mutex::new(HashSet::new()),
             non_cli_allowlist: Mutex::new(HashSet::new()),
-            non_cli_allow_all_once_remaining: Mutex::new(0),
+            non_cli_turn_grants: Mutex::new(VecDeque::new()),
             non_cli_approval_approvers: RwLock::new(Self::normalize_non_cli_approvers(
                 &config.non_cli_approval_approvers,
             )),
@@ -250,27 +259,37 @@ impl ApprovalManager {
     /// Grant one non-CLI "allow all tools/commands for one turn" token.
     ///
     /// Returns the remaining token count after increment.
+    #[cfg(test)]
     pub fn grant_non_cli_allow_all_once(&self) -> u32 {
-        let mut remaining = self.non_cli_allow_all_once_remaining.lock();
-        *remaining = remaining.saturating_add(1);
-        *remaining
+        self.grant_non_cli_turn_grant(NonCliTurnApprovalGrant::default())
+    }
+
+    /// Grant one non-CLI "allow all tools/commands for one turn" token with
+    /// turn-scoped execution metadata.
+    ///
+    /// Returns the remaining token count after increment.
+    pub fn grant_non_cli_turn_grant(&self, grant: NonCliTurnApprovalGrant) -> u32 {
+        let mut grants = self.non_cli_turn_grants.lock();
+        grants.push_back(grant);
+        grants.len() as u32
     }
 
     /// Consume one non-CLI "allow all tools/commands for one turn" token.
     ///
     /// Returns `true` when a token was consumed, `false` when none existed.
+    #[cfg(test)]
     pub fn consume_non_cli_allow_all_once(&self) -> bool {
-        let mut remaining = self.non_cli_allow_all_once_remaining.lock();
-        if *remaining == 0 {
-            return false;
-        }
-        *remaining -= 1;
-        true
+        self.consume_non_cli_turn_grant().is_some()
+    }
+
+    /// Consume one queued non-CLI turn grant.
+    pub fn consume_non_cli_turn_grant(&self) -> Option<NonCliTurnApprovalGrant> {
+        self.non_cli_turn_grants.lock().pop_front()
     }
 
     /// Remaining one-time non-CLI "allow all tools/commands" tokens.
     pub fn non_cli_allow_all_once_remaining(&self) -> u32 {
-        *self.non_cli_allow_all_once_remaining.lock()
+        self.non_cli_turn_grants.lock().len() as u32
     }
 
     /// Snapshot configured non-CLI approval approver entries.
@@ -413,6 +432,7 @@ impl ApprovalManager {
         requested_reply_target: &str,
         resume_request: Option<PendingNonCliResumeRequest>,
         reason: Option<String>,
+        approved_shell_commands: Vec<String>,
     ) -> PendingNonCliApprovalRequest {
         let mut pending = self.pending_non_cli_requests.lock();
         prune_expired_pending_requests(&mut pending);
@@ -429,6 +449,7 @@ impl ApprovalManager {
             if reason.is_some() {
                 existing.reason = reason;
             }
+            existing.approved_shell_commands = approved_shell_commands;
             return existing.clone();
         }
 
@@ -449,6 +470,7 @@ impl ApprovalManager {
             created_at: now.to_rfc3339(),
             expires_at: expires.to_rfc3339(),
             resume_request,
+            approved_shell_commands,
         };
         pending.insert(request_id, req.clone());
         self.resolved_non_cli_requests
@@ -836,6 +858,20 @@ mod tests {
     }
 
     #[test]
+    fn non_cli_turn_grant_preserves_approved_shell_commands() {
+        let mgr = ApprovalManager::from_config(&supervised_config());
+        let remaining = mgr.grant_non_cli_turn_grant(NonCliTurnApprovalGrant {
+            approved_shell_commands: vec!["git status".to_string()],
+        });
+        assert_eq!(remaining, 1);
+
+        let grant = mgr
+            .consume_non_cli_turn_grant()
+            .expect("turn grant should be queued");
+        assert_eq!(grant.approved_shell_commands, vec!["git status"]);
+    }
+
+    #[test]
     fn persistent_runtime_grant_updates_policy_immediately() {
         let mgr = ApprovalManager::from_config(&supervised_config());
         assert!(mgr.needs_approval("shell"));
@@ -859,8 +895,15 @@ mod tests {
     #[test]
     fn create_and_confirm_pending_non_cli_approval_request() {
         let mgr = ApprovalManager::from_config(&supervised_config());
-        let req =
-            mgr.create_non_cli_pending_request("shell", "alice", "telegram", "chat-1", None, None);
+        let req = mgr.create_non_cli_pending_request(
+            "shell",
+            "alice",
+            "telegram",
+            "chat-1",
+            None,
+            None,
+            Vec::new(),
+        );
         assert_eq!(req.tool_name, "shell");
         assert!(req.request_id.starts_with("apr-"));
 
@@ -876,8 +919,15 @@ mod tests {
     #[test]
     fn create_and_reject_pending_non_cli_approval_request() {
         let mgr = ApprovalManager::from_config(&supervised_config());
-        let req =
-            mgr.create_non_cli_pending_request("shell", "alice", "telegram", "chat-1", None, None);
+        let req = mgr.create_non_cli_pending_request(
+            "shell",
+            "alice",
+            "telegram",
+            "chat-1",
+            None,
+            None,
+            Vec::new(),
+        );
 
         let rejected = mgr
             .reject_non_cli_pending_request(&req.request_id, "alice", "telegram", "chat-1")
@@ -889,8 +939,15 @@ mod tests {
     #[test]
     fn pending_non_cli_resolution_is_recorded_and_consumed() {
         let mgr = ApprovalManager::from_config(&supervised_config());
-        let req =
-            mgr.create_non_cli_pending_request("shell", "alice", "telegram", "chat-1", None, None);
+        let req = mgr.create_non_cli_pending_request(
+            "shell",
+            "alice",
+            "telegram",
+            "chat-1",
+            None,
+            None,
+            Vec::new(),
+        );
 
         mgr.record_non_cli_pending_resolution(&req.request_id, ApprovalResponse::Yes);
         assert_eq!(
@@ -903,8 +960,15 @@ mod tests {
     #[test]
     fn pending_non_cli_approval_requires_same_sender_and_channel() {
         let mgr = ApprovalManager::from_config(&supervised_config());
-        let req =
-            mgr.create_non_cli_pending_request("shell", "alice", "telegram", "chat-1", None, None);
+        let req = mgr.create_non_cli_pending_request(
+            "shell",
+            "alice",
+            "telegram",
+            "chat-1",
+            None,
+            None,
+            Vec::new(),
+        );
 
         let err = mgr
             .confirm_non_cli_pending_request(&req.request_id, "bob", "telegram", "chat-1")
@@ -930,8 +994,24 @@ mod tests {
     #[test]
     fn list_pending_non_cli_approvals_filters_scope() {
         let mgr = ApprovalManager::from_config(&supervised_config());
-        mgr.create_non_cli_pending_request("shell", "alice", "telegram", "chat-1", None, None);
-        mgr.create_non_cli_pending_request("file_write", "bob", "telegram", "chat-1", None, None);
+        mgr.create_non_cli_pending_request(
+            "shell",
+            "alice",
+            "telegram",
+            "chat-1",
+            None,
+            None,
+            Vec::new(),
+        );
+        mgr.create_non_cli_pending_request(
+            "file_write",
+            "bob",
+            "telegram",
+            "chat-1",
+            None,
+            None,
+            Vec::new(),
+        );
         mgr.create_non_cli_pending_request(
             "browser_open",
             "alice",
@@ -939,8 +1019,17 @@ mod tests {
             "chat-9",
             None,
             None,
+            Vec::new(),
         );
-        mgr.create_non_cli_pending_request("schedule", "alice", "telegram", "chat-2", None, None);
+        mgr.create_non_cli_pending_request(
+            "schedule",
+            "alice",
+            "telegram",
+            "chat-2",
+            None,
+            None,
+            Vec::new(),
+        );
 
         let alice_telegram =
             mgr.list_non_cli_pending_requests(Some("alice"), Some("telegram"), Some("chat-1"));
@@ -955,8 +1044,15 @@ mod tests {
     #[test]
     fn pending_non_cli_approval_expiry_is_pruned() {
         let mgr = ApprovalManager::from_config(&supervised_config());
-        let req =
-            mgr.create_non_cli_pending_request("shell", "alice", "telegram", "chat-1", None, None);
+        let req = mgr.create_non_cli_pending_request(
+            "shell",
+            "alice",
+            "telegram",
+            "chat-1",
+            None,
+            None,
+            Vec::new(),
+        );
 
         {
             let mut pending = mgr.pending_non_cli_requests.lock();

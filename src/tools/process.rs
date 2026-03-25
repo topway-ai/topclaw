@@ -1,4 +1,4 @@
-use super::shell::collect_allowed_shell_env_vars;
+use super::shell::{collect_allowed_shell_env_vars, extract_approved_plan_shell_commands};
 use super::traits::{Tool, ToolResult};
 use crate::runtime::RuntimeAdapter;
 use crate::security::policy::ToolOperation;
@@ -141,6 +141,11 @@ impl ProcessTool {
             .get("approved")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        let temporary_allowed_commands = extract_approved_plan_shell_commands(args);
+        let approved = approved
+            || self
+                .security
+                .command_matches_temporary_allowlist(command, &temporary_allowed_commands);
         let otp_code = args.get("otp_code").and_then(|v| v.as_str());
 
         if !approved {
@@ -168,7 +173,11 @@ impl ProcessTool {
             });
         }
 
-        if let Err(reason) = self.security.validate_command_execution(command, approved) {
+        if let Err(reason) = self.security.validate_command_execution_with_temporary_allowlist(
+            command,
+            approved,
+            &temporary_allowed_commands,
+        ) {
             return Ok(ToolResult {
                 success: false,
                 output: String::new(),
