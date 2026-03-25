@@ -59,7 +59,8 @@ use parsing::{
 };
 use provider_io::{call_provider_chat, consume_provider_streaming_response};
 use tool_helpers::{
-    build_non_cli_approval_plan_prompt, maybe_inject_cron_add_delivery,
+    build_non_cli_approval_plan_prompt, collect_planned_shell_commands,
+    maybe_inject_cron_add_delivery,
     qualifies_for_non_cli_investigation_batch, truncate_tool_args_for_progress,
 };
 use utilities::autosave_memory_key;
@@ -349,8 +350,14 @@ pub(crate) async fn run_tool_call_loop(
     let mut seen_tool_signatures: HashSet<(String, String)> = HashSet::new();
     let mut missing_tool_call_retry_used = false;
     let mut missing_tool_call_retry_prompt: Option<String> = None;
-    let bypass_non_cli_approval_for_turn =
-        approval.is_some_and(|mgr| channel_name != "cli" && mgr.consume_non_cli_allow_all_once());
+    let approved_turn_grant = approval.and_then(|mgr| {
+        if channel_name == "cli" {
+            None
+        } else {
+            mgr.consume_non_cli_turn_grant()
+        }
+    });
+    let bypass_non_cli_approval_for_turn = approved_turn_grant.is_some();
     if bypass_non_cli_approval_for_turn {
         runtime_trace::record_event(
             "approval_bypass_one_time_all_tools_consumed",
@@ -810,7 +817,11 @@ pub(crate) async fn run_tool_call_loop(
         let mut individual_results: Vec<(Option<String>, String)> = Vec::new();
         let mut ordered_results: Vec<Option<(String, Option<String>, ToolExecutionOutcome)>> =
             (0..tool_calls.len()).map(|_| None).collect();
-        let allow_parallel_execution = should_execute_tools_in_parallel(&tool_calls, approval);
+        let allow_parallel_execution = should_execute_tools_in_parallel(
+            &tool_calls,
+            approval,
+            bypass_non_cli_approval_for_turn,
+        );
         let blocked_non_cli_plan_reason = if !bypass_non_cli_approval_for_turn
             && channel_name != "cli"
             && non_cli_approval_context.is_some()
@@ -988,6 +999,7 @@ pub(crate) async fn run_tool_call_loop(
                                     thread_ts: ctx.thread_ts.clone(),
                                 }),
                                 approval_reason,
+                                collect_planned_shell_commands(&tool_calls),
                             );
 
                             let _ = ctx.prompt_tx.send(NonCliApprovalPrompt {
@@ -1115,6 +1127,7 @@ pub(crate) async fn run_tool_call_loop(
                 tools_registry,
                 observer,
                 cancellation_token.as_ref(),
+                approved_turn_grant.as_ref(),
             )
             .await?
         } else {
@@ -1123,6 +1136,7 @@ pub(crate) async fn run_tool_call_loop(
                 tools_registry,
                 observer,
                 cancellation_token.as_ref(),
+                approved_turn_grant.as_ref(),
             )
             .await?
         };
@@ -2666,7 +2680,7 @@ mod tests {
             tool_call_id: None,
         }];
 
-        assert!(!should_execute_tools_in_parallel(&calls, None));
+        assert!(!should_execute_tools_in_parallel(&calls, None, false));
     }
 
     #[test]
@@ -2688,7 +2702,8 @@ mod tests {
 
         assert!(!should_execute_tools_in_parallel(
             &calls,
-            Some(&approval_mgr)
+            Some(&approval_mgr),
+            false,
         ));
     }
 
@@ -2714,7 +2729,31 @@ mod tests {
 
         assert!(should_execute_tools_in_parallel(
             &calls,
-            Some(&approval_mgr)
+            Some(&approval_mgr),
+            false,
+        ));
+    }
+
+    #[test]
+    fn should_execute_tools_in_parallel_returns_true_when_approval_is_already_bypassed() {
+        let calls = vec![
+            ParsedToolCall {
+                name: "shell".to_string(),
+                arguments: serde_json::json!({"command": "pwd"}),
+                tool_call_id: None,
+            },
+            ParsedToolCall {
+                name: "http_request".to_string(),
+                arguments: serde_json::json!({"url": "https://example.com"}),
+                tool_call_id: None,
+            },
+        ];
+        let approval_mgr = ApprovalManager::from_config(&crate::config::AutonomyConfig::default());
+
+        assert!(should_execute_tools_in_parallel(
+            &calls,
+            Some(&approval_mgr),
+            true,
         ));
     }
 
@@ -2998,6 +3037,127 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn run_tool_call_loop_executes_approved_shell_command_from_turn_grant() {
+        let provider = ScriptedProvider::from_text_responses(vec![
+            r#"<tool_call>
+{"name":"shell","arguments":{"command":"touch approved-turn-grant.txt"}}
+</tool_call>"#,
+            "done",
+        ]);
+
+        let workspace = tempfile::tempdir().expect("temp dir should be created");
+        let tools_registry: Vec<Box<dyn Tool>> = vec![Box::new(crate::tools::ShellTool::new(
+            Arc::new(SecurityPolicy {
+                autonomy: AutonomyLevel::Supervised,
+                workspace_dir: workspace.path().to_path_buf(),
+                ..SecurityPolicy::default()
+            }),
+            Arc::new(NativeRuntime::new()),
+        ))];
+
+        let approval_mgr = ApprovalManager::from_config(&crate::config::AutonomyConfig::default());
+        approval_mgr.grant_non_cli_turn_grant(crate::approval::NonCliTurnApprovalGrant {
+            approved_shell_commands: vec!["touch approved-turn-grant.txt".to_string()],
+        });
+
+        let mut history = vec![
+            ChatMessage::system("test-system"),
+            ChatMessage::user("create the approved file"),
+        ];
+        let observer = NoopObserver;
+
+        let result = run_tool_call_loop(
+            &provider,
+            &mut history,
+            &tools_registry,
+            &observer,
+            "mock-provider",
+            "mock-model",
+            0.0,
+            true,
+            Some(&approval_mgr),
+            "telegram",
+            &crate::config::MultimodalConfig::default(),
+            4,
+            None,
+            None,
+            None,
+            &[],
+        )
+        .await
+        .expect("approved one-turn shell command should execute");
+
+        assert_eq!(result, "done");
+        assert!(workspace.path().join("approved-turn-grant.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn run_tool_call_loop_parallelizes_approved_non_cli_turn() {
+        let provider = ScriptedProvider::from_text_responses(vec![
+            r#"<tool_call>
+{"name":"delay_a","arguments":{"value":"A"}}
+</tool_call>
+<tool_call>
+{"name":"delay_b","arguments":{"value":"B"}}
+</tool_call>"#,
+            "done",
+        ]);
+
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+        let tools_registry: Vec<Box<dyn Tool>> = vec![
+            Box::new(DelayTool::new(
+                "delay_a",
+                200,
+                Arc::clone(&active),
+                Arc::clone(&max_active),
+            )),
+            Box::new(DelayTool::new(
+                "delay_b",
+                200,
+                Arc::clone(&active),
+                Arc::clone(&max_active),
+            )),
+        ];
+
+        let approval_mgr = ApprovalManager::from_config(&crate::config::AutonomyConfig::default());
+        approval_mgr.grant_non_cli_allow_all_once();
+
+        let mut history = vec![
+            ChatMessage::system("test-system"),
+            ChatMessage::user("run the approved tools"),
+        ];
+        let observer = NoopObserver;
+
+        let result = run_tool_call_loop(
+            &provider,
+            &mut history,
+            &tools_registry,
+            &observer,
+            "mock-provider",
+            "mock-model",
+            0.0,
+            true,
+            Some(&approval_mgr),
+            "telegram",
+            &crate::config::MultimodalConfig::default(),
+            4,
+            None,
+            None,
+            None,
+            &[],
+        )
+        .await
+        .expect("approved non-cli turn should execute");
+
+        assert_eq!(result, "done");
+        assert!(
+            max_active.load(Ordering::SeqCst) >= 2,
+            "approved turn should allow parallel execution"
+        );
+    }
+
+    #[tokio::test]
     async fn run_tool_call_loop_executes_non_cli_investigation_batch_without_prompt() {
         let provider = ScriptedProvider::from_text_responses(vec![
             r#"<tool_call>
@@ -3242,7 +3402,7 @@ mod tests {
     async fn run_tool_call_loop_suppresses_approval_prompt_for_blocked_shell_plan() {
         let provider = ScriptedProvider::from_text_responses(vec![
             r#"<tool_call>
-{"name":"shell","arguments":{"command":"git status"}}
+{"name":"shell","arguments":{"command":"rm -rf tmp_test_dir"}}
 </tool_call>
 <tool_call>
 {"name":"web_fetch","arguments":{"url":"https://example.com/docs"}}

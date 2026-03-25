@@ -118,6 +118,7 @@ fn create_capability_recovery_plan(
                     &msg.reply_target,
                     None,
                     Some(reason.to_string()),
+                    Vec::new(),
                 );
                 let message = format!(
                     "I can finish this, but I need supervised access to `{}` first.\nRequest ID: `{}`\nConfirm with `/approve-confirm {}` from this same chat/channel, then send the request again.",
@@ -355,6 +356,7 @@ User request:\n{}",
                 &msg.reply_target,
                 None,
                 Some(reason.clone()),
+                Vec::new(),
             );
             Some(CapabilityRecoveryPlan {
                 kind,

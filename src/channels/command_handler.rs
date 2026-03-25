@@ -272,6 +272,7 @@ pub(super) async fn handle_runtime_command_if_needed(
                 reply_target,
                 None,
                 Some("human-confirmed one-time bypass request for all tools/commands".to_string()),
+                Vec::new(),
             );
             runtime_trace::record_event(
                 "approval_request_created",
@@ -329,6 +330,7 @@ pub(super) async fn handle_runtime_command_if_needed(
                     reply_target,
                     None,
                     None,
+                    Vec::new(),
                 );
                 runtime_trace::record_event(
                     "approval_request_created",
@@ -417,7 +419,11 @@ pub(super) async fn handle_runtime_command_if_needed(
                         let tool_name = req.tool_name.clone();
                         let resume_request = req.resume_request.clone();
                         let approval_message = if tool_name == APPROVAL_ALL_TOOLS_ONCE_TOKEN {
-                            let remaining = ctx.approval_manager.grant_non_cli_allow_all_once();
+                            let remaining = ctx.approval_manager.grant_non_cli_turn_grant(
+                                crate::approval::NonCliTurnApprovalGrant {
+                                    approved_shell_commands: req.approved_shell_commands.clone(),
+                                },
+                            );
                             format!(
                                 "Approved one-time all-tools bypass from request `{request_id}`.\nApplies to the next non-CLI agent tool-execution turn only.\nThis bypass is runtime-only and does not persist to config.\nChannel exclusions from `autonomy.non_cli_excluded_tools` still apply.\nQueued one-time all-tools bypass tokens: `{remaining}`."
                             )
