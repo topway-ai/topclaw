@@ -1086,6 +1086,7 @@ pub(super) async fn process_channel_message_with_options(
                     started_at.elapsed().as_millis()
                 );
                 let safe_error = providers::sanitize_api_error(&e.to_string());
+                let user_visible_error = format_user_visible_llm_error(msg.channel.as_str(), &e);
                 runtime_trace::record_event(
                     "channel_message_error",
                     Some(msg.channel.as_str()),
@@ -1142,20 +1143,13 @@ pub(super) async fn process_channel_message_with_options(
                 if let Some(channel) = target_channel.as_ref() {
                     if let Some(ref draft_id) = draft_message_id {
                         let _ = channel
-                            .finalize_draft(
-                                &msg.reply_target,
-                                draft_id,
-                                &format!("\u{26A0}\u{FE0F} Error: {e}"),
-                            )
+                            .finalize_draft(&msg.reply_target, draft_id, &user_visible_error)
                             .await;
                     } else {
                         let _ = channel
                             .send(
-                                &SendMessage::new(
-                                    format!("\u{26A0}\u{FE0F} Error: {e}"),
-                                    &msg.reply_target,
-                                )
-                                .in_thread(msg.thread_ts.clone()),
+                                &SendMessage::new(&user_visible_error, &msg.reply_target)
+                                    .in_thread(msg.thread_ts.clone()),
                             )
                             .await;
                     }

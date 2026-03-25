@@ -1393,6 +1393,15 @@ fn parse_responses_response_body(
     })
 }
 
+fn decode_response_body_lossy(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+async fn read_response_body_lossy(response: reqwest::Response) -> anyhow::Result<String> {
+    let bytes = response.bytes().await?;
+    Ok(decode_response_body_lossy(&bytes))
+}
+
 impl OpenAiCompatibleProvider {
     fn should_use_responses_mode(&self) -> bool {
         self.api_mode == CompatibleApiMode::OpenAiResponses
@@ -1582,11 +1591,11 @@ impl OpenAiCompatibleProvider {
             .await?;
 
         if !response.status().is_success() {
-            let error = response.text().await?;
+            let error = read_response_body_lossy(response).await?;
             anyhow::bail!("{} Responses API error: {error}", self.name);
         }
 
-        let body = response.text().await?;
+        let body = read_response_body_lossy(response).await?;
         parse_responses_response_body(&self.name, &body)
     }
 
@@ -1995,7 +2004,7 @@ impl Provider for OpenAiCompatibleProvider {
 
         if !response.status().is_success() {
             let status = response.status();
-            let error = response.text().await?;
+            let error = read_response_body_lossy(response).await?;
             let sanitized = super::sanitize_api_error(&error);
 
             if status == reqwest::StatusCode::NOT_FOUND && self.supports_responses_fallback {
@@ -2014,7 +2023,7 @@ impl Provider for OpenAiCompatibleProvider {
             anyhow::bail!("{} API error ({status}): {sanitized}", self.name);
         }
 
-        let body = response.text().await?;
+        let body = read_response_body_lossy(response).await?;
         let chat_response = parse_chat_response_body(&self.name, &body)?;
 
         chat_response
@@ -2132,7 +2141,7 @@ impl Provider for OpenAiCompatibleProvider {
             return Err(super::api_error(&self.name, response).await);
         }
 
-        let body = response.text().await?;
+        let body = read_response_body_lossy(response).await?;
         let chat_response = parse_chat_response_body(&self.name, &body)?;
 
         chat_response
@@ -2255,7 +2264,7 @@ impl Provider for OpenAiCompatibleProvider {
             return Err(super::api_error(&self.name, response).await);
         }
 
-        let body = response.text().await?;
+        let body = read_response_body_lossy(response).await?;
         let chat_response = parse_chat_response_body(&self.name, &body)?;
         let usage = chat_response.usage.map(|u| TokenUsage {
             input_tokens: u.prompt_tokens,
@@ -2374,7 +2383,7 @@ impl Provider for OpenAiCompatibleProvider {
 
         if !response.status().is_success() {
             let status = response.status();
-            let error = response.text().await?;
+            let error = read_response_body_lossy(response).await?;
             let sanitized = super::sanitize_api_error(&error);
 
             if Self::is_native_tool_schema_unsupported(status, &sanitized) {
@@ -2886,6 +2895,13 @@ mod tests {
         assert!(msg.contains("body="));
         assert!(msg.contains("[REDACTED]"));
         assert!(!msg.contains("sk-another-secret"));
+    }
+
+    #[test]
+    fn decode_response_body_lossy_handles_invalid_utf8() {
+        let decoded = decode_response_body_lossy(b"{\"text\":\"hello\xffworld\"}");
+        assert!(decoded.contains("hello"));
+        assert!(decoded.contains("world"));
     }
 
     #[test]

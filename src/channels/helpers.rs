@@ -198,6 +198,30 @@ pub(super) fn is_tool_iteration_limit_error(err: &anyhow::Error) -> bool {
     crate::agent::loop_::is_tool_iteration_limit_error(err)
 }
 
+pub(super) fn format_user_visible_llm_error(channel_name: &str, err: &anyhow::Error) -> String {
+    let safe_error = providers::sanitize_api_error(&err.to_string());
+    let lower = safe_error.to_ascii_lowercase();
+    let route_hint = if matches!(channel_name, "telegram" | "discord") {
+        " or use `/models` to switch provider/model"
+    } else {
+        ""
+    };
+
+    if lower.contains("all providers/models failed") {
+        if lower.contains("error decoding response body") {
+            return format!(
+                "⚠️ The configured provider returned an unreadable response after several retries. Please try again{route_hint}."
+            );
+        }
+
+        return format!(
+            "⚠️ The configured provider/model could not complete this request after several retries. Please try again{route_hint}."
+        );
+    }
+
+    format!("⚠️ Error: {safe_error}")
+}
+
 pub(super) fn is_heartbeat_ok_sentinel(output: &str) -> bool {
     const HEARTBEAT_OK: &str = "HEARTBEAT_OK";
     output

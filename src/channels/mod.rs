@@ -584,6 +584,23 @@ mod tests {
         }
     }
 
+    struct AggregatedFailureProvider;
+
+    #[async_trait::async_trait]
+    impl Provider for AggregatedFailureProvider {
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            anyhow::bail!(
+                "All providers/models failed. Attempts:\nprovider=openrouter model=minimax/minimax-m2.7 attempt 1/3: retryable; error=error decoding response body\nprovider=openrouter model=minimax/minimax-m2.7 attempt 2/3: retryable; error=error decoding response body\nprovider=openrouter model=minimax/minimax-m2.7 attempt 3/3: retryable; error=error decoding response body"
+            )
+        }
+    }
+
     #[derive(Default)]
     struct RecordingChannel {
         sent_messages: tokio::sync::Mutex<Vec<String>>,
@@ -3853,6 +3870,70 @@ BTC is currently around $65,000 based on latest tool output."#
         assert!(sent_messages[0].starts_with("chat-iter-fail:"));
         assert!(sent_messages[0].contains("⚠️ Reached tool-iteration limit (3)"));
         assert!(sent_messages[0].contains("Context and progress were preserved"));
+    }
+
+    #[tokio::test]
+    async fn process_channel_message_hides_aggregated_provider_attempt_dump() {
+        let channel_impl = Arc::new(TelegramRecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            channels_by_name: Arc::new(channels_by_name),
+            provider: Arc::new(AggregatedFailureProvider),
+            default_provider: Arc::new("telegram".to_string()),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test-system-prompt".to_string()),
+            model: Arc::new("test-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            provider_cache: Arc::new(Mutex::new(HashMap::new())),
+            route_overrides: Arc::new(Mutex::new(HashMap::new())),
+            api_key: None,
+            api_url: None,
+            reliability: Arc::new(crate::config::ReliabilityConfig::default()),
+            provider_runtime_options: providers::ProviderRuntimeOptions::default(),
+            workspace_dir: Arc::new(std::env::temp_dir()),
+            message_timeout_secs: 5,
+            interrupt_on_new_message: false,
+            multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
+            non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
+            approval_manager: Arc::new(ApprovalManager::from_config(
+                &crate::config::AutonomyConfig::default(),
+            )),
+        });
+
+        Box::pin(process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "msg-provider-error".to_string(),
+                sender: "alice".to_string(),
+                reply_target: "chat-provider-error".to_string(),
+                content: "which skills do you have?".to_string(),
+                channel: "telegram".to_string(),
+                timestamp: 1,
+                thread_ts: None,
+            },
+            CancellationToken::new(),
+        ))
+        .await;
+
+        let sent_messages = channel_impl.sent_messages.lock().await;
+        assert_eq!(sent_messages.len(), 1);
+        assert!(sent_messages[0].contains("provider returned an unreadable response"));
+        assert!(!sent_messages[0].contains("All providers/models failed"));
+        assert!(!sent_messages[0].contains("provider=openrouter"));
+        assert!(!sent_messages[0].contains("attempt 1/3"));
     }
 
     struct NoopMemory;
