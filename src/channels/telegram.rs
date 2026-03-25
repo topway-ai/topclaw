@@ -784,6 +784,12 @@ impl TelegramChannel {
         crate::providers::sanitize_api_error(input)
     }
 
+    fn is_message_not_modified_error(input: &str) -> bool {
+        input
+            .to_ascii_lowercase()
+            .contains("message is not modified")
+    }
+
     fn normalize_identity(value: &str) -> String {
         value.trim().trim_start_matches('@').to_string()
     }
@@ -2969,6 +2975,12 @@ impl Channel for TelegramChannel {
             return Ok(());
         }
 
+        let html_status = resp.status();
+        let html_err = resp.text().await.unwrap_or_default();
+        if Self::is_message_not_modified_error(&html_err) {
+            return Ok(());
+        }
+
         // Markdown failed — retry without parse_mode
         let plain_body = serde_json::json!({
             "chat_id": chat_id,
@@ -2987,8 +2999,30 @@ impl Channel for TelegramChannel {
             return Ok(());
         }
 
-        // Edit failed entirely — fall back to new message
-        tracing::warn!("Telegram finalize_draft edit failed; falling back to sendMessage");
+        let plain_status = resp.status();
+        let plain_err = resp.text().await.unwrap_or_default();
+        if Self::is_message_not_modified_error(&plain_err) {
+            return Ok(());
+        }
+
+        // Edit failed entirely — delete the stale draft first so the user
+        // doesn't see both the old draft and the fallback message.
+        tracing::warn!(
+            "Telegram finalize_draft edit failed (html {}: {}; plain {}: {}); deleting draft and falling back to sendMessage",
+            html_status,
+            Self::sanitize_telegram_error(&html_err),
+            plain_status,
+            Self::sanitize_telegram_error(&plain_err),
+        );
+        let _ = self
+            .client
+            .post(self.api_url("deleteMessage"))
+            .json(&serde_json::json!({
+                "chat_id": chat_id,
+                "message_id": id,
+            }))
+            .send()
+            .await;
         self.send_text_chunks(text, &chat_id, thread_id.as_deref())
             .await
     }
@@ -3401,6 +3435,8 @@ impl Channel for TelegramChannel {
 mod tests {
     use super::*;
     use std::path::Path;
+    use wiremock::matchers::{method, path_regex};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[cfg(unix)]
     fn symlink_file(src: &Path, dst: &Path) {
@@ -3579,6 +3615,90 @@ mod tests {
         // fall back to chunked send instead of returning early.
         let result = ch.finalize_draft("123", "not-a-number", &long_text).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn finalize_draft_message_not_modified_does_not_send_duplicate() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path_regex(r"/botTEST_TOKEN/editMessageText$"))
+            .respond_with(ResponseTemplate::new(400).set_body_json(serde_json::json!({
+                "ok": false,
+                "error_code": 400,
+                "description": "Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message"
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let ch = TelegramChannel::new("TEST_TOKEN".into(), vec!["*".into()], false)
+            .with_streaming(StreamMode::Partial, 0)
+            .with_api_base(server.uri());
+
+        let result = ch.finalize_draft("123", "42", "same reply").await;
+        assert!(
+            result.is_ok(),
+            "not-modified finalize should be treated as success"
+        );
+
+        let requests = server
+            .received_requests()
+            .await
+            .expect("wiremock should expose captured requests");
+        assert_eq!(
+            requests.len(),
+            1,
+            "finalize should stop after the first edit attempt"
+        );
+        assert!(
+            requests[0].url.path().ends_with("/editMessageText"),
+            "unexpected request path: {}",
+            requests[0].url.path()
+        );
+    }
+
+    #[tokio::test]
+    async fn finalize_draft_deletes_stale_draft_before_fallback_send() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path_regex(r"/botTEST_TOKEN/editMessageText$"))
+            .respond_with(ResponseTemplate::new(400).set_body_json(serde_json::json!({
+                "ok": false,
+                "error_code": 400,
+                "description": "Bad Request: chat not found"
+            })))
+            .expect(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path_regex(r"/botTEST_TOKEN/deleteMessage$"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "ok": true,
+                "result": true
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path_regex(r"/botTEST_TOKEN/sendMessage$"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "ok": true,
+                "result": {
+                    "message_id": 1,
+                    "chat": {"id": 123},
+                    "text": "ok"
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let ch = TelegramChannel::new("TEST_TOKEN".into(), vec!["*".into()], false)
+            .with_streaming(StreamMode::Partial, 0)
+            .with_api_base(server.uri());
+
+        let result = ch.finalize_draft("123", "42", "fallback reply").await;
+        assert!(result.is_ok(), "fallback finalize should still succeed");
     }
 
     #[test]
