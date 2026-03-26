@@ -324,7 +324,7 @@ fn generate_token() -> String {
 }
 
 fn hash_token(token: &str) -> String {
-    format!("sha256:{:x}", Sha256::digest(token.as_bytes()))
+    format!("sha256:{}", hex::encode(Sha256::digest(token.as_bytes())))
 }
 
 #[cfg(test)]

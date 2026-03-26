@@ -107,7 +107,7 @@ impl IpcDb {
             .canonicalize()
             .unwrap_or_else(|_| workspace_dir.to_path_buf());
         let hash = Sha256::digest(canonical.to_string_lossy().as_bytes());
-        let agent_id = format!("{hash:x}");
+        let agent_id = hex::encode(hash);
 
         Self::init(conn, agent_id, config.staleness_secs)
     }

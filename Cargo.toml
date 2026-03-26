@@ -77,7 +77,8 @@ chacha20poly1305 = "0.10"
 
 # HMAC for webhook signature verification
 hmac = "0.12"
-sha2 = "0.10"
+sha2 = "0.11"
+sha2_compat = { package = "sha2", version = "0.10" }
 hex = "0.4"
 
 # CSPRNG for secure token generation
