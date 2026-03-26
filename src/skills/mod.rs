@@ -437,6 +437,14 @@ fn embedded_optional_skills() -> &'static [BuiltinPreloadedSkill] {
     &EMBEDDED_OPTIONAL_SKILLS
 }
 
+#[cfg(feature = "builtin-preloaded-skills")]
+fn embedded_curated_skill_bundle(slug: &str) -> Option<&'static BuiltinPreloadedSkill> {
+    builtin_preloaded_skills()
+        .iter()
+        .chain(embedded_optional_skills().iter())
+        .find(|bundle| bundle.dir_name.eq_ignore_ascii_case(slug))
+}
+
 fn default_policy_version() -> u32 {
     1
 }
@@ -1579,6 +1587,30 @@ fn materialize_embedded_skill_bundle(
     Ok(skill_dir)
 }
 
+#[cfg(feature = "builtin-preloaded-skills")]
+fn install_embedded_curated_skill(
+    skills_path: &Path,
+    entry: &CuratedSkillCatalogEntry,
+    allow_non_low_risk: bool,
+) -> Result<Option<(PathBuf, audit::SkillVettingReport)>> {
+    let Some(bundle) = embedded_curated_skill_bundle(entry.slug) else {
+        return Ok(None);
+    };
+
+    let installed_dir = materialize_embedded_skill_bundle(skills_path, bundle)?;
+    let report = enforce_skill_security_audit_with_override(&installed_dir, allow_non_low_risk)?;
+    Ok(Some((installed_dir, report)))
+}
+
+#[cfg(not(feature = "builtin-preloaded-skills"))]
+fn install_embedded_curated_skill(
+    _skills_path: &Path,
+    _entry: &CuratedSkillCatalogEntry,
+    _allow_non_low_risk: bool,
+) -> Result<Option<(PathBuf, audit::SkillVettingReport)>> {
+    Ok(None)
+}
+
 /// Initialize the skills directory with a README
 pub fn init_skills_dir(workspace_dir: &Path) -> Result<()> {
     let dir = skills_dir(workspace_dir);
@@ -1644,6 +1676,10 @@ fn install_curated_skill_from_source(
             skills_path,
             allow_non_low_risk,
         )?
+    } else if let Some(installed) =
+        install_embedded_curated_skill(skills_path, entry, allow_non_low_risk)?
+    {
+        installed
     } else if is_skills_sh_source(entry.source_url) {
         install_skills_sh_source_with_override(entry.source_url, skills_path, allow_non_low_risk)?
     } else if is_github_tree_source(entry.source_url) {

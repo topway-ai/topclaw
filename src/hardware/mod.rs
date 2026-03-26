@@ -17,7 +17,7 @@ pub mod discover;
 pub mod introspect;
 
 use crate::config::Config;
-use anyhow::Result;
+use anyhow::{bail, Result};
 
 // Re-export config types so wizard can use `hardware::HardwareConfig` etc.
 pub use crate::config::{HardwareConfig, HardwareTransport};
@@ -131,6 +131,15 @@ pub fn handle_command(cmd: crate::HardwareCommands, _config: &Config) -> Result<
         crate::HardwareCommands::Discover => run_discover(),
         crate::HardwareCommands::Introspect { path } => run_introspect(&path),
         crate::HardwareCommands::Info { chip } => run_info(&chip),
+        crate::HardwareCommands::List
+        | crate::HardwareCommands::Add { .. }
+        | crate::HardwareCommands::Flash { .. }
+        | crate::HardwareCommands::SetupUnoQ { .. }
+        | crate::HardwareCommands::FlashNucleo => {
+            bail!(
+                "Peripheral hardware commands must be routed through peripherals::handle_command_from_hardware"
+            )
+        }
     }
 }
 

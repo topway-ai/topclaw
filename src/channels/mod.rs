@@ -1298,6 +1298,40 @@ BTC is currently around $65,000 based on latest tool output."#
         }
     }
 
+    struct MarkerShellTool {
+        marker_path: std::path::PathBuf,
+    }
+
+    #[async_trait::async_trait]
+    impl Tool for MarkerShellTool {
+        fn name(&self) -> &str {
+            "shell"
+        }
+
+        fn description(&self) -> &str {
+            "Create a marker file to prove shell-like execution occurred"
+        }
+
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "command": { "type": "string" }
+                },
+                "required": ["command"]
+            })
+        }
+
+        async fn execute(&self, _args: serde_json::Value) -> anyhow::Result<ToolResult> {
+            tokio::fs::write(&self.marker_path, "executed").await?;
+            Ok(ToolResult {
+                success: true,
+                output: "marker shell executed".to_string(),
+                error: None,
+            })
+        }
+    }
+
     struct MockEchoTool;
 
     struct SlowMockPriceTool {
@@ -2763,21 +2797,16 @@ BTC is currently around $65,000 based on latest tool output."#
         let temp = tempfile::TempDir::new().expect("temp dir");
         let workspace_dir = temp.path().join("workspace");
         std::fs::create_dir_all(&workspace_dir).expect("workspace dir");
+        let marker_path = workspace_dir.join("capability-recovery-shell-marker.txt");
 
         let provider_impl = Arc::new(ApprovedResumeShellProvider::default());
         let provider: Arc<dyn Provider> = provider_impl.clone();
         let mut provider_cache_seed: HashMap<String, Arc<dyn Provider>> = HashMap::new();
         provider_cache_seed.insert("test-provider".to_string(), Arc::clone(&provider));
 
-        let shell_tool = crate::tools::ShellTool::new(
-            Arc::new(crate::security::policy::SecurityPolicy {
-                autonomy: crate::security::AutonomyLevel::Supervised,
-                allowed_commands: vec![],
-                workspace_dir: workspace_dir.clone(),
-                ..crate::security::policy::SecurityPolicy::default()
-            }),
-            Arc::new(crate::runtime::NativeRuntime::new()),
-        );
+        let shell_tool = MarkerShellTool {
+            marker_path: marker_path.clone(),
+        };
 
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
             channels_by_name: Arc::new(channels_by_name),
@@ -2886,14 +2915,380 @@ BTC is currently around $65,000 based on latest tool output."#
         .await
         .expect("approved shell auto-resume should finish");
 
-        assert!(workspace_dir
-            .join("approved-auto-resume-shell.txt")
-            .exists());
+        assert!(marker_path.exists());
         assert_eq!(
             provider_impl.classifier_calls.load(Ordering::SeqCst),
             1,
             "approved auto-resume should skip reclassification on the resumed turn"
         );
+    }
+
+    #[tokio::test]
+    async fn process_channel_message_capability_recovery_confirm_auto_resumes_shell_request() {
+        let channel_impl = Arc::new(TelegramRecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let temp = tempfile::TempDir::new().expect("temp dir");
+        let workspace_dir = temp.path().join("workspace");
+        std::fs::create_dir_all(&workspace_dir).expect("workspace dir");
+        let marker_path = workspace_dir.join("followup-shell-marker.txt");
+
+        let provider_impl = Arc::new(ApprovedResumeShellProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut provider_cache_seed: HashMap<String, Arc<dyn Provider>> = HashMap::new();
+        provider_cache_seed.insert("test-provider".to_string(), Arc::clone(&provider));
+
+        let shell_tool = MarkerShellTool {
+            marker_path: marker_path.clone(),
+        };
+
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            channels_by_name: Arc::new(channels_by_name),
+            provider: Arc::clone(&provider),
+            default_provider: Arc::new("test-provider".to_string()),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![Box::new(shell_tool)]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test-system-prompt".to_string()),
+            model: Arc::new("test-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
+            route_overrides: Arc::new(Mutex::new(HashMap::new())),
+            api_key: None,
+            api_url: None,
+            reliability: Arc::new(crate::config::ReliabilityConfig::default()),
+            provider_runtime_options: providers::ProviderRuntimeOptions::default(),
+            workspace_dir: Arc::new(workspace_dir.clone()),
+            message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
+            interrupt_on_new_message: false,
+            non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
+            approval_manager: Arc::new(ApprovalManager::from_config(
+                &crate::config::AutonomyConfig {
+                    always_ask: vec!["shell".to_string()],
+                    ..crate::config::AutonomyConfig::default()
+                },
+            )),
+            multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
+        });
+        runtime_ctx
+            .route_overrides
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                "telegram_alice".to_string(),
+                ChannelRouteSelection {
+                    provider: "test-provider".to_string(),
+                    model: "test-model".to_string(),
+                },
+            );
+
+        Box::pin(process_channel_message(
+            runtime_ctx.clone(),
+            traits::ChannelMessage {
+                id: "msg-capability-recovery-1".to_string(),
+                sender: "alice".to_string(),
+                reply_target: "chat-shell-2".to_string(),
+                content: "please run cargo test".to_string(),
+                channel: "telegram".to_string(),
+                timestamp: 1,
+                thread_ts: None,
+            },
+            CancellationToken::new(),
+        ))
+        .await;
+
+        let request_id = {
+            let sent = channel_impl.sent_messages.lock().await;
+            assert_eq!(sent.len(), 1);
+            assert!(sent[0].contains("supervised access to `shell`"));
+            assert!(sent[0].contains("resume the blocked request automatically"));
+            let request_line = sent[0]
+                .lines()
+                .find(|line| line.starts_with("Request ID: `"))
+                .expect("request line");
+            request_line
+                .trim_start_matches("Request ID: `")
+                .trim_end_matches('`')
+                .to_string()
+        };
+
+        Box::pin(process_channel_message(
+            runtime_ctx.clone(),
+            traits::ChannelMessage {
+                id: "msg-capability-recovery-2".to_string(),
+                sender: "alice".to_string(),
+                reply_target: "chat-shell-2".to_string(),
+                content: format!("/approve-confirm {request_id}"),
+                channel: "telegram".to_string(),
+                timestamp: 2,
+                thread_ts: None,
+            },
+            CancellationToken::new(),
+        ))
+        .await;
+
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let sent = channel_impl.sent_messages.lock().await;
+                if sent.iter().any(|entry| {
+                    entry.contains("I inspected the repo with the approved shell command.")
+                }) {
+                    break;
+                }
+                drop(sent);
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("capability-recovery approval should auto-resume");
+
+        assert!(marker_path.exists());
+    }
+
+    #[tokio::test]
+    async fn process_channel_message_confirm_with_followup_executes_followup_request() {
+        let channel_impl = Arc::new(TelegramRecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let temp = tempfile::TempDir::new().expect("temp dir");
+        let workspace_dir = temp.path().join("workspace");
+        std::fs::create_dir_all(&workspace_dir).expect("workspace dir");
+        let marker_path = workspace_dir.join("repo-metrics-shell-marker.txt");
+
+        let provider_impl = Arc::new(ApprovedResumeShellProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut provider_cache_seed: HashMap<String, Arc<dyn Provider>> = HashMap::new();
+        provider_cache_seed.insert("test-provider".to_string(), Arc::clone(&provider));
+
+        let shell_tool = MarkerShellTool {
+            marker_path: marker_path.clone(),
+        };
+
+        let approval_manager = Arc::new(ApprovalManager::from_config(
+            &crate::config::AutonomyConfig {
+                always_ask: vec!["shell".to_string()],
+                ..crate::config::AutonomyConfig::default()
+            },
+        ));
+        let pending = approval_manager.create_non_cli_pending_request(
+            "shell",
+            "alice",
+            "telegram",
+            "chat-shell-3",
+            None,
+            Some("follow-up shell request".to_string()),
+            Vec::new(),
+        );
+
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            channels_by_name: Arc::new(channels_by_name),
+            provider: Arc::clone(&provider),
+            default_provider: Arc::new("test-provider".to_string()),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![Box::new(shell_tool)]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test-system-prompt".to_string()),
+            model: Arc::new("test-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
+            route_overrides: Arc::new(Mutex::new(HashMap::new())),
+            api_key: None,
+            api_url: None,
+            reliability: Arc::new(crate::config::ReliabilityConfig::default()),
+            provider_runtime_options: providers::ProviderRuntimeOptions::default(),
+            workspace_dir: Arc::new(workspace_dir.clone()),
+            message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
+            interrupt_on_new_message: false,
+            non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
+            approval_manager,
+            multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
+        });
+        runtime_ctx
+            .route_overrides
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                "telegram_alice".to_string(),
+                ChannelRouteSelection {
+                    provider: "test-provider".to_string(),
+                    model: "test-model".to_string(),
+                },
+            );
+
+        Box::pin(process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "msg-followup-confirm".to_string(),
+                sender: "alice".to_string(),
+                reply_target: "chat-shell-3".to_string(),
+                content: format!(
+                    "/approve-confirm {} inspect your own repo and tell me what needs improvement.",
+                    pending.request_id
+                ),
+                channel: "telegram".to_string(),
+                timestamp: 1,
+                thread_ts: None,
+            },
+            CancellationToken::new(),
+        ))
+        .await;
+
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let sent = channel_impl.sent_messages.lock().await;
+                if sent.iter().any(|entry| {
+                    entry.contains("I inspected the repo with the approved shell command.")
+                }) {
+                    break;
+                }
+                drop(sent);
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("confirm follow-up should execute appended request");
+
+        let sent = channel_impl.sent_messages.lock().await;
+        assert!(
+            sent.iter().all(|entry| !entry.contains("was not found")),
+            "request id parsing should ignore appended follow-up text"
+        );
+        assert!(marker_path.exists());
+    }
+
+    #[tokio::test]
+    async fn process_channel_message_all_tools_once_skips_shell_capability_reprompt_for_repo_metrics(
+    ) {
+        let channel_impl = Arc::new(TelegramRecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let temp = tempfile::TempDir::new().expect("temp dir");
+        let workspace_dir = temp.path().join("workspace");
+        std::fs::create_dir_all(&workspace_dir).expect("workspace dir");
+        let marker_path = workspace_dir.join("repo-metrics-shell-marker.txt");
+
+        let provider_impl = Arc::new(ApprovedResumeShellProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut provider_cache_seed: HashMap<String, Arc<dyn Provider>> = HashMap::new();
+        provider_cache_seed.insert("test-provider".to_string(), Arc::clone(&provider));
+
+        let shell_tool = MarkerShellTool {
+            marker_path: marker_path.clone(),
+        };
+
+        let approval_manager = Arc::new(ApprovalManager::from_config(
+            &crate::config::AutonomyConfig {
+                always_ask: vec!["shell".to_string()],
+                ..crate::config::AutonomyConfig::default()
+            },
+        ));
+        approval_manager.grant_non_cli_allow_all_once();
+
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            channels_by_name: Arc::new(channels_by_name),
+            provider: Arc::clone(&provider),
+            default_provider: Arc::new("test-provider".to_string()),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![Box::new(shell_tool)]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test-system-prompt".to_string()),
+            model: Arc::new("test-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
+            route_overrides: Arc::new(Mutex::new(HashMap::new())),
+            api_key: None,
+            api_url: None,
+            reliability: Arc::new(crate::config::ReliabilityConfig::default()),
+            provider_runtime_options: providers::ProviderRuntimeOptions::default(),
+            workspace_dir: Arc::new(workspace_dir.clone()),
+            message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
+            interrupt_on_new_message: false,
+            non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
+            approval_manager: Arc::clone(&approval_manager),
+            multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
+        });
+        runtime_ctx
+            .route_overrides
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                "telegram_alice".to_string(),
+                ChannelRouteSelection {
+                    provider: "test-provider".to_string(),
+                    model: "test-model".to_string(),
+                },
+            );
+
+        Box::pin(process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "msg-repo-metrics".to_string(),
+                sender: "alice".to_string(),
+                reply_target: "chat-shell-4".to_string(),
+                content:
+                    "https://github.com/fastclaw-ai/fastclaw how many lines of code does this repo have?"
+                        .to_string(),
+                channel: "telegram".to_string(),
+                timestamp: 1,
+                thread_ts: None,
+            },
+            CancellationToken::new(),
+        ))
+        .await;
+
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let sent = channel_impl.sent_messages.lock().await;
+                if sent.iter().any(|entry| {
+                    entry.contains("I inspected the repo with the approved shell command.")
+                }) {
+                    break;
+                }
+                drop(sent);
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("one-time bypass should let the repo-metrics request reach shell");
+
+        let sent = channel_impl.sent_messages.lock().await;
+        assert!(
+            sent.iter()
+                .all(|entry| !entry.contains("supervised access to `shell`")),
+            "one-time bypass should suppress another shell approval prompt"
+        );
+        assert_eq!(approval_manager.non_cli_allow_all_once_remaining(), 0);
+        assert!(marker_path.exists());
     }
 
     #[tokio::test]
@@ -6246,6 +6641,16 @@ Done reminder set for 1:38 AM."#;
         ));
         assert!(!looks_like_remote_repo_review_request(
             "show me local file /home/frank/claw_projects/topclaw/README.md"
+        ));
+    }
+
+    #[test]
+    fn looks_like_shell_task_matches_repo_line_count_prompts() {
+        assert!(looks_like_shell_task(
+            "https://github.com/fastclaw-ai/fastclaw how many lines of code does this repo have?"
+        ));
+        assert!(looks_like_shell_task(
+            "clone the repo and run cloc before answering"
         ));
     }
 

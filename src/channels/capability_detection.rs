@@ -119,7 +119,17 @@ pub(crate) fn looks_like_shell_task(user_message: &str) -> bool {
         "run ", "execute ", "terminal", "shell", "command", "build", "compile", "test", "cargo ",
         "npm ", "pnpm ", "yarn ", "pip ", "python ", "pytest", "cmake", "docker ", "kubectl ",
     ];
-    if english_hints.iter().any(|hint| lower.contains(hint)) || contains_make_command_hint(&lower) {
+    let repo_metrics_hints = [
+        "cloc",
+        "lines of code",
+        "line count",
+        "count the lines",
+        "count lines",
+    ];
+    if english_hints.iter().any(|hint| lower.contains(hint))
+        || repo_metrics_hints.iter().any(|hint| lower.contains(hint))
+        || contains_make_command_hint(&lower)
+    {
         return true;
     }
 

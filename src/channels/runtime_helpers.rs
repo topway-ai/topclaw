@@ -169,6 +169,11 @@ pub(super) fn build_runtime_tool_visibility_prompt(
             "- File changes are supported in this turn (`file_write`/`file_edit`) when requested and policy permits.\n",
         );
     }
+    if specs.iter().any(|spec| spec.name == "shell") {
+        prompt.push_str(
+            "- For exact repository metrics such as line counts or language breakdowns, use runtime tools (for example `shell` with `cloc`) instead of estimating from remote hosting metadata or language-byte APIs.\n",
+        );
+    }
 
     if native_tools {
         prompt.push_str(

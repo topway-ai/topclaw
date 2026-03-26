@@ -76,6 +76,22 @@ fn format_pending_approval_error(
     message
 }
 
+fn split_runtime_request_id_and_followup(raw: &str) -> (String, Option<String>) {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return (String::new(), None);
+    }
+
+    let mut parts = trimmed.splitn(2, char::is_whitespace);
+    let request_id = parts.next().unwrap_or_default().trim().to_string();
+    let follow_up = parts
+        .next()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(ToString::to_string);
+    (request_id, follow_up)
+}
+
 pub(super) async fn handle_runtime_command_if_needed(
     ctx: Arc<ChannelRuntimeContext>,
     msg: &traits::ChannelMessage,
@@ -355,7 +371,7 @@ pub(super) async fn handle_runtime_command_if_needed(
             }
         }
         ChannelRuntimeCommand::ApprovePendingRequest(raw_request_id) => {
-            let request_id = raw_request_id.trim().to_string();
+            let (request_id, _) = split_runtime_request_id_and_followup(&raw_request_id);
             if request_id.is_empty() {
                 "Usage: `/approve-allow <request-id>`".to_string()
             } else {
@@ -403,7 +419,8 @@ pub(super) async fn handle_runtime_command_if_needed(
             }
         }
         ChannelRuntimeCommand::ConfirmToolApproval(raw_request_id) => {
-            let request_id = raw_request_id.trim().to_string();
+            let (request_id, follow_up_content) =
+                split_runtime_request_id_and_followup(&raw_request_id);
             if request_id.is_empty() {
                 "Usage: `/approve-confirm <request-id>`".to_string()
             } else {
@@ -464,7 +481,17 @@ pub(super) async fn handle_runtime_command_if_needed(
                             }),
                         );
 
-                        if let Some(resume_request) = resume_request {
+                        if let Some(content) = follow_up_content {
+                            auto_resume_message = Some(traits::ChannelMessage {
+                                id: format!("{}:approval-followup", msg.id),
+                                sender: msg.sender.clone(),
+                                reply_target: msg.reply_target.clone(),
+                                content,
+                                channel: msg.channel.clone(),
+                                timestamp: msg.timestamp,
+                                thread_ts: msg.thread_ts.clone(),
+                            });
+                        } else if let Some(resume_request) = resume_request {
                             auto_resume_message = Some(traits::ChannelMessage {
                                 id: resume_request.message_id,
                                 sender: req.requested_by.clone(),
@@ -497,7 +524,7 @@ pub(super) async fn handle_runtime_command_if_needed(
             }
         }
         ChannelRuntimeCommand::DenyToolApproval(raw_request_id) => {
-            let request_id = raw_request_id.trim().to_string();
+            let (request_id, _) = split_runtime_request_id_and_followup(&raw_request_id);
             if request_id.is_empty() {
                 "Usage: `/approve-deny <request-id>`".to_string()
             } else {

@@ -565,8 +565,12 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         println!("🔗 Starting {} tunnel...", tun.name());
         match tun.start(host, actual_port).await {
             Ok(url) => {
-                println!("🌐 Tunnel active: {url}");
-                tunnel_url = Some(url);
+                let public_url = tun.public_url().unwrap_or(url);
+                println!("🌐 Tunnel active: {public_url}");
+                if !tun.health_check().await {
+                    println!("⚠️  Tunnel started but did not pass an immediate health check.");
+                }
+                tunnel_url = Some(public_url);
             }
             Err(e) => {
                 println!("⚠️  Tunnel failed to start: {e}");
@@ -710,11 +714,20 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         ));
 
     // Run the server
-    axum::serve(
+    let serve_result = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .await?;
+    .await;
+
+    #[cfg(feature = "tunnel")]
+    if let Some(ref tun) = tunnel {
+        if let Err(err) = tun.stop().await {
+            tracing::warn!("Failed to stop {} tunnel cleanly: {err:#}", tun.name());
+        }
+    }
+
+    serve_result?;
 
     Ok(())
 }

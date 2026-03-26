@@ -144,6 +144,5 @@ pub(super) fn channel_choice_is_configured(
         ChannelMenuChoice::Webhook => config.webhook.is_some(),
         ChannelMenuChoice::Done => false,
         ChannelMenuChoice::Back => false,
-        _ => false,
     }
 }

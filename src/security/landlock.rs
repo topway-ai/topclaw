@@ -4,10 +4,9 @@
 //! This module uses the pure-Rust `landlock` crate for filesystem access control.
 
 #[cfg(all(feature = "sandbox-landlock", target_os = "linux"))]
-use landlock::{AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr};
+use landlock::{AccessFs, Ruleset, RulesetAttr};
 
 use crate::security::traits::Sandbox;
-use std::path::Path;
 
 /// Landlock sandbox backend for Linux
 #[cfg(all(feature = "sandbox-landlock", target_os = "linux"))]
@@ -45,81 +44,6 @@ impl LandlockSandbox {
     /// Probe if Landlock is available (for auto-detection)
     pub fn probe() -> std::io::Result<Self> {
         Self::new()
-    }
-
-    /// Apply Landlock restrictions to the current process
-    fn apply_restrictions(&self) -> std::io::Result<()> {
-        let mut ruleset = Ruleset::default()
-            .handle_access(
-                AccessFs::ReadFile
-                    | AccessFs::WriteFile
-                    | AccessFs::ReadDir
-                    | AccessFs::RemoveDir
-                    | AccessFs::RemoveFile
-                    | AccessFs::MakeChar
-                    | AccessFs::MakeSock
-                    | AccessFs::MakeFifo
-                    | AccessFs::MakeBlock
-                    | AccessFs::MakeReg
-                    | AccessFs::MakeSym,
-            )
-            .and_then(|ruleset| ruleset.create())
-            .map_err(|e| std::io::Error::other(e.to_string()))?;
-
-        // Allow workspace directory (read/write)
-        if let Some(ref workspace) = self.workspace_dir {
-            if workspace.exists() {
-                let workspace_fd =
-                    PathFd::new(workspace).map_err(|e| std::io::Error::other(e.to_string()))?;
-                ruleset = ruleset
-                    .add_rule(PathBeneath::new(
-                        workspace_fd,
-                        AccessFs::ReadFile | AccessFs::WriteFile | AccessFs::ReadDir,
-                    ))
-                    .map_err(|e| std::io::Error::other(e.to_string()))?;
-            }
-        }
-
-        // Allow /tmp for general operations
-        let tmp_fd =
-            PathFd::new(Path::new("/tmp")).map_err(|e| std::io::Error::other(e.to_string()))?;
-        ruleset = ruleset
-            .add_rule(PathBeneath::new(
-                tmp_fd,
-                AccessFs::ReadFile | AccessFs::WriteFile,
-            ))
-            .map_err(|e| std::io::Error::other(e.to_string()))?;
-
-        // Allow /usr and /bin for executing commands
-        let usr_fd =
-            PathFd::new(Path::new("/usr")).map_err(|e| std::io::Error::other(e.to_string()))?;
-        ruleset = ruleset
-            .add_rule(PathBeneath::new(
-                usr_fd,
-                AccessFs::ReadFile | AccessFs::ReadDir,
-            ))
-            .map_err(|e| std::io::Error::other(e.to_string()))?;
-
-        let bin_fd =
-            PathFd::new(Path::new("/bin")).map_err(|e| std::io::Error::other(e.to_string()))?;
-        ruleset = ruleset
-            .add_rule(PathBeneath::new(
-                bin_fd,
-                AccessFs::ReadFile | AccessFs::ReadDir,
-            ))
-            .map_err(|e| std::io::Error::other(e.to_string()))?;
-
-        // Apply the ruleset
-        match ruleset.restrict_self() {
-            Ok(_) => {
-                tracing::debug!("Landlock restrictions applied successfully");
-                Ok(())
-            }
-            Err(e) => {
-                tracing::warn!("Failed to apply Landlock restrictions: {}", e);
-                Err(std::io::Error::other(e.to_string()))
-            }
-        }
     }
 }
 

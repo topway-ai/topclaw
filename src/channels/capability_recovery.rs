@@ -5,7 +5,7 @@ use super::capability_detection::{
 };
 use super::runtime_helpers::exclusion_set;
 use super::{traits, ChannelRuntimeContext};
-use crate::approval::ApprovalManager;
+use crate::approval::{ApprovalManager, PendingNonCliResumeRequest};
 use crate::providers::Provider;
 use crate::tools::Tool;
 use serde::Deserialize;
@@ -91,6 +91,8 @@ fn capability_tool_state_with_set(
     }
     if excluded.contains(&tool_name.trim().to_ascii_lowercase()) {
         CapabilityState::Excluded
+    } else if approval_manager.non_cli_allow_all_once_remaining() > 0 {
+        CapabilityState::Available
     } else if approval_manager.is_non_cli_session_granted(tool_name) {
         CapabilityState::Available
     } else if approval_manager.needs_approval(tool_name) {
@@ -137,12 +139,17 @@ fn create_capability_recovery_plan(
                     &msg.sender,
                     &msg.channel,
                     &msg.reply_target,
-                    None,
+                    Some(PendingNonCliResumeRequest {
+                        message_id: msg.id.clone(),
+                        content: msg.content.clone(),
+                        timestamp: msg.timestamp,
+                        thread_ts: msg.thread_ts.clone(),
+                    }),
                     Some(reason.to_string()),
                     Vec::new(),
                 );
                 let message = format!(
-                    "I can finish this, but I need supervised access to `{}` first.\nRequest ID: `{}`\nConfirm with `/approve-confirm {}` from this same chat/channel, then send the request again.",
+                    "I can finish this, but I need supervised access to `{}` first.\nRequest ID: `{}`\nConfirm with `/approve-confirm {}` from this same chat/channel and I’ll resume the blocked request automatically.",
                     candidate.tool_name, req.request_id, req.request_id
                 );
                 return Some(CapabilityRecoveryPlan {
@@ -447,7 +454,12 @@ User request:\n{}",
                 &msg.sender,
                 &msg.channel,
                 &msg.reply_target,
-                None,
+                Some(PendingNonCliResumeRequest {
+                    message_id: msg.id.clone(),
+                    content: msg.content.clone(),
+                    timestamp: msg.timestamp,
+                    thread_ts: msg.thread_ts.clone(),
+                }),
                 Some(reason.clone()),
                 Vec::new(),
             );
@@ -457,7 +469,7 @@ User request:\n{}",
                 state,
                 reason,
                 message: format!(
-                    "I can finish this, but I need supervised access to `{}` first.\nRequest ID: `{}`\nConfirm with `/approve-confirm {}` from this same chat/channel, then send the request again.",
+                    "I can finish this, but I need supervised access to `{}` first.\nRequest ID: `{}`\nConfirm with `/approve-confirm {}` from this same chat/channel and I’ll resume the blocked request automatically.",
                     tool_name, req.request_id, req.request_id
                 ),
             })

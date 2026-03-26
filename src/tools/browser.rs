@@ -2663,17 +2663,6 @@ fn host_matches_allowlist(host: &str, allowed: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
-
-    #[cfg(unix)]
-    fn symlink_dir(src: &Path, dst: &Path) {
-        std::os::unix::fs::symlink(src, dst).expect("symlink should be created");
-    }
-
-    #[cfg(windows)]
-    fn symlink_dir(src: &Path, dst: &Path) {
-        std::os::windows::fs::symlink_dir(src, dst).expect("symlink should be created");
-    }
 
     #[test]
     fn normalize_domains_works() {

@@ -1,0 +1,3 @@
+name: topclaw-uno-q-bridge
+entrypoint: sketch.ino
+baud: 115200
