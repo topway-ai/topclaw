@@ -21,7 +21,8 @@ use tokio_util::sync::CancellationToken;
 
 use super::capability_recovery::{
     infer_capability_recovery_plan, should_expose_internal_tool_details,
-    try_llm_capability_recovery_plan, CapabilityRecoveryPlan, CapabilityState,
+    try_llm_capability_recovery_plan, try_llm_turn_intent, CapabilityRecoveryPlan, CapabilityState,
+    ChannelTurnIntent,
 };
 use super::command_handler::handle_runtime_command_if_needed;
 use super::context::*;
@@ -238,44 +239,38 @@ pub(super) async fn process_channel_message_with_options(
     // Try classification first, fall back to sender/default route
     let route = classify_message_route(ctx.as_ref(), &msg.content)
         .unwrap_or_else(|| get_route_selection(ctx.as_ref(), &history_key));
-    if let Some(local_response) = build_local_capability_response(
+    let local_capability_response = build_local_capability_response(
         &msg.content,
         ctx.system_prompt.as_str(),
         &route.provider,
         &route.model,
-    ) {
-        runtime_trace::record_event(
-            "channel_message_local_capability_response",
-            Some(msg.channel.as_str()),
-            Some(route.provider.as_str()),
-            Some(route.model.as_str()),
-            None,
-            Some(true),
-            Some("answered capability question locally"),
-            serde_json::json!({
-                "sender": msg.sender,
-                "message_id": msg.id,
-            }),
-        );
-        if let Some(channel) = target_channel.as_ref() {
-            let _ = channel
-                .send(
-                    &SendMessage::new(local_response, &msg.reply_target)
-                        .in_thread(msg.thread_ts.clone()),
-                )
-                .await;
-        }
-        return;
-    }
+    );
     let runtime_defaults = runtime_defaults_snapshot(ctx.as_ref());
     let active_provider = match get_or_create_provider(ctx.as_ref(), &route.provider).await {
         Ok(provider) => provider,
         Err(err) => {
-            let safe_err = providers::sanitize_api_error(&err.to_string());
-            let message = format!(
-                "\u{26A0}\u{FE0F} Failed to initialize provider `{}`. Please run `/models` to choose another provider.\nDetails: {safe_err}",
-                route.provider
-            );
+            let message = if let Some(local_response) = local_capability_response.clone() {
+                runtime_trace::record_event(
+                    "channel_message_local_capability_response",
+                    Some(msg.channel.as_str()),
+                    Some(route.provider.as_str()),
+                    Some(route.model.as_str()),
+                    None,
+                    Some(true),
+                    Some("answered capability question locally after provider init failure"),
+                    serde_json::json!({
+                        "sender": msg.sender,
+                        "message_id": msg.id,
+                    }),
+                );
+                local_response
+            } else {
+                let safe_err = providers::sanitize_api_error(&err.to_string());
+                format!(
+                    "\u{26A0}\u{FE0F} Failed to initialize provider `{}`. Please run `/models` to choose another provider.\nDetails: {safe_err}",
+                    route.provider
+                )
+            };
             if let Some(channel) = target_channel.as_ref() {
                 let _ = channel
                     .send(
@@ -287,6 +282,44 @@ pub(super) async fn process_channel_message_with_options(
             return;
         }
     };
+    let excluded_tools_snapshot = if msg.channel == "cli" {
+        Vec::new()
+    } else {
+        snapshot_non_cli_excluded_tools(ctx.as_ref())
+    };
+    let turn_intent = if msg.channel != "cli" && !ctx.tools_registry.is_empty() {
+        try_llm_turn_intent(
+            active_provider.as_ref(),
+            &msg,
+            route.model.as_str(),
+            runtime_defaults.temperature,
+            ctx.tools_registry.as_ref(),
+            &excluded_tools_snapshot,
+        )
+        .await
+    } else {
+        None
+    };
+    if let Some(plan) = turn_intent.as_ref() {
+        runtime_trace::record_event(
+            "channel_message_turn_intent",
+            Some(msg.channel.as_str()),
+            Some(route.provider.as_str()),
+            Some(route.model.as_str()),
+            None,
+            Some(matches!(plan.intent, ChannelTurnIntent::NeedsTools)),
+            Some(plan.reason.as_str()),
+            serde_json::json!({
+                "sender": msg.sender,
+                "message_id": msg.id,
+                "intent": format!("{:?}", plan.intent),
+            }),
+        );
+    }
+    let suppress_tools_for_turn = matches!(
+        turn_intent.as_ref().map(|plan| plan.intent),
+        Some(ChannelTurnIntent::DirectReply | ChannelTurnIntent::NeedsClarification)
+    );
     if !options.resume_existing_user_turn
         && ctx.auto_save_memory
         && msg.content.chars().count() >= AUTOSAVE_MIN_MESSAGE_CHARS
@@ -341,20 +374,8 @@ pub(super) async fn process_channel_message_with_options(
 
     let expose_internal_tool_details =
         msg.channel == "cli" || should_expose_internal_tool_details(&msg.content);
-    let excluded_tools_snapshot = if msg.channel == "cli" {
-        Vec::new()
-    } else {
-        snapshot_non_cli_excluded_tools(ctx.as_ref())
-    };
 
-    if msg.channel != "cli" {
-        if let Some(plan) =
-            infer_capability_recovery_plan(ctx.as_ref(), &msg, &excluded_tools_snapshot)
-        {
-            dispatch_capability_recovery(&plan, &msg, target_channel.as_ref(), None).await;
-            return;
-        }
-
+    if msg.channel != "cli" && !suppress_tools_for_turn {
         if let Some(plan) = try_llm_capability_recovery_plan(
             active_provider.as_ref(),
             ctx.as_ref(),
@@ -374,7 +395,38 @@ pub(super) async fn process_channel_message_with_options(
             .await;
             return;
         }
+
+        if let Some(plan) =
+            infer_capability_recovery_plan(ctx.as_ref(), &msg, &excluded_tools_snapshot)
+        {
+            dispatch_capability_recovery(&plan, &msg, target_channel.as_ref(), None).await;
+            return;
+        }
     }
+
+    let empty_tools_registry: &[Box<dyn crate::tools::Tool>] = &[];
+    let effective_tools_registry = if suppress_tools_for_turn {
+        let turn_intent_reason = turn_intent
+            .as_ref()
+            .map(|plan| plan.reason.as_str())
+            .unwrap_or("turn-intent classifier suppressed tools for this turn");
+        runtime_trace::record_event(
+            "channel_message_direct_reply_mode",
+            Some(msg.channel.as_str()),
+            Some(route.provider.as_str()),
+            Some(route.model.as_str()),
+            None,
+            Some(true),
+            Some(turn_intent_reason),
+            serde_json::json!({
+                "sender": msg.sender,
+                "message_id": msg.id,
+            }),
+        );
+        empty_tools_registry
+    } else {
+        ctx.tools_registry.as_ref()
+    };
 
     let mut system_prompt = build_channel_system_prompt(
         ctx.system_prompt.as_str(),
@@ -382,10 +434,25 @@ pub(super) async fn process_channel_message_with_options(
         &msg.reply_target,
         expose_internal_tool_details,
     );
+    match turn_intent.as_ref().map(|plan| plan.intent) {
+        Some(ChannelTurnIntent::DirectReply) => {
+            system_prompt.push_str(
+                "\n\nTurn-intent policy: This turn is best handled as a direct reply from current context. \
+Reply naturally and helpfully without calling tools or requesting approval. Ask one brief clarifying question only if the user is clearly asking for action but the target remains unclear.",
+            );
+        }
+        Some(ChannelTurnIntent::NeedsClarification) => {
+            system_prompt.push_str(
+                "\n\nTurn-intent policy: The user likely wants action, but this request is underspecified. \
+Do not call tools or request approval in this turn. Ask one brief clarifying question that identifies the missing target, artifact, or desired outcome.",
+            );
+        }
+        _ => {}
+    }
     system_prompt.push_str(&build_runtime_tool_visibility_prompt(
-        ctx.tools_registry.as_ref(),
+        effective_tools_registry,
         &excluded_tools_snapshot,
-        active_provider.supports_native_tools(),
+        !suppress_tools_for_turn && active_provider.supports_native_tools(),
     ));
     let canary_guard = crate::security::CanaryGuard::new(canary_enabled_for_turn);
     let (system_prompt, turn_canary_token) = canary_guard.inject_turn_token(&system_prompt);
@@ -655,7 +722,7 @@ pub(super) async fn process_channel_message_with_options(
                 run_tool_call_loop_with_non_cli_approval_context(
                     active_provider.as_ref(),
                     &mut history,
-                    ctx.tools_registry.as_ref(),
+                    effective_tools_registry,
                     ctx.observer.as_ref(),
                     route.provider.as_str(),
                     route.model.as_str(),
@@ -1114,73 +1181,136 @@ pub(super) async fn process_channel_message_with_options(
                     "  \u{274C} LLM error after {}ms: {e}",
                     started_at.elapsed().as_millis()
                 );
-                let safe_error = providers::sanitize_api_error(&e.to_string());
-                let user_visible_error = format_user_visible_llm_error(msg.channel.as_str(), &e);
-                runtime_trace::record_event(
-                    "channel_message_error",
-                    Some(msg.channel.as_str()),
-                    Some(route.provider.as_str()),
-                    Some(route.model.as_str()),
-                    None,
-                    Some(false),
-                    Some(&safe_error),
-                    serde_json::json!({
-                        "sender": msg.sender,
-                        "elapsed_ms": started_at.elapsed().as_millis(),
-                    }),
-                );
-                let should_rollback_user_turn = e
-                    .downcast_ref::<providers::ProviderCapabilityError>()
-                    .is_some_and(|capability| capability.capability.eq_ignore_ascii_case("vision"));
-                let rolled_back = should_rollback_user_turn
-                    && rollback_orphan_user_turn(ctx.as_ref(), &history_key, &timestamped_content);
-                let _ = if should_rollback_user_turn {
-                    lossless_context.rollback_latest_raw_message("user", &timestamped_content)
-                } else {
-                    Ok(false)
-                };
+                if let Some(local_response) = local_capability_response.as_ref() {
+                    runtime_trace::record_event(
+                        "channel_message_local_capability_response",
+                        Some(msg.channel.as_str()),
+                        Some(route.provider.as_str()),
+                        Some(route.model.as_str()),
+                        None,
+                        Some(true),
+                        Some("answered capability question locally after provider failure"),
+                        serde_json::json!({
+                            "sender": msg.sender,
+                            "elapsed_ms": started_at.elapsed().as_millis(),
+                            "message_id": msg.id,
+                        }),
+                    );
 
-                if !rolled_back {
-                    // Close the orphan user turn so subsequent messages don't
-                    // inherit this failed request as unfinished context.
-                    append_sender_turn(
-                        ctx.as_ref(),
-                        &history_key,
-                        ChatMessage::assistant(
-                            "[Task failed \u{2014} not continuing this request]",
-                        ),
-                    );
-                    let _ = lossless_context.record_raw_message(&ChatMessage::assistant(
-                        "[Task failed \u{2014} not continuing this request]",
-                    ));
-                }
-                if let Ok(active_history) = lossless_context
-                    .rebuild_active_history(
-                        active_provider.as_ref(),
-                        route.model.as_str(),
-                        &system_prompt,
-                        MAX_CHANNEL_HISTORY,
-                    )
-                    .await
-                {
-                    set_sender_history(
-                        ctx.as_ref(),
-                        &history_key,
-                        active_history.into_iter().skip(1).collect(),
-                    );
-                }
-                if let Some(channel) = target_channel.as_ref() {
-                    if let Some(ref draft_id) = draft_message_id {
-                        let _ = channel
-                            .finalize_draft(&msg.reply_target, draft_id, &user_visible_error)
-                            .await;
+                    history.push(ChatMessage::assistant(local_response));
+                    let _ = lossless_context
+                        .record_raw_message(&ChatMessage::assistant(local_response));
+                    if let Ok(active_history) = lossless_context
+                        .rebuild_active_history(
+                            active_provider.as_ref(),
+                            route.model.as_str(),
+                            &system_prompt,
+                            MAX_CHANNEL_HISTORY,
+                        )
+                        .await
+                    {
+                        set_sender_history(
+                            ctx.as_ref(),
+                            &history_key,
+                            active_history.into_iter().skip(1).collect(),
+                        );
                     } else {
-                        let _ = channel
-                            .send(
-                                &SendMessage::new(&user_visible_error, &msg.reply_target)
-                                    .in_thread(msg.thread_ts.clone()),
-                            )
-                            .await;
+                        set_sender_history(
+                            ctx.as_ref(),
+                            &history_key,
+                            normalize_cached_channel_turns(history.into_iter().skip(1).collect()),
+                        );
+                    }
+                    if let Some(channel) = target_channel.as_ref() {
+                        if let Some(ref draft_id) = draft_message_id {
+                            let _ = channel
+                                .finalize_draft(&msg.reply_target, draft_id, local_response)
+                                .await;
+                        } else {
+                            let _ = channel
+                                .send(
+                                    &SendMessage::new(local_response, &msg.reply_target)
+                                        .in_thread(msg.thread_ts.clone()),
+                                )
+                                .await;
+                        }
+                    }
+                } else {
+                    let safe_error = providers::sanitize_api_error(&e.to_string());
+                    let user_visible_error =
+                        format_user_visible_llm_error(msg.channel.as_str(), &e);
+                    runtime_trace::record_event(
+                        "channel_message_error",
+                        Some(msg.channel.as_str()),
+                        Some(route.provider.as_str()),
+                        Some(route.model.as_str()),
+                        None,
+                        Some(false),
+                        Some(&safe_error),
+                        serde_json::json!({
+                            "sender": msg.sender,
+                            "elapsed_ms": started_at.elapsed().as_millis(),
+                        }),
+                    );
+                    let should_rollback_user_turn = e
+                        .downcast_ref::<providers::ProviderCapabilityError>()
+                        .is_some_and(|capability| {
+                            capability.capability.eq_ignore_ascii_case("vision")
+                        });
+                    let rolled_back = should_rollback_user_turn
+                        && rollback_orphan_user_turn(
+                            ctx.as_ref(),
+                            &history_key,
+                            &timestamped_content,
+                        );
+                    let _ = if should_rollback_user_turn {
+                        lossless_context.rollback_latest_raw_message("user", &timestamped_content)
+                    } else {
+                        Ok(false)
+                    };
+
+                    if !rolled_back {
+                        // Close the orphan user turn so subsequent messages don't
+                        // inherit this failed request as unfinished context.
+                        append_sender_turn(
+                            ctx.as_ref(),
+                            &history_key,
+                            ChatMessage::assistant(
+                                "[Task failed \u{2014} not continuing this request]",
+                            ),
+                        );
+                        let _ = lossless_context.record_raw_message(&ChatMessage::assistant(
+                            "[Task failed \u{2014} not continuing this request]",
+                        ));
+                    }
+                    if let Ok(active_history) = lossless_context
+                        .rebuild_active_history(
+                            active_provider.as_ref(),
+                            route.model.as_str(),
+                            &system_prompt,
+                            MAX_CHANNEL_HISTORY,
+                        )
+                        .await
+                    {
+                        set_sender_history(
+                            ctx.as_ref(),
+                            &history_key,
+                            active_history.into_iter().skip(1).collect(),
+                        );
+                    }
+                    if let Some(channel) = target_channel.as_ref() {
+                        if let Some(ref draft_id) = draft_message_id {
+                            let _ = channel
+                                .finalize_draft(&msg.reply_target, draft_id, &user_visible_error)
+                                .await;
+                        } else {
+                            let _ = channel
+                                .send(
+                                    &SendMessage::new(&user_visible_error, &msg.reply_target)
+                                        .in_thread(msg.thread_ts.clone()),
+                                )
+                                .await;
+                        }
                     }
                 }
             }

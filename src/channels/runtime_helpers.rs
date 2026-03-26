@@ -155,6 +155,12 @@ pub(super) fn build_runtime_tool_visibility_prompt(
     prompt.push_str(
         "- Self-improvement is not automatic by default; candidate preparation, validation, and promotion remain manual/operator-controlled unless a dedicated workflow was explicitly configured.\n",
     );
+    if specs.is_empty() {
+        prompt.push_str(
+            "- No tool calls are allowed in this turn; reply from current context or ask one brief clarifying question.\n",
+        );
+        return prompt;
+    }
     if specs
         .iter()
         .any(|spec| matches!(spec.name.as_str(), "file_write" | "file_edit"))
