@@ -271,7 +271,7 @@ pub(super) fn build_local_capability_response(
 ) -> Option<String> {
     if looks_like_current_model_question(content) {
         return Some(format!(
-            "Current provider: `{provider_name}`\nCurrent model: `{model_name}`"
+            "I'm currently using provider `{provider_name}` with model `{model_name}`."
         ));
     }
 
@@ -279,7 +279,8 @@ pub(super) fn build_local_capability_response(
         let skill_names = extract_loaded_skill_names_from_system_prompt(system_prompt);
         if skill_names.is_empty() {
             return Some(
-                "No loaded skills are advertised in the current runtime prompt.".to_string(),
+                "I don’t have any advertised skills loaded in the current runtime prompt."
+                    .to_string(),
             );
         }
 
@@ -297,7 +298,7 @@ pub(super) fn build_local_capability_response(
         };
 
         return Some(format!(
-            "Loaded skills ({}):\n{}{suffix}\n\nAsk for details on any one by name.",
+            "I currently have {} advertised skills loaded:\n{}{suffix}\n\nAsk about any one by name, or just tell me the task and I’ll use what fits.",
             skill_names.len(),
             visible
         ));
