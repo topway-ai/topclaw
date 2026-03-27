@@ -1377,16 +1377,43 @@ pub struct ProviderInfo {
     pub local: bool,
 }
 
+pub const FIRST_CLASS_PROVIDER_PRIORITY: [&str; 3] = ["openai-codex", "openrouter", "ollama"];
+pub const DEFAULT_PROVIDER_NAME: &str = FIRST_CLASS_PROVIDER_PRIORITY[0];
+pub const DEFAULT_PROVIDER_MODEL: &str = "gpt-5.4";
+
+pub fn is_first_class_provider(name: &str) -> bool {
+    FIRST_CLASS_PROVIDER_PRIORITY.contains(&name)
+}
+
 /// Return the list of all known providers for display in `topclaw providers list`.
 ///
 /// This is intentionally separate from the factory match in `create_provider`
 /// (display concern vs. construction concern).
 pub fn list_providers() -> Vec<ProviderInfo> {
     vec![
-        // ── Primary providers ────────────────────────────────
+        // ── First-class core providers ──────────────────────
+        ProviderInfo {
+            name: "openai-codex",
+            display_name: "OpenAI Codex (OAuth)",
+            aliases: &["openai_codex", "codex"],
+            local: false,
+        },
         ProviderInfo {
             name: "openrouter",
             display_name: "OpenRouter",
+            aliases: &[],
+            local: false,
+        },
+        ProviderInfo {
+            name: "ollama",
+            display_name: "Ollama",
+            aliases: &[],
+            local: true,
+        },
+        // ── Additional direct providers ─────────────────────
+        ProviderInfo {
+            name: "openai",
+            display_name: "OpenAI",
             aliases: &[],
             local: false,
         },
@@ -1395,24 +1422,6 @@ pub fn list_providers() -> Vec<ProviderInfo> {
             display_name: "Anthropic",
             aliases: &[],
             local: false,
-        },
-        ProviderInfo {
-            name: "openai",
-            display_name: "OpenAI",
-            aliases: &[],
-            local: false,
-        },
-        ProviderInfo {
-            name: "openai-codex",
-            display_name: "OpenAI Codex (OAuth)",
-            aliases: &["openai_codex", "codex"],
-            local: false,
-        },
-        ProviderInfo {
-            name: "ollama",
-            display_name: "Ollama",
-            aliases: &[],
-            local: true,
         },
         ProviderInfo {
             name: "gemini",
@@ -2684,6 +2693,22 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn first_class_providers_are_listed_first_in_priority_order() {
+        let providers = list_providers();
+        let listed: Vec<&str> = providers
+            .iter()
+            .take(FIRST_CLASS_PROVIDER_PRIORITY.len())
+            .map(|provider| provider.name)
+            .collect();
+
+        assert_eq!(listed, FIRST_CLASS_PROVIDER_PRIORITY);
+        for name in FIRST_CLASS_PROVIDER_PRIORITY {
+            assert!(is_first_class_provider(name));
+        }
+        assert!(!is_first_class_provider("anthropic"));
     }
 
     // ── API error sanitization ───────────────────────────────

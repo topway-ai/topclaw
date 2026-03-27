@@ -277,12 +277,15 @@ impl Agent {
         config
             .default_model
             .as_deref()
-            .unwrap_or("anthropic/claude-sonnet-4-20250514")
+            .unwrap_or(crate::providers::DEFAULT_PROVIDER_MODEL)
             .to_string()
     }
 
     fn build_provider_from_config(config: &Config, model_name: &str) -> Result<Box<dyn Provider>> {
-        let provider_name = config.default_provider.as_deref().unwrap_or("openrouter");
+        let provider_name = config
+            .default_provider
+            .as_deref()
+            .unwrap_or(crate::providers::DEFAULT_PROVIDER_NAME);
         providers::create_routed_provider_with_options(
             provider_name,
             config.api_key.as_deref(),
@@ -685,12 +688,12 @@ pub async fn run(
     let provider_name = effective_config
         .default_provider
         .as_deref()
-        .unwrap_or("openrouter")
+        .unwrap_or(crate::providers::DEFAULT_PROVIDER_NAME)
         .to_string();
     let model_name = effective_config
         .default_model
         .as_deref()
-        .unwrap_or("anthropic/claude-sonnet-4-20250514")
+        .unwrap_or(crate::providers::DEFAULT_PROVIDER_MODEL)
         .to_string();
 
     agent.observer.record_event(&ObserverEvent::AgentStart {

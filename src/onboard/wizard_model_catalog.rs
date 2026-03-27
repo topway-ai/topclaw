@@ -850,7 +850,7 @@ pub async fn run_models_refresh(
 ) -> Result<()> {
     let provider_name = provider_override
         .or(config.default_provider.as_deref())
-        .unwrap_or("openrouter")
+        .unwrap_or(crate::providers::DEFAULT_PROVIDER_NAME)
         .trim()
         .to_string();
 
@@ -937,7 +937,7 @@ pub async fn run_models_list(
 ) -> Result<()> {
     let provider_name = provider_override
         .or(config.default_provider.as_deref())
-        .unwrap_or("openrouter");
+        .unwrap_or(crate::providers::DEFAULT_PROVIDER_NAME);
 
     let cached = load_any_cached_models_for_provider(&config.workspace_dir, provider_name).await?;
 
@@ -987,7 +987,10 @@ pub async fn run_models_set(config: &crate::config::Config, model: &str) -> Resu
 }
 
 pub async fn run_models_status(config: &crate::config::Config) -> Result<()> {
-    let provider = config.default_provider.as_deref().unwrap_or("openrouter");
+    let provider = config
+        .default_provider
+        .as_deref()
+        .unwrap_or(crate::providers::DEFAULT_PROVIDER_NAME);
     let model = config.default_model.as_deref().unwrap_or("(not set)");
 
     println!();

@@ -30,14 +30,14 @@ pub(super) fn resolved_default_provider(config: &Config) -> String {
     config
         .default_provider
         .clone()
-        .unwrap_or_else(|| "openrouter".to_string())
+        .unwrap_or_else(|| providers::DEFAULT_PROVIDER_NAME.to_string())
 }
 
 pub(super) fn resolved_default_model(config: &Config) -> String {
     config
         .default_model
         .clone()
-        .unwrap_or_else(|| "anthropic/claude-sonnet-4.6".to_string())
+        .unwrap_or_else(|| providers::DEFAULT_PROVIDER_MODEL.to_string())
 }
 
 pub(super) fn snapshot_non_cli_excluded_tools(ctx: &ChannelRuntimeContext) -> Vec<String> {

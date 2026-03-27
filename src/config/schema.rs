@@ -147,12 +147,12 @@ pub struct Config {
     pub api_key: Option<String>,
     /// Base URL override for provider API (e.g. "http://10.0.0.1:11434" for remote Ollama)
     pub api_url: Option<String>,
-    /// Default provider ID or alias (e.g. `"openrouter"`, `"ollama"`, `"anthropic"`). Default: `"openrouter"`.
+    /// Default provider ID or alias (e.g. `"openai-codex"`, `"openrouter"`, `"ollama"`). Default: `"openai-codex"`.
     pub default_provider: Option<String>,
     /// Optional API protocol mode for `custom:` providers.
     #[serde(default)]
     pub provider_api: Option<ProviderApiMode>,
-    /// Default model routed through the selected provider (e.g. `"anthropic/claude-sonnet-4-6"`).
+    /// Default model routed through the selected provider (e.g. `"gpt-5.4"` or `"openai/gpt-5.2"`).
     pub default_model: Option<String>,
     /// Optional named provider profiles keyed by id (Codex app-server compatible layout).
     #[serde(default)]
@@ -811,9 +811,9 @@ impl Default for Config {
             config_path: topclaw_dir.join("config.toml"),
             api_key: None,
             api_url: None,
-            default_provider: Some("openrouter".to_string()),
+            default_provider: Some(crate::providers::DEFAULT_PROVIDER_NAME.to_string()),
             provider_api: None,
-            default_model: Some("anthropic/claude-sonnet-4.6".to_string()),
+            default_model: Some(crate::providers::DEFAULT_PROVIDER_MODEL.to_string()),
             model_providers: HashMap::new(),
             provider: ProviderConfig::default(),
             default_temperature: 0.7,
@@ -1685,8 +1685,14 @@ mod tests {
     #[test]
     async fn config_default_has_sane_values() {
         let c = Config::default();
-        assert_eq!(c.default_provider.as_deref(), Some("openrouter"));
-        assert!(c.default_model.as_deref().unwrap().contains("claude"));
+        assert_eq!(
+            c.default_provider.as_deref(),
+            Some(crate::providers::DEFAULT_PROVIDER_NAME)
+        );
+        assert_eq!(
+            c.default_model.as_deref(),
+            Some(crate::providers::DEFAULT_PROVIDER_MODEL)
+        );
         assert!((c.default_temperature - 0.7).abs() < f64::EPSILON);
         assert!(c.api_key.is_none());
         assert!(!c.skills.open_skills_enabled);

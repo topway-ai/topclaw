@@ -579,6 +579,14 @@ fn memory_config_defaults_for_backend(backend: &str) -> MemoryConfig {
     }
 }
 
+fn default_quick_setup_provider(credential_override: Option<&str>) -> &'static str {
+    if credential_override.is_some() {
+        "openrouter"
+    } else {
+        crate::providers::DEFAULT_PROVIDER_NAME
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 pub async fn run_quick_setup(
     credential_override: Option<&str>,
@@ -666,7 +674,9 @@ async fn run_quick_setup_with_home(
         .await
         .context("Failed to create workspace directory")?;
 
-    let provider_name = provider.unwrap_or("openrouter").to_string();
+    let provider_name = provider
+        .unwrap_or_else(|| default_quick_setup_provider(credential_override))
+        .to_string();
     let model = model_override
         .map(str::to_string)
         .unwrap_or_else(|| default_model_for_provider(&provider_name));
@@ -908,9 +918,10 @@ fn allows_unauthenticated_model_fetch(provider_name: &str) -> bool {
 /// Pick a sensible default model for the given provider.
 fn default_model_for_provider(provider: &str) -> String {
     match canonical_provider_name(provider) {
+        "openrouter" => "anthropic/claude-sonnet-4.6".into(),
         "anthropic" => "claude-sonnet-4-5-20250929".into(),
         "openai" => "gpt-5.2".into(),
-        "openai-codex" => "gpt-5.4".into(),
+        "openai-codex" => crate::providers::DEFAULT_PROVIDER_MODEL.into(),
         "venice" => "zai-org-glm-5".into(),
         "groq" => "llama-3.3-70b-versatile".into(),
         "mistral" => "mistral-large-latest".into(),
@@ -1529,16 +1540,11 @@ async fn setup_provider_simple(
 ) -> Result<(String, String, String, Option<String>)> {
     loop {
         let options = vec![
-            ("openrouter", "OpenRouter"),
             ("openai-codex", "OpenAI Codex"),
-            ("openai", "OpenAI"),
-            ("anthropic", "Anthropic"),
-            ("gemini", "Google Gemini"),
-            ("deepseek", "DeepSeek"),
-            ("groq", "Groq"),
+            ("openrouter", "OpenRouter"),
             ("ollama", "Ollama (local)"),
             ("custom", "Custom OpenAI-compatible API"),
-            ("advanced", "More providers and advanced setup"),
+            ("advanced", "Advanced providers and compatibility setup"),
         ];
 
         let labels: Vec<&str> = options.iter().map(|(_, label)| *label).collect();
@@ -1575,7 +1581,8 @@ async fn setup_provider(
     loop {
         // ── Tier selection ──
         let tiers = vec![
-        "⭐ Recommended (OpenRouter, Venice, Anthropic, OpenAI, Gemini)",
+        "⭐ Core path + recommended hosted providers (Codex, OpenRouter, Ollama first)",
+        "🌍 Additional hosted providers (Anthropic, OpenAI, Gemini, Venice, DeepSeek, xAI, Perplexity)",
         "⚡ Fast inference (Groq, Fireworks, Together AI, NVIDIA NIM)",
         "🌐 Gateway / proxy (Vercel AI, Cloudflare AI, Amazon Bedrock)",
         "🔬 Specialized (Moonshot/Kimi, GLM/Zhipu, MiniMax, Qwen/DashScope, Qianfan, Z.AI, Synthetic, OpenCode Zen, Cohere)",
@@ -2403,7 +2410,10 @@ fn print_summary(config: &Config, service_outcome: &BackgroundServiceOutcome) {
     println!(
         "    {} Provider:      {}",
         style("🤖").cyan(),
-        config.default_provider.as_deref().unwrap_or("openrouter")
+        config
+            .default_provider
+            .as_deref()
+            .unwrap_or(crate::providers::DEFAULT_PROVIDER_NAME)
     );
     println!(
         "    {} Model:         {}",
@@ -3520,7 +3530,10 @@ mod tests {
             "anthropic/claude-sonnet-4.6"
         );
         assert_eq!(default_model_for_provider("openai"), "gpt-5.2");
-        assert_eq!(default_model_for_provider("openai-codex"), "gpt-5.4");
+        assert_eq!(
+            default_model_for_provider("openai-codex"),
+            crate::providers::DEFAULT_PROVIDER_MODEL
+        );
         assert_eq!(
             default_model_for_provider("anthropic"),
             "claude-sonnet-4-5-20250929"
@@ -4765,5 +4778,14 @@ mod tests {
         config.channels_config.webhook = None;
         config.tunnel.provider = "cloudflare".into();
         assert!(gateway_surface_required(&config));
+    }
+
+    #[test]
+    fn quick_setup_prefers_codex_without_api_key_and_openrouter_with_api_key() {
+        assert_eq!(
+            default_quick_setup_provider(None),
+            crate::providers::DEFAULT_PROVIDER_NAME
+        );
+        assert_eq!(default_quick_setup_provider(Some("sk-test")), "openrouter");
     }
 }

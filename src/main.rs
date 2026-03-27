@@ -171,11 +171,11 @@ enum Commands {
         #[arg(long)]
         channels_only: bool,
 
-        /// API key (used in quick mode, ignored with --interactive)
+        /// API key (used in quick mode for API-key providers; if passed without --provider, quick setup uses OpenRouter)
         #[arg(long)]
         api_key: Option<String>,
 
-        /// Provider name (used in quick mode, default: openrouter)
+        /// Provider name (used in quick mode, default: openai-codex)
         #[arg(long)]
         provider: Option<String>,
         /// Model ID override (used in quick mode)
@@ -205,7 +205,7 @@ Examples:
         #[arg(short, long)]
         message: Option<String>,
 
-        /// Provider to use (openrouter, anthropic, openai, openai-codex)
+        /// Provider to use (openai-codex, openrouter, ollama, or another configured provider)
         #[arg(short, long)]
         provider: Option<String>,
 
@@ -1073,7 +1073,10 @@ async fn main() -> Result<()> {
             println!();
             println!(
                 "🤖 Provider:      {}",
-                config.default_provider.as_deref().unwrap_or("openrouter")
+                config
+                    .default_provider
+                    .as_deref()
+                    .unwrap_or(providers::DEFAULT_PROVIDER_NAME)
             );
             println!(
                 "   Model:         {}",
@@ -1223,33 +1226,52 @@ async fn main() -> Result<()> {
         },
 
         Commands::Providers => {
-            let providers = providers::list_providers();
+            let provider_list = providers::list_providers();
             let current = config
                 .default_provider
                 .as_deref()
-                .unwrap_or("openrouter")
+                .unwrap_or(providers::DEFAULT_PROVIDER_NAME)
                 .trim()
                 .to_ascii_lowercase();
-            println!("Supported providers ({} total):\n", providers.len());
-            println!("  ID (use in config)  DESCRIPTION");
-            println!("  ─────────────────── ───────────");
-            for p in &providers {
-                let is_active = p.name.eq_ignore_ascii_case(&current)
-                    || p.aliases
-                        .iter()
-                        .any(|alias| alias.eq_ignore_ascii_case(&current));
-                let marker = if is_active { " (active)" } else { "" };
-                let local_tag = if p.local { " [local]" } else { "" };
-                let aliases = if p.aliases.is_empty() {
-                    String::new()
-                } else {
-                    format!("  (aliases: {})", p.aliases.join(", "))
-                };
-                println!(
-                    "  {:<19} {}{}{}{}",
-                    p.name, p.display_name, local_tag, marker, aliases
-                );
-            }
+            println!("Supported providers ({} total):\n", provider_list.len());
+            let print_section = |title: &str, entries: Vec<&providers::ProviderInfo>| {
+                println!("  {title}");
+                println!("  ID (use in config)  DESCRIPTION");
+                println!("  ─────────────────── ───────────");
+                for p in entries {
+                    let is_active = p.name.eq_ignore_ascii_case(&current)
+                        || p.aliases
+                            .iter()
+                            .any(|alias| alias.eq_ignore_ascii_case(&current));
+                    let marker = if is_active { " (active)" } else { "" };
+                    let local_tag = if p.local { " [local]" } else { "" };
+                    let aliases = if p.aliases.is_empty() {
+                        String::new()
+                    } else {
+                        format!("  (aliases: {})", p.aliases.join(", "))
+                    };
+                    println!(
+                        "  {:<19} {}{}{}{}",
+                        p.name, p.display_name, local_tag, marker, aliases
+                    );
+                }
+                println!();
+            };
+
+            let first_class: Vec<&providers::ProviderInfo> = provider_list
+                .iter()
+                .filter(|provider| providers::is_first_class_provider(provider.name))
+                .collect();
+            let additional: Vec<&providers::ProviderInfo> = provider_list
+                .iter()
+                .filter(|provider| !providers::is_first_class_provider(provider.name))
+                .collect();
+
+            print_section(
+                "First-class providers (default product path: Codex -> OpenRouter -> Ollama)",
+                first_class,
+            );
+            print_section("Additional providers (advanced/compatibility)", additional);
             println!("\n  custom:<URL>   Any OpenAI-compatible endpoint");
             println!("  anthropic-custom:<URL>  Any Anthropic-compatible endpoint");
             Ok(())

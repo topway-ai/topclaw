@@ -1434,12 +1434,12 @@ pub async fn run(
     let provider_name = provider_override
         .as_deref()
         .or(config.default_provider.as_deref())
-        .unwrap_or("openrouter");
+        .unwrap_or(crate::providers::DEFAULT_PROVIDER_NAME);
 
     let model_name = model_override
         .as_deref()
         .or(config.default_model.as_deref())
-        .unwrap_or("anthropic/claude-sonnet-4");
+        .unwrap_or(crate::providers::DEFAULT_PROVIDER_MODEL);
 
     let provider_runtime_options = providers::ProviderRuntimeOptions::from_config(&config);
 
@@ -1846,11 +1846,14 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         crate::peripherals::create_peripheral_tools(&config.peripherals).await?;
     tools_registry.extend(peripheral_tools);
 
-    let provider_name = config.default_provider.as_deref().unwrap_or("openrouter");
+    let provider_name = config
+        .default_provider
+        .as_deref()
+        .unwrap_or(crate::providers::DEFAULT_PROVIDER_NAME);
     let model_name = config
         .default_model
         .clone()
-        .unwrap_or_else(|| "anthropic/claude-sonnet-4-20250514".into());
+        .unwrap_or_else(|| crate::providers::DEFAULT_PROVIDER_MODEL.into());
     let provider_runtime_options = providers::ProviderRuntimeOptions::from_config(&config);
     let provider: Box<dyn Provider> = providers::create_routed_provider_with_options(
         provider_name,

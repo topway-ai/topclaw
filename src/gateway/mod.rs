@@ -486,7 +486,10 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     let display_addr = format!("{host}:{actual_port}");
 
     let provider: Arc<dyn Provider> = Arc::from(providers::create_resilient_provider_with_options(
-        config.default_provider.as_deref().unwrap_or("openrouter"),
+        config
+            .default_provider
+            .as_deref()
+            .unwrap_or(providers::DEFAULT_PROVIDER_NAME),
         config.api_key.as_deref(),
         config.api_url.as_deref(),
         &config.reliability,
@@ -495,7 +498,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     let model = config
         .default_model
         .clone()
-        .unwrap_or_else(|| "anthropic/claude-sonnet-4".into());
+        .unwrap_or_else(|| providers::DEFAULT_PROVIDER_MODEL.into());
     let temperature = config.default_temperature;
     let wiring::ExecutionSupport {
         memory: mem, tools, ..
