@@ -45,7 +45,7 @@ pub struct AutonomyConfig {
     /// Additional environment variables allowed for shell tool subprocesses.
     #[serde(default)]
     pub shell_env_passthrough: Vec<String>,
-    /// Tools that never require approval (e.g. read-only tools).
+    /// Tools that never require approval (biased toward read-only investigation/navigation).
     #[serde(default = "default_auto_approve")]
     pub auto_approve: Vec<String>,
     /// Tools that always require interactive approval, even after "Always".
@@ -54,7 +54,7 @@ pub struct AutonomyConfig {
     /// Extra directory roots the agent may read/write outside the workspace.
     #[serde(default)]
     pub allowed_roots: Vec<String>,
-    /// Tools to exclude from non-CLI channels (e.g. Telegram, Discord).
+    /// Optional denylist for non-CLI channels (e.g. Telegram, Discord). Empty by default.
     #[serde(default = "default_non_cli_excluded_tools")]
     pub non_cli_excluded_tools: Vec<String>,
     /// Optional allowlist for who can manage non-CLI approval commands.
@@ -74,7 +74,18 @@ fn default_true() -> bool {
 }
 
 pub(crate) fn default_auto_approve() -> Vec<String> {
-    vec!["file_read".into(), "memory_recall".into()]
+    [
+        "file_read",
+        "glob_search",
+        "content_search",
+        "lossless_search",
+        "lossless_describe",
+        "pdf_read",
+        "memory_recall",
+    ]
+    .into_iter()
+    .map(std::string::ToString::to_string)
+    .collect()
 }
 
 pub(crate) fn default_always_ask() -> Vec<String> {
@@ -82,32 +93,7 @@ pub(crate) fn default_always_ask() -> Vec<String> {
 }
 
 pub(crate) fn default_non_cli_excluded_tools() -> Vec<String> {
-    [
-        "shell",
-        "file_write",
-        "file_edit",
-        "git_operations",
-        "browser",
-        "browser_open",
-        "http_request",
-        "schedule",
-        "cron_add",
-        "cron_remove",
-        "cron_update",
-        "cron_run",
-        "memory_store",
-        "memory_forget",
-        "proxy_config",
-        "model_routing_config",
-        "pushover",
-        "composio",
-        "delegate",
-        "screenshot",
-        "image_info",
-    ]
-    .into_iter()
-    .map(std::string::ToString::to_string)
-    .collect()
+    Vec::new()
 }
 
 pub(crate) fn is_valid_env_var_name(name: &str) -> bool {
@@ -159,5 +145,37 @@ impl Default for AutonomyConfig {
             non_cli_natural_language_approval_mode: NonCliNaturalLanguageApprovalMode::default(),
             non_cli_natural_language_approval_mode_by_channel: HashMap::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_auto_approve_favors_read_only_navigation_tools() {
+        let defaults = default_auto_approve();
+        for tool in [
+            "file_read",
+            "glob_search",
+            "content_search",
+            "lossless_search",
+            "lossless_describe",
+            "pdf_read",
+            "memory_recall",
+        ] {
+            assert!(
+                defaults.contains(&tool.to_string()),
+                "expected `{tool}` in default auto-approve set"
+            );
+        }
+        assert!(!defaults.contains(&"shell".to_string()));
+        assert!(!defaults.contains(&"file_write".to_string()));
+    }
+
+    #[test]
+    fn default_non_cli_exclusions_are_empty() {
+        assert!(default_non_cli_excluded_tools().is_empty());
+        assert!(AutonomyConfig::default().non_cli_excluded_tools.is_empty());
     }
 }
