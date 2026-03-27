@@ -2,15 +2,15 @@
 
 Use this page when you are unsure which runtime command you actually need after onboarding.
 
-Last verified: **March 24, 2026**.
+Last verified: **March 27, 2026**.
 
 ## The Short Version
 
 | Goal | Command | Normal use |
 |---|---|---|
 | Talk to TopClaw directly in this terminal | `topclaw agent` | quick local chats and one-off prompts |
-| Keep configured channels running in the background | `topclaw service install`, `topclaw service start`, `topclaw service status` | always-on Telegram, Discord, and similar setups |
-| Run the full runtime in the foreground | `topclaw daemon` | debugging startup and watching live logs |
+| Keep configured channels running in the background | `topclaw service install`, `topclaw service start`, `topclaw service status` | always-on Telegram and Discord setups |
+| Run the channel runtime in the foreground | `topclaw daemon` | debugging startup and watching live logs |
 | Run only the HTTP/webhook gateway | `topclaw gateway` | webhook testing and gateway-only scenarios |
 | Start channel listeners manually in one foreground process | `topclaw channel start` | advanced/manual troubleshooting |
 
@@ -42,7 +42,7 @@ That means most users should not need to guess between `topclaw daemon` and `top
 topclaw agent -m "Hello, TopClaw!"
 ```
 
-### I configured Telegram, Discord, or another background channel
+### I configured Telegram or Discord
 
 Start with:
 
@@ -66,6 +66,7 @@ topclaw daemon
 ```
 
 Use this when you want the runtime to stay attached to the terminal so you can see failures immediately.
+It starts the gateway only when webhook/API surfaces are configured or you explicitly override the gateway bind host/port.
 
 ### I only need the gateway HTTP surface
 

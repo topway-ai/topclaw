@@ -136,7 +136,7 @@ pub fn handle_command(cmd: crate::HardwareCommands, _config: &Config) -> Result<
         | crate::HardwareCommands::Flash { .. }
         | crate::HardwareCommands::SetupUnoQ { .. }
         | crate::HardwareCommands::FlashNucleo => {
-            bail!(
+            anyhow::bail!(
                 "Peripheral hardware commands must be routed through peripherals::handle_command_from_hardware"
             )
         }

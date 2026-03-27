@@ -918,7 +918,6 @@ fn allows_unauthenticated_model_fetch(provider_name: &str) -> bool {
 /// Pick a sensible default model for the given provider.
 fn default_model_for_provider(provider: &str) -> String {
     match canonical_provider_name(provider) {
-        "openrouter" => "anthropic/claude-sonnet-4.6".into(),
         "anthropic" => "claude-sonnet-4-5-20250929".into(),
         "openai" => "gpt-5.2".into(),
         "openai-codex" => crate::providers::DEFAULT_PROVIDER_MODEL.into(),
@@ -1539,7 +1538,7 @@ async fn setup_provider_simple(
     encrypt_secrets: bool,
 ) -> Result<(String, String, String, Option<String>)> {
     loop {
-        let options = vec![
+        let options = [
             ("openai-codex", "OpenAI Codex"),
             ("openrouter", "OpenRouter"),
             ("ollama", "Ollama (local)"),
@@ -4422,8 +4421,8 @@ mod tests {
         assert!(
             labels
                 .iter()
-                .any(|label| label.starts_with("Other channels")),
-            "expected an Other channels entry in the top-level menu, got {labels:?}"
+                .any(|label| label.starts_with("Advanced/gateway channels")),
+            "expected an advanced/gateway channels entry in the top-level menu, got {labels:?}"
         );
         assert!(
             !labels.iter().any(|label| label.starts_with("Webhook")),

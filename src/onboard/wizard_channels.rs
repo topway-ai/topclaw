@@ -142,9 +142,9 @@ pub(super) fn channel_choice_is_configured(
     match choice {
         ChannelMenuChoice::Telegram => config.telegram.is_some(),
         ChannelMenuChoice::Discord => config.discord.is_some(),
-        ChannelMenuChoice::OtherChannels => false,
         ChannelMenuChoice::Webhook => config.webhook.is_some(),
-        ChannelMenuChoice::Done => false,
-        ChannelMenuChoice::Back => false,
+        ChannelMenuChoice::OtherChannels | ChannelMenuChoice::Done | ChannelMenuChoice::Back => {
+            false
+        }
     }
 }

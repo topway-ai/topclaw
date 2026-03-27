@@ -166,8 +166,8 @@ landlock = { version = "0.4", optional = true }
 # For full out-of-box experience: cargo build --features standard
 default = ["channel-telegram"]
 
-# Standard: common channels and tools for out-of-box experience
-standard = ["channel-telegram", "channel-discord", "web-fetch-html2md", "tool-composio", "tool-discord"]
+# Standard: Telegram-first + Discord-second core product path
+standard = ["channel-telegram", "channel-discord", "web-fetch-html2md", "tool-discord"]
 
 # Minimal: only essential channel (alias for default)
 minimal = ["channel-telegram"]

@@ -278,17 +278,17 @@ Examples:
     #[command(long_about = "\
 Start the long-running autonomous daemon.
 
-Launches the full TopClaw runtime: gateway server, all configured \
-channels (Telegram, Discord, etc.), heartbeat monitor, and \
-the cron scheduler. This is the recommended way to run TopClaw in \
-production or as an always-on assistant.
+Launches the long-running TopClaw runtime for configured channels, \
+heartbeat monitoring, and the cron scheduler. The gateway surface is \
+started only when webhook/API features are configured or you explicitly \
+override the gateway bind host/port for debugging.
 
 Use 'topclaw service install' to register the daemon as an OS \
 service (systemd/launchd) for auto-start on boot.
 
 Examples:
   topclaw daemon                   # use config defaults
-  topclaw daemon -p 9090           # gateway on port 9090
+  topclaw daemon -p 9090           # also expose gateway on port 9090
   topclaw daemon --host 127.0.0.1  # localhost only")]
     Daemon {
         /// Port to listen on (use 0 for random available port); defaults to config gateway.port

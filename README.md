@@ -1,6 +1,6 @@
 # TopClaw
 
-TopClaw is a Rust-based AI agent runtime for local and remote AI workflows.
+TopClaw is a Rust-based, channel-first AI agent runtime for Telegram-first and Discord-second workflows.
 
 ## What TopClaw Is
 
@@ -9,8 +9,8 @@ TopClaw combines several runtime surfaces in one codebase:
 - a CLI for setup, diagnostics, and direct chat
 - an agent loop that can call tools and persist memory
 - provider adapters for multiple model APIs
-- channel adapters for Telegram and Discord (plus bridge and webhook transports)
-- an HTTP, WebSocket, and OpenAI-compatible gateway
+- channel adapters for Telegram (primary) and Discord (secondary)
+- an optional HTTP, WebSocket, and OpenAI-compatible gateway for webhook/API surfaces
 - optional hardware integrations (STM32, Arduino, RPi GPIO)
 
 The implementation is trait-driven. Most extensions are added by implementing an existing trait and registering it in the matching factory.
@@ -47,7 +47,7 @@ Use `./bootstrap.sh --force-source-build` when you need to validate the local ch
 
 The default onboarding path is:
 
-1. choose your AI provider
+1. choose your AI provider (OpenAI Codex first, OpenRouter second, Ollama third)
 2. authenticate or enter the provider API key if needed
 3. choose a channel such as Telegram or Discord
 4. enter the channel token and allowed user info
@@ -64,10 +64,22 @@ Important:
 
 If you already know which auth path you need:
 
-API key providers:
+Codex-first default path:
+
+```bash
+topclaw bootstrap
+```
+
+API key hosted path:
 
 ```bash
 topclaw bootstrap --api-key "sk-..." --provider openrouter
+```
+
+Local path:
+
+```bash
+topclaw bootstrap --provider ollama
 ```
 
 OAuth or subscription providers:
@@ -95,7 +107,7 @@ TopClaw exposes a few main runtime commands:
 
 - `topclaw agent`: talk to TopClaw directly in this terminal
 - `topclaw service ...`: keep configured channels running in the background
-- `topclaw daemon`: run the full runtime in the foreground for debugging
+- `topclaw daemon`: run the channel runtime in the foreground for debugging
 - `topclaw gateway`: run only the HTTP, WebSocket, and webhook gateway
 
 For the full explanation, see [`docs/runtime-model.md`](docs/runtime-model.md).
@@ -137,10 +149,10 @@ TopClaw's main execution flow is:
 
 Important code-level constraints:
 
-- security is policy-driven and deny-first for tool execution, shell access, and network exposure
+- security is supervised-by-default and workspace-scoped, but channel users still get the core tool surface; higher-impact actions use explicit approval
 - config and CLI behavior are public contracts, not internal details
 - most extension points are narrow traits: `Provider`, `Channel`, `Tool`, `Memory`, `Observer`, `RuntimeAdapter`, and `Peripheral`
-- several capabilities are feature-gated at compile time, including Discord, Bedrock, Telnyx, GLM, Composio, web-fetch variants, hardware discovery, and the WASM runtime
+- several capabilities are feature-gated at compile time, including Composio, hardware discovery, PDF ingestion, observability exporters, and the WASM runtime
 
 ## Repository Structure
 

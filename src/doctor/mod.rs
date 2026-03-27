@@ -216,7 +216,10 @@ fn next_step_suggestions(config: &Config, results: &[DiagResult]) -> Vec<String>
     if results.iter().any(|item| {
         item.category == "config"
             && item.severity == Severity::Warn
-            && item.message.contains("no channels configured")
+            && (item.message.contains("no channels configured")
+                || item
+                    .message
+                    .contains("no Telegram/Discord channel configured"))
     }) {
         push_unique(
             &mut suggestions,
