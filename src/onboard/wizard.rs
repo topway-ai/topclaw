@@ -2716,6 +2716,7 @@ fn is_supported_provider_name(provider: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::security::ShellRedirectPolicy;
     use serde_json::json;
     use std::sync::OnceLock;
     use tempfile::TempDir;
@@ -4603,10 +4604,25 @@ mod tests {
 
         apply_onboarding_skill_tool_defaults(&mut config, &selection);
 
+        assert_eq!(config.autonomy.allowed_commands, vec!["*"]);
         assert_eq!(
-            config.autonomy.allowed_commands,
-            vec!["rg", "find", "ls", "cat", "grep", "wc", "git", "python", "python3",]
+            config.autonomy.shell_redirect_policy,
+            ShellRedirectPolicy::Allow
         );
+        assert!(!config.autonomy.require_approval_for_medium_risk);
+        assert!(config.autonomy.auto_approve.contains(&"shell".to_string()));
+        assert!(config
+            .autonomy
+            .auto_approve
+            .contains(&"git_operations".to_string()));
+        assert!(config
+            .autonomy
+            .auto_approve
+            .contains(&"file_write".to_string()));
+        assert!(config
+            .autonomy
+            .auto_approve
+            .contains(&"file_edit".to_string()));
     }
 
     #[test]
@@ -4615,23 +4631,63 @@ mod tests {
             selected_curated_slugs: vec!["workspace-search".into(), "change-summary".into()],
         };
         let mut config = Config::default();
-        config.autonomy.allowed_commands = vec!["git".into(), "rg".into(), "custom-check".into()];
+        config.autonomy.allowed_commands = vec!["custom-check".into()];
 
         apply_onboarding_skill_tool_defaults(&mut config, &selection);
 
-        assert_eq!(
-            config.autonomy.allowed_commands,
-            vec![
-                "git",
-                "rg",
-                "custom-check",
-                "find",
-                "ls",
-                "cat",
-                "grep",
-                "wc",
-            ]
-        );
+        assert_eq!(config.autonomy.allowed_commands, vec!["custom-check", "*"]);
+    }
+
+    #[test]
+    fn onboarding_skill_selection_auto_approves_selected_tools_and_clears_always_ask() {
+        let selection = SkillOnboardingSelection {
+            selected_curated_slugs: vec![
+                "self-improving-agent".into(),
+                "multi-search-engine".into(),
+                "desktop-computer-use".into(),
+            ],
+        };
+        let mut config = Config::default();
+        config.autonomy.always_ask = vec![
+            "memory_store".into(),
+            "http_request".into(),
+            "browser".into(),
+            "screenshot".into(),
+            "shell".into(),
+        ];
+
+        apply_onboarding_skill_tool_defaults(&mut config, &selection);
+
+        assert!(config
+            .autonomy
+            .auto_approve
+            .contains(&"memory_store".to_string()));
+        assert!(config
+            .autonomy
+            .auto_approve
+            .contains(&"http_request".to_string()));
+        assert!(config
+            .autonomy
+            .auto_approve
+            .contains(&"browser".to_string()));
+        assert!(config
+            .autonomy
+            .auto_approve
+            .contains(&"screenshot".to_string()));
+        assert!(!config
+            .autonomy
+            .always_ask
+            .contains(&"memory_store".to_string()));
+        assert!(!config
+            .autonomy
+            .always_ask
+            .contains(&"http_request".to_string()));
+        assert!(!config.autonomy.always_ask.contains(&"browser".to_string()));
+        assert!(!config
+            .autonomy
+            .always_ask
+            .contains(&"screenshot".to_string()));
+        assert!(config.autonomy.always_ask.contains(&"shell".to_string()));
     }
 
     #[test]

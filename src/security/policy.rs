@@ -53,6 +53,11 @@ pub enum ShellRedirectPolicy {
     ///
     /// Other redirect forms remain blocked by command policy.
     Strip,
+    /// Allow redirect operators and normalize supported heredoc patterns that
+    /// LLMs commonly emit for local scripting.
+    ///
+    /// Path policy and command allowlist checks still apply after normalization.
+    Allow,
 }
 
 /// Risk score for shell command execution.
@@ -636,6 +641,71 @@ fn strip_supported_redirects(command: &str) -> String {
     out
 }
 
+fn shell_single_quote(raw: &str) -> String {
+    let mut out = String::from("'");
+    for ch in raw.chars() {
+        if ch == '\'' {
+            out.push_str("'\"'\"'");
+        } else {
+            out.push(ch);
+        }
+    }
+    out.push('\'');
+    out
+}
+
+fn normalize_supported_heredoc_command(command: &str) -> String {
+    let trimmed = command.trim();
+    let Some(first_newline) = trimmed.find('\n') else {
+        return command.to_string();
+    };
+
+    let header = trimmed[..first_newline].trim_end();
+    let Some(heredoc_idx) = header.find("<<") else {
+        return command.to_string();
+    };
+
+    let prefix = header[..heredoc_idx].trim_end();
+    let delimiter = strip_wrapping_quotes(header[heredoc_idx + 2..].trim());
+    if delimiter.is_empty() {
+        return command.to_string();
+    }
+
+    let executable = prefix
+        .split_whitespace()
+        .next()
+        .map(strip_wrapping_quotes)
+        .and_then(|token| token.rsplit('/').next())
+        .unwrap_or("");
+    if !matches!(executable, "python" | "python3") {
+        return command.to_string();
+    }
+
+    let mut prefix_tokens: Vec<&str> = prefix.split_whitespace().collect();
+    if prefix_tokens.last().copied() == Some("-") {
+        prefix_tokens.pop();
+    }
+    if prefix_tokens.is_empty() {
+        return command.to_string();
+    }
+
+    let rest = &trimmed[first_newline + 1..];
+    let lines: Vec<&str> = rest.lines().collect();
+    let Some(last_nonempty_idx) = lines.iter().rposition(|line| !line.trim().is_empty()) else {
+        return command.to_string();
+    };
+    if lines[last_nonempty_idx].trim_end() != delimiter {
+        return command.to_string();
+    }
+
+    let body = lines[..last_nonempty_idx].join("\n");
+    format!(
+        "{} -c {}",
+        prefix_tokens.join(" "),
+        shell_single_quote(&body)
+    )
+}
+
 /// Detect unquoted shell variable expansions like `$HOME`, `$1`, `$?`.
 ///
 /// Escaped dollars (`\$`) are ignored. Variables inside single quotes are
@@ -784,6 +854,7 @@ impl SecurityPolicy {
         match self.shell_redirect_policy {
             ShellRedirectPolicy::Block => command.to_string(),
             ShellRedirectPolicy::Strip => strip_supported_redirects(command),
+            ShellRedirectPolicy::Allow => normalize_supported_heredoc_command(command),
         }
     }
 
@@ -1060,7 +1131,9 @@ impl SecurityPolicy {
         // Block shell redirections (`<`, `>`, `>>`) — they can read/write
         // arbitrary paths and bypass path checks.
         // Ignore quoted literals, e.g. `echo "a>b"` and `echo "a<b"`.
-        if contains_unquoted_char(command, '>') || contains_unquoted_char(command, '<') {
+        if self.shell_redirect_policy != ShellRedirectPolicy::Allow
+            && (contains_unquoted_char(command, '>') || contains_unquoted_char(command, '<'))
+        {
             return false;
         }
 
@@ -2393,6 +2466,30 @@ mod tests {
         assert!(p
             .validate_command_execution("cat </etc/passwd", false)
             .is_err());
+    }
+
+    #[test]
+    fn allow_policy_normalizes_python_heredoc_commands() {
+        let p = SecurityPolicy {
+            shell_redirect_policy: ShellRedirectPolicy::Allow,
+            ..default_policy()
+        };
+
+        let normalized = p.apply_shell_redirect_policy("python3 - <<'PY'\nprint('ok')\nPY");
+        assert_eq!(normalized, "python3 -c 'print('\"'\"'ok'\"'\"')'");
+    }
+
+    #[test]
+    fn allow_policy_accepts_normalized_python_heredoc_commands() {
+        let p = SecurityPolicy {
+            shell_redirect_policy: ShellRedirectPolicy::Allow,
+            allowed_commands: vec!["python3".into()],
+            ..default_policy()
+        };
+
+        assert!(p
+            .validate_command_execution("python3 - <<'PY'\nprint('ok')\nPY", false)
+            .is_ok());
     }
 
     #[test]

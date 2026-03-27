@@ -398,9 +398,9 @@ Notes:
   - `agent-browser-extension` -> `browser.enabled = true`, `browser.backend = "agent_browser"`
   - `desktop-computer-use` -> `browser.enabled = true`, `browser.backend = "computer_use"`
   - selecting both browser skills together sets `browser.backend = "auto"`
-  - `workspace-search`, `code-explainer` -> remove `shell` from `autonomy.non_cli_excluded_tools` and append `rg`, `find`, `ls`, `cat`, `grep`, `wc` to `autonomy.allowed_commands`
-  - `change-summary` -> remove `shell` and `git_operations` from `autonomy.non_cli_excluded_tools` and append `git` to `autonomy.allowed_commands`
-  - `skill-creator` -> remove `shell`, `file_write`, and `file_edit` from `autonomy.non_cli_excluded_tools` and append `python`, `python3` to `autonomy.allowed_commands`
+  - `workspace-search`, `code-explainer`, `change-summary`, `skill-creator` -> remove `shell` from `autonomy.non_cli_excluded_tools`, auto-approve the related tools, append `"*"` to `autonomy.allowed_commands`, set `shell_redirect_policy = "allow"`, and disable medium-risk approval prompts for shell commands
+  - `change-summary` also auto-approves `git_operations`
+  - `self-improving-agent`, `multi-search-engine`, `agent-browser-extension`, `desktop-computer-use` -> remove the related tools from `autonomy.non_cli_excluded_tools` and add them to `autonomy.auto_approve`
 - Curated installs prefer a local TopClaw repo checkout when available. Bootstrap/install flows seed `TOPCLAW_CURATED_REPO_DIR` automatically; the default fallback location is `$HOME/.topclaw/repositories/topclaw`.
 - Environment overrides:
   - `TOPCLAW_OPEN_SKILLS_ENABLED` accepts `1/0`, `true/false`, `yes/no`, `on/off`.

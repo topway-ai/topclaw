@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::security::ShellRedirectPolicy;
 use crate::skills::{CuratedSkillCatalogEntry, CuratedSkillRisk};
 use anyhow::{Context, Result};
 use console::{style, Key, Term};
@@ -82,57 +83,65 @@ fn prompt_skill_selection_instruction(help_text: &str) {
     print_onboarding_skill_controls();
 }
 
-const READ_ONLY_SHELL_COMMANDS: &[&str] = &["rg", "find", "ls", "cat", "grep", "wc"];
-
 /// Declarative mapping from skill slugs to the policy defaults they require.
-/// Used during onboarding to automatically un-exclude tools and seed shell
-/// allowlist entries when the user selects the corresponding skill.
+/// Used during onboarding to automatically un-exclude and auto-approve tools,
+/// and to unlock capability-first shell defaults when the user selects the
+/// corresponding skill.
 struct SkillPolicyMapping {
     slug: &'static str,
     tools_to_unexclude: &'static [&'static str],
-    allowed_commands_to_add: &'static [&'static str],
+    tools_to_auto_approve: &'static [&'static str],
+    unlocks_capability_first_shell: bool,
 }
 
 const SKILL_POLICY_MAPPINGS: &[SkillPolicyMapping] = &[
     SkillPolicyMapping {
         slug: "workspace-search",
         tools_to_unexclude: &["shell"],
-        allowed_commands_to_add: READ_ONLY_SHELL_COMMANDS,
+        tools_to_auto_approve: &["shell"],
+        unlocks_capability_first_shell: true,
     },
     SkillPolicyMapping {
         slug: "code-explainer",
         tools_to_unexclude: &["shell"],
-        allowed_commands_to_add: READ_ONLY_SHELL_COMMANDS,
+        tools_to_auto_approve: &["shell"],
+        unlocks_capability_first_shell: true,
     },
     SkillPolicyMapping {
         slug: "change-summary",
         tools_to_unexclude: &["shell", "git_operations"],
-        allowed_commands_to_add: &["git"],
+        tools_to_auto_approve: &["shell", "git_operations"],
+        unlocks_capability_first_shell: true,
     },
     SkillPolicyMapping {
         slug: "self-improving-agent",
         tools_to_unexclude: &["file_write", "file_edit", "memory_store"],
-        allowed_commands_to_add: &[],
+        tools_to_auto_approve: &["file_write", "file_edit", "memory_store"],
+        unlocks_capability_first_shell: false,
     },
     SkillPolicyMapping {
         slug: "skill-creator",
         tools_to_unexclude: &["shell", "file_write", "file_edit"],
-        allowed_commands_to_add: &["python", "python3"],
+        tools_to_auto_approve: &["shell", "file_write", "file_edit"],
+        unlocks_capability_first_shell: true,
     },
     SkillPolicyMapping {
         slug: "multi-search-engine",
         tools_to_unexclude: &["http_request"],
-        allowed_commands_to_add: &[],
+        tools_to_auto_approve: &["http_request"],
+        unlocks_capability_first_shell: false,
     },
     SkillPolicyMapping {
         slug: "agent-browser-extension",
         tools_to_unexclude: &["browser", "browser_open"],
-        allowed_commands_to_add: &[],
+        tools_to_auto_approve: &["browser", "browser_open"],
+        unlocks_capability_first_shell: false,
     },
     SkillPolicyMapping {
         slug: "desktop-computer-use",
         tools_to_unexclude: &["browser", "browser_open", "screenshot"],
-        allowed_commands_to_add: &[],
+        tools_to_auto_approve: &["browser", "browser_open", "screenshot"],
+        unlocks_capability_first_shell: false,
     },
 ];
 
@@ -176,16 +185,17 @@ pub(super) fn apply_onboarding_skill_tool_defaults(
         .to_string();
     }
 
-    // Un-exclude tools required by selected skills so they work on non-CLI
-    // channels (Telegram, Discord, etc.) without manual config edits.
+    // Un-exclude and auto-approve tools required by selected skills so they
+    // work on non-CLI channels (Telegram, Discord, etc.) without manual policy
+    // edits or approval prompts.
     let mut tools_to_unexclude = std::collections::HashSet::new();
+    let mut tools_to_auto_approve = std::collections::HashSet::new();
+    let mut unlocks_capability_first_shell = false;
     for mapping in SKILL_POLICY_MAPPINGS {
         if has_skill(mapping.slug) {
             tools_to_unexclude.extend(mapping.tools_to_unexclude.iter().copied());
-            append_unique_strings(
-                &mut config.autonomy.allowed_commands,
-                mapping.allowed_commands_to_add,
-            );
+            tools_to_auto_approve.extend(mapping.tools_to_auto_approve.iter().copied());
+            unlocks_capability_first_shell |= mapping.unlocks_capability_first_shell;
         }
     }
 
@@ -194,6 +204,22 @@ pub(super) fn apply_onboarding_skill_tool_defaults(
             .autonomy
             .non_cli_excluded_tools
             .retain(|tool| !tools_to_unexclude.contains(tool.as_str()));
+    }
+
+    if !tools_to_auto_approve.is_empty() {
+        let mut tools: Vec<&str> = tools_to_auto_approve.iter().copied().collect();
+        tools.sort_unstable();
+        append_unique_strings(&mut config.autonomy.auto_approve, &tools);
+        config
+            .autonomy
+            .always_ask
+            .retain(|tool| !tools_to_auto_approve.contains(tool.as_str()));
+    }
+
+    if unlocks_capability_first_shell {
+        append_unique_strings(&mut config.autonomy.allowed_commands, &["*"]);
+        config.autonomy.shell_redirect_policy = ShellRedirectPolicy::Allow;
+        config.autonomy.require_approval_for_medium_risk = false;
     }
 }
 
