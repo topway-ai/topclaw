@@ -20,14 +20,10 @@ impl<T: ChannelConfig> crate::config::traits::ConfigHandle for ConfigWrapper<T> 
 }
 
 impl ChannelsConfig {
-    /// get channels' metadata and `.is_some()`, except webhook
+    /// Launchable real-time channels that the daemon/channel runtime can start today.
     #[rustfmt::skip]
-    pub fn channels_except_webhook(&self) -> Vec<(Box<dyn crate::config::traits::ConfigHandle>, bool)> {
+    pub fn launchable_channels(&self) -> Vec<(Box<dyn crate::config::traits::ConfigHandle>, bool)> {
         vec![
-            (
-                Box::new(ConfigWrapper::new(self.bridge.as_ref())),
-                self.bridge.is_some(),
-            ),
             (
                 Box::new(ConfigWrapper::new(self.telegram.as_ref())),
                 self.telegram.is_some(),
@@ -39,12 +35,32 @@ impl ChannelsConfig {
         ]
     }
 
+    /// Legacy alias retained for existing call sites that mean "runtime channels".
+    pub fn channels_except_webhook(
+        &self,
+    ) -> Vec<(Box<dyn crate::config::traits::ConfigHandle>, bool)> {
+        self.launchable_channels()
+    }
+
+    /// Auxiliary gateway/config surfaces that are not part of the default
+    /// Telegram/Discord message runtime.
+    #[rustfmt::skip]
+    pub fn auxiliary_channels(&self) -> Vec<(Box<dyn crate::config::traits::ConfigHandle>, bool)> {
+        vec![
+            (
+                Box::new(ConfigWrapper::new(self.bridge.as_ref())),
+                self.bridge.is_some(),
+            ),
+            (
+                Box::new(ConfigWrapper::new(self.webhook.as_ref())),
+                self.webhook.is_some(),
+            ),
+        ]
+    }
+
     pub fn channels(&self) -> Vec<(Box<dyn crate::config::traits::ConfigHandle>, bool)> {
-        let mut ret = self.channels_except_webhook();
-        ret.push((
-            Box::new(ConfigWrapper::new(self.webhook.as_ref())),
-            self.webhook.is_some(),
-        ));
+        let mut ret = self.launchable_channels();
+        ret.extend(self.auxiliary_channels());
         ret
     }
 }

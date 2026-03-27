@@ -78,8 +78,9 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
     }
 
     let mut handles: Vec<JoinHandle<()>> = vec![spawn_state_writer(config.clone())];
+    let gateway_enabled = should_run_gateway(&config, &host, port);
 
-    {
+    if gateway_enabled {
         let gateway_cfg = config.clone();
         let gateway_host = host.clone();
         handles.push(spawn_component_supervisor(
@@ -92,6 +93,9 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
                 async move { crate::gateway::run_gateway(&host, port, cfg).await }
             },
         ));
+    } else {
+        crate::health::mark_component_ok("gateway");
+        tracing::info!("Gateway supervisor disabled; Telegram/Discord runtime does not need it");
     }
 
     {
@@ -142,8 +146,15 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
     }
 
     println!("🧠 TopClaw daemon started");
-    println!("   Gateway:  http://{host}:{port}");
-    println!("   Components: gateway, channels, heartbeat, scheduler");
+    if gateway_enabled {
+        println!("   Gateway:  http://{host}:{port}");
+    } else {
+        println!("   Gateway:  disabled (use `topclaw gateway` for webhook/API surfaces)");
+    }
+    println!(
+        "   Components: {}",
+        active_component_labels(&config, gateway_enabled).join(", ")
+    );
     println!("   {}", shutdown_hint());
 
     let signal = wait_for_shutdown_signal().await?;
@@ -372,9 +383,42 @@ fn validate_heartbeat_channel_config(config: &Config, channel: &str) -> Result<(
 fn has_supervised_channels(config: &Config) -> bool {
     config
         .channels_config
-        .channels_except_webhook()
+        .launchable_channels()
         .iter()
         .any(|(_, ok)| *ok)
+}
+
+fn tunnel_enabled(config: &Config) -> bool {
+    let provider = config.tunnel.provider.trim();
+    !provider.is_empty() && !provider.eq_ignore_ascii_case("none")
+}
+
+fn should_run_gateway(config: &Config, host: &str, port: u16) -> bool {
+    config.channels_config.webhook.is_some()
+        || config.gateway.node_control.enabled
+        || tunnel_enabled(config)
+        || host != config.gateway.host
+        || port != config.gateway.port
+}
+
+fn active_component_labels(config: &Config, gateway_enabled: bool) -> Vec<&'static str> {
+    let mut labels = Vec::new();
+    if gateway_enabled {
+        labels.push("gateway");
+    }
+    if has_supervised_channels(config) {
+        labels.push("channels");
+    }
+    if config.heartbeat.enabled {
+        labels.push("heartbeat");
+    }
+    if config.cron.enabled {
+        labels.push("scheduler");
+    }
+    if labels.is_empty() {
+        labels.push("state-writer");
+    }
+    labels
 }
 
 #[cfg(test)]
@@ -506,6 +550,33 @@ mod tests {
             base_url: None,
         });
         assert!(has_supervised_channels(&config));
+    }
+
+    #[test]
+    fn gateway_disabled_for_plain_channel_runtime() {
+        let config = Config::default();
+        assert!(!should_run_gateway(
+            &config,
+            &config.gateway.host,
+            config.gateway.port
+        ));
+    }
+
+    #[test]
+    fn gateway_enabled_for_webhook_or_override() {
+        let mut config = Config::default();
+        config.channels_config.webhook = Some(crate::config::WebhookConfig {
+            port: 8080,
+            secret: None,
+        });
+        assert!(should_run_gateway(
+            &config,
+            &config.gateway.host,
+            config.gateway.port
+        ));
+
+        let config = Config::default();
+        assert!(should_run_gateway(&config, "0.0.0.0", config.gateway.port));
     }
 
     #[test]

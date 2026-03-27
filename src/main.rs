@@ -31,7 +31,11 @@ fn provider_ready(config: &Config) -> bool {
 }
 
 fn channels_configured(config: &Config) -> bool {
-    config.channels_config.channels().iter().any(|(_, ok)| *ok)
+    config
+        .channels_config
+        .launchable_channels()
+        .iter()
+        .any(|(_, ok)| *ok)
 }
 
 fn daemon_ready(diag_results: &[doctor::DiagResult]) -> bool {
@@ -1128,7 +1132,7 @@ async fn main() -> Result<()> {
             println!();
             println!("Channels:");
             println!("  CLI:      ✅ always");
-            for (channel, configured) in config.channels_config.channels() {
+            for (channel, configured) in config.channels_config.launchable_channels() {
                 println!(
                     "  {:9} {}",
                     channel.name(),
@@ -1139,6 +1143,24 @@ async fn main() -> Result<()> {
                     }
                 );
             }
+            println!();
+            println!("Gateway Surface:");
+            println!(
+                "  Webhook:   {}",
+                if config.channels_config.webhook.is_some() {
+                    "✅ configured"
+                } else {
+                    "ℹ️  disabled"
+                }
+            );
+            println!(
+                "  Node ctl:  {}",
+                if config.gateway.node_control.enabled {
+                    "✅ enabled"
+                } else {
+                    "ℹ️  disabled"
+                }
+            );
             println!();
             println!("Peripherals:");
             println!(

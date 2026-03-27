@@ -110,7 +110,14 @@ const CUSTOM_MODEL_SENTINEL: &str = "__custom_model__";
 const OPENROUTER_ONBOARDING_MODEL_LIMIT: usize = 10;
 
 fn has_launchable_channels(channels: &ChannelsConfig) -> bool {
-    channels.channels_except_webhook().iter().any(|(_, ok)| *ok)
+    channels.launchable_channels().iter().any(|(_, ok)| *ok)
+}
+
+fn gateway_surface_required(config: &Config) -> bool {
+    let tunnel_provider = config.tunnel.provider.trim();
+    config.channels_config.webhook.is_some()
+        || config.gateway.node_control.enabled
+        || (!tunnel_provider.is_empty() && !tunnel_provider.eq_ignore_ascii_case("none"))
 }
 
 // ── Simplified 4-Step Wizard Entry Point ────────────────────────────
@@ -787,7 +794,7 @@ async fn run_quick_setup_with_home(
     println!(
         "  {} Gateway:    {}",
         style("✓").green().bold(),
-        style("pairing required (127.0.0.1:8080)").green()
+        style("on-demand only (`topclaw gateway`)").dim()
     );
     println!(
         "  {} Tunnel:     {}",
@@ -809,34 +816,34 @@ async fn run_quick_setup_with_home(
     println!("  {}", style("Next steps:").white().bold());
     if credential_override.is_none() {
         if provider_supports_keyless_local_usage(&provider_name) {
-            println!("    1. Chat:     topclaw agent -m \"Hello!\"");
-            println!("    2. Gateway:  topclaw gateway");
+            println!("    1. Channels: topclaw bootstrap --channels-only");
+            println!("    2. Chat:     topclaw agent -m \"Hello!\"");
             println!("    3. Status:   topclaw status");
         } else if provider_supports_device_flow(&provider_name) {
             if canonical_provider_name(&provider_name) == "copilot" {
-                println!("    1. Chat:              topclaw agent -m \"Hello!\"");
+                println!("    1. Channels:          topclaw bootstrap --channels-only");
+                println!("    2. Chat:              topclaw agent -m \"Hello!\"");
                 println!("       (device / OAuth auth will prompt on first run)");
-                println!("    2. Gateway:           topclaw gateway");
                 println!("    3. Status:            topclaw status");
             } else {
                 println!(
                     "    1. Login:             topclaw auth login --provider {}",
                     provider_name
                 );
-                println!("    2. Chat:              topclaw agent -m \"Hello!\"");
-                println!("    3. Gateway:           topclaw gateway");
+                println!("    2. Channels:          topclaw bootstrap --channels-only");
+                println!("    3. Chat:              topclaw agent -m \"Hello!\"");
                 println!("    4. Status:            topclaw status");
             }
         } else {
             let env_var = provider_env_var(&provider_name);
             println!("    1. Set your API key:  export {env_var}=\"sk-...\"");
             println!("    2. Or edit:           ~/.topclaw/config.toml");
-            println!("    3. Chat:              topclaw agent -m \"Hello!\"");
-            println!("    4. Gateway:           topclaw gateway");
+            println!("    3. Channels:          topclaw bootstrap --channels-only");
+            println!("    4. Chat:              topclaw agent -m \"Hello!\"");
         }
     } else {
-        println!("    1. Chat:     topclaw agent -m \"Hello!\"");
-        println!("    2. Gateway:  topclaw gateway");
+        println!("    1. Channels: topclaw bootstrap --channels-only");
+        println!("    2. Chat:     topclaw agent -m \"Hello!\"");
         println!("    3. Status:   topclaw status");
     }
     println!();
@@ -2416,7 +2423,7 @@ fn print_summary(config: &Config, service_outcome: &BackgroundServiceOutcome) {
     );
 
     // Channels summary
-    let channels = config.channels_config.channels();
+    let channels = config.channels_config.launchable_channels();
     let channels = channels
         .iter()
         .filter_map(|(channel, ok)| ok.then_some(channel.name()));
@@ -2471,10 +2478,14 @@ fn print_summary(config: &Config, service_outcome: &BackgroundServiceOutcome) {
     println!(
         "    {} Gateway:       {}",
         style("🚪").cyan(),
-        if config.gateway.require_pairing {
-            "pairing required (secure)"
+        if gateway_surface_required(config) {
+            if config.gateway.require_pairing {
+                "enabled for webhook/API surfaces (pairing required)"
+            } else {
+                "enabled for webhook/API surfaces"
+            }
         } else {
-            "pairing disabled"
+            "on-demand only (not part of Telegram/Discord runtime)"
         }
     );
 
@@ -4738,5 +4749,21 @@ mod tests {
             base_url: None,
         });
         assert!(has_launchable_channels(&channels));
+    }
+
+    #[test]
+    fn gateway_surface_required_only_for_auxiliary_surfaces() {
+        let mut config = Config::default();
+        assert!(!gateway_surface_required(&config));
+
+        config.channels_config.webhook = Some(WebhookConfig {
+            port: 8080,
+            secret: None,
+        });
+        assert!(gateway_surface_required(&config));
+
+        config.channels_config.webhook = None;
+        config.tunnel.provider = "cloudflare".into();
+        assert!(gateway_surface_required(&config));
     }
 }

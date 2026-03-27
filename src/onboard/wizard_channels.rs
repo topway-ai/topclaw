@@ -51,7 +51,7 @@ pub(super) fn other_channel_menu_choices() -> &'static [ChannelMenuChoice] {
 
 fn channel_menu_option_label(config: &ChannelsConfig, choice: ChannelMenuChoice) -> String {
     match choice {
-        ChannelMenuChoice::OtherChannels => "Other channels... — Webhook and more".to_string(),
+        ChannelMenuChoice::OtherChannels => "Advanced/gateway channels... — Webhook".to_string(),
         ChannelMenuChoice::Done => "Done — finish setup".to_string(),
         ChannelMenuChoice::Back => "Back — recommended channels".to_string(),
         ChannelMenuChoice::Telegram => format!(
@@ -96,7 +96,11 @@ pub(super) fn other_channel_menu_option_labels(config: &ChannelsConfig) -> Vec<S
 }
 
 pub(super) fn default_channel_menu_index(config: &ChannelsConfig) -> usize {
-    if config.channels().iter().any(|(_, configured)| *configured) {
+    if config
+        .launchable_channels()
+        .iter()
+        .any(|(_, configured)| *configured)
+    {
         return channel_menu_choices()
             .iter()
             .position(|choice| matches!(choice, ChannelMenuChoice::Done))

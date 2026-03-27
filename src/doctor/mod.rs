@@ -235,7 +235,11 @@ fn next_step_suggestions(config: &Config, results: &[DiagResult]) -> Vec<String>
         );
     }
 
-    let channels_configured = config.channels_config.channels().iter().any(|(_, ok)| *ok);
+    let channels_configured = config
+        .channels_config
+        .launchable_channels()
+        .iter()
+        .any(|(_, ok)| *ok);
     let daemon_unhealthy = results.iter().any(|item| {
         item.category == "daemon"
             && item.severity == Severity::Error
@@ -769,14 +773,17 @@ fn check_config_semantics(config: &Config, items: &mut Vec<DiagItem>) {
 
     // Channel: at least one configured
     let cc = &config.channels_config;
-    let has_channel = cc.channels().iter().any(|(_, ok)| *ok);
+    let has_channel = cc.launchable_channels().iter().any(|(_, ok)| *ok);
 
     if has_channel {
-        items.push(DiagItem::ok(cat, "at least one channel configured"));
+        items.push(DiagItem::ok(
+            cat,
+            "at least one Telegram/Discord channel configured",
+        ));
     } else {
         items.push(DiagItem::warn(
             cat,
-            "no channels configured — run `topclaw bootstrap` to set one up",
+            "no Telegram/Discord channel configured — run `topclaw bootstrap` to set one up",
         ));
     }
 
