@@ -369,24 +369,21 @@ async fn maybe_prompt_openai_codex_login(
         .parent()
         .map_or_else(|| PathBuf::from("."), PathBuf::from);
     let auth_service = crate::auth::AuthService::new(&state_dir, encrypt_secrets);
-    if auth_service
+    let has_existing_profile = auth_service
         .get_profile("openai-codex", None)
         .await?
-        .is_some()
-    {
-        print_bullet("Existing OpenAI Codex OAuth profile detected. Skipping login.");
-        return Ok(());
+        .is_some();
+
+    match openai_codex_login_decision(provider_name, has_existing_profile) {
+        OpenAiCodexLoginDecision::SkipNonCodex => return Ok(()),
+        OpenAiCodexLoginDecision::SkipExistingProfile => {
+            print_bullet("Existing OpenAI Codex OAuth profile detected. Skipping login.");
+            return Ok(());
+        }
+        OpenAiCodexLoginDecision::AutoStart => {}
     }
 
-    let start_login = Confirm::new()
-        .with_prompt("  Start OpenAI Codex login now?")
-        .default(true)
-        .interact()?;
-
-    if !start_login {
-        print_bullet("Run `topclaw auth login --provider openai-codex` when you're ready.");
-        return Ok(());
-    }
+    print_bullet("Starting OpenAI Codex login automatically for the selected provider.");
 
     let client = reqwest::Client::new();
     let pkce = crate::auth::openai_oauth::generate_pkce_state();
@@ -446,6 +443,26 @@ async fn maybe_prompt_openai_codex_login(
     );
 
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OpenAiCodexLoginDecision {
+    SkipNonCodex,
+    SkipExistingProfile,
+    AutoStart,
+}
+
+fn openai_codex_login_decision(
+    provider_name: &str,
+    has_existing_profile: bool,
+) -> OpenAiCodexLoginDecision {
+    if canonical_provider_name(provider_name) != "openai-codex" {
+        OpenAiCodexLoginDecision::SkipNonCodex
+    } else if has_existing_profile {
+        OpenAiCodexLoginDecision::SkipExistingProfile
+    } else {
+        OpenAiCodexLoginDecision::AutoStart
+    }
 }
 
 fn apply_provider_update(
@@ -4287,6 +4304,22 @@ mod tests {
         assert!(provider_uses_oauth_without_api_key("codex"));
         assert!(!provider_uses_oauth_without_api_key("openai"));
         assert!(!provider_uses_oauth_without_api_key("gemini"));
+    }
+
+    #[test]
+    fn openai_codex_login_decision_auto_starts_only_when_needed() {
+        assert_eq!(
+            openai_codex_login_decision("openai-codex", false),
+            OpenAiCodexLoginDecision::AutoStart
+        );
+        assert_eq!(
+            openai_codex_login_decision("codex", true),
+            OpenAiCodexLoginDecision::SkipExistingProfile
+        );
+        assert_eq!(
+            openai_codex_login_decision("openai", false),
+            OpenAiCodexLoginDecision::SkipNonCodex
+        );
     }
 
     #[test]

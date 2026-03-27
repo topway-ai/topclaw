@@ -46,7 +46,7 @@ pub(super) async fn setup_simple_named_provider(
     let api_key = if provider_uses_oauth_without_api_key(provider_name) {
         print_bullet("OpenAI Codex uses ChatGPT OAuth, not an API key.");
         print_bullet(
-            "TopClaw can start OAuth during onboarding, or you can run `topclaw auth login --provider openai-codex` later.",
+            "TopClaw will start OAuth automatically during onboarding if needed, or you can run `topclaw auth login --provider openai-codex` later.",
         );
         String::new()
     } else if provider_supports_keyless_local_usage(provider_name) {
@@ -392,7 +392,7 @@ pub(super) async fn prompt_advanced_provider_credentials(
     } else if canonical_provider_name(provider_name) == "openai-codex" {
         print_bullet("OpenAI Codex uses ChatGPT OAuth, not an API key.");
         print_bullet(
-            "TopClaw can start OAuth during onboarding, or you can run `topclaw auth login --provider openai-codex` later.",
+            "TopClaw will start OAuth automatically during onboarding if needed, or you can run `topclaw auth login --provider openai-codex` later.",
         );
         print_bullet("TopClaw will save the provider and model now, then use OAuth after login.");
         String::new()
