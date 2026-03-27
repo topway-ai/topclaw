@@ -1115,15 +1115,16 @@ impl SecurityPolicy {
         let temporarily_approved =
             self.command_matches_temporary_allowlist(command, temporary_allowed_commands);
 
-        // Block subshell/expansion operators — these allow hiding arbitrary
-        // commands inside an allowed command (e.g. `echo $(rm -rf /)`) and
-        // bypassing path checks through variable indirection. The helper below
-        // ignores escapes and literals inside single quotes, so `$(` or `${`
-        // literals are permitted there.
-        if command.contains('`')
-            || contains_unquoted_shell_variable_expansion(command)
-            || command.contains("<(")
-            || command.contains(">(")
+        // Default mode blocks subshell/expansion operators because they can
+        // hide arbitrary execution (`echo $(rm -rf /)`) and bypass path checks
+        // through variable indirection. Capability-first allow mode opts into
+        // full shell scripting, so keep the stricter behavior for every other
+        // policy and let allow mode proceed to per-command validation instead.
+        if self.shell_redirect_policy != ShellRedirectPolicy::Allow
+            && (command.contains('`')
+                || contains_unquoted_shell_variable_expansion(command)
+                || command.contains("<(")
+                || command.contains(">("))
         {
             return false;
         }
@@ -2490,6 +2491,24 @@ mod tests {
         assert!(p
             .validate_command_execution("python3 - <<'PY'\nprint('ok')\nPY", false)
             .is_ok());
+    }
+
+    #[test]
+    fn allow_policy_accepts_agent_style_multiline_shell_scripts() {
+        let p = SecurityPolicy {
+            shell_redirect_policy: ShellRedirectPolicy::Allow,
+            allowed_commands: vec!["*".into()],
+            require_approval_for_medium_risk: false,
+            ..default_policy()
+        };
+
+        let command = concat!(
+            "set -euo pipefail\n",
+            "repo_dir=\"tmp/topagent_$(date +%s)\"\n",
+            "printf '%s\\n' \"${repo_dir}\""
+        );
+
+        assert!(p.validate_command_execution(command, false).is_ok());
     }
 
     #[test]
