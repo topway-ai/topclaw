@@ -89,24 +89,22 @@ pub(super) fn advanced_provider_choices(tier_idx: usize) -> Vec<(&'static str, &
     match tier_idx {
         0 => vec![
             (
-                "openrouter",
-                "OpenRouter — 200+ models, 1 API key (recommended)",
-            ),
-            ("venice", "Venice AI — privacy-first (Llama, Opus)"),
-            ("anthropic", "Anthropic — Claude Sonnet & Opus (direct)"),
-            ("openai", "OpenAI — GPT-4o, o1, GPT-5 (direct)"),
-            (
                 "openai-codex",
-                "OpenAI Codex (ChatGPT subscription OAuth, no API key)",
+                "OpenAI Codex — primary path (ChatGPT OAuth, no API key)",
             ),
+            (
+                "openrouter",
+                "OpenRouter — secondary path (broad hosted model access)",
+            ),
+            ("ollama", "Ollama — tertiary local path (no API key)"),
+            ("anthropic", "Anthropic — Claude Sonnet & Opus (direct)"),
+            ("openai", "OpenAI — GPT-5 direct API"),
+            ("gemini", "Google Gemini — supports CLI auth"),
+            ("venice", "Venice AI — privacy-first (Llama, Opus)"),
             ("deepseek", "DeepSeek — V3 & R1 (affordable)"),
             ("mistral", "Mistral — Large & Codestral"),
             ("xai", "xAI — Grok 3 & 4"),
             ("perplexity", "Perplexity — search-augmented AI"),
-            (
-                "gemini",
-                "Google Gemini — Gemini 2.0 Flash & Pro (supports CLI auth)",
-            ),
         ],
         1 => vec![
             ("groq", "Groq — ultra-fast LPU inference"),
