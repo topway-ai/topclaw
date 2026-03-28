@@ -1271,6 +1271,9 @@ pub fn create_routed_provider(
 }
 
 /// Create a routed provider using explicit runtime options.
+type RouteProviderEntry = (String, Box<dyn Provider>);
+type RouteTableEntry = (String, router::Route);
+
 fn build_initialized_route_entries(
     primary_name: &str,
     api_key: Option<&str>,
@@ -1278,10 +1281,7 @@ fn build_initialized_route_entries(
     reliability: &crate::config::ReliabilityConfig,
     model_routes: &[crate::config::ModelRouteConfig],
     options: &ProviderRuntimeOptions,
-) -> (
-    Vec<(String, Box<dyn Provider>)>,
-    Vec<(String, router::Route)>,
-) {
+) -> (Vec<RouteProviderEntry>, Vec<RouteTableEntry>) {
     let mut providers = Vec::new();
     let mut routes = Vec::new();
 
