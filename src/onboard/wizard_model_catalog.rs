@@ -1036,7 +1036,14 @@ pub async fn cached_model_catalog_stats(
     Ok(Some((cached.models.len(), cached.age_secs)))
 }
 
-pub async fn run_models_refresh_all(config: &crate::config::Config, force: bool) -> Result<()> {
+pub(super) fn default_live_model_refresh_targets() -> Vec<String> {
+    crate::providers::FIRST_CLASS_PROVIDER_PRIORITY
+        .iter()
+        .map(|provider| (*provider).to_string())
+        .collect()
+}
+
+pub(super) fn all_live_model_refresh_targets() -> Vec<String> {
     let mut targets: Vec<String> = crate::providers::list_providers()
         .into_iter()
         .map(|provider| provider.name.to_string())
@@ -1045,23 +1052,48 @@ pub async fn run_models_refresh_all(config: &crate::config::Config, force: bool)
 
     targets.sort();
     targets.dedup();
+    targets
+}
+
+pub async fn run_models_refresh_all(
+    config: &crate::config::Config,
+    force: bool,
+    all_known_providers: bool,
+) -> Result<()> {
+    let targets = if all_known_providers {
+        all_live_model_refresh_targets()
+    } else {
+        default_live_model_refresh_targets()
+    };
 
     if targets.is_empty() {
         anyhow::bail!("No providers support live model discovery");
     }
 
     println!(
-        "Refreshing model catalogs for {} providers (force: {})",
+        "Refreshing model catalogs for {} providers (scope: {}, force: {})",
         targets.len(),
+        if all_known_providers {
+            "all live-discovery providers"
+        } else {
+            "first-class priority set"
+        },
         if force { "yes" } else { "no" }
     );
     println!();
 
     let mut ok_count = 0usize;
     let mut fail_count = 0usize;
+    let mut skipped_count = 0usize;
 
     for provider_name in &targets {
         println!("== {} ==", provider_name);
+        if !supports_live_model_fetch(provider_name) {
+            skipped_count += 1;
+            println!("  skipped: provider does not support live model discovery yet");
+            println!();
+            continue;
+        }
         match run_models_refresh(config, Some(provider_name), force).await {
             Ok(()) => {
                 ok_count += 1;
@@ -1074,10 +1106,38 @@ pub async fn run_models_refresh_all(config: &crate::config::Config, force: bool)
         println!();
     }
 
-    println!("Summary: {} succeeded, {} failed", ok_count, fail_count);
+    println!(
+        "Summary: {} succeeded, {} skipped, {} failed",
+        ok_count, skipped_count, fail_count
+    );
 
     if ok_count == 0 {
         anyhow::bail!("Model refresh failed for all providers")
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_live_model_refresh_targets_follow_first_class_priority() {
+        assert_eq!(
+            default_live_model_refresh_targets(),
+            crate::providers::FIRST_CLASS_PROVIDER_PRIORITY
+                .iter()
+                .map(|provider| (*provider).to_string())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn all_live_model_refresh_targets_include_advanced_live_fetch_providers_only() {
+        let targets = all_live_model_refresh_targets();
+        assert!(targets.contains(&"anthropic".to_string()));
+        assert!(targets.contains(&"openrouter".to_string()));
+        assert!(targets.contains(&"ollama".to_string()));
+        assert!(!targets.contains(&"openai-codex".to_string()));
+    }
 }

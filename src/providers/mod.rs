@@ -1271,39 +1271,20 @@ pub fn create_routed_provider(
 }
 
 /// Create a routed provider using explicit runtime options.
-pub fn create_routed_provider_with_options(
+fn build_initialized_route_entries(
     primary_name: &str,
     api_key: Option<&str>,
     api_url: Option<&str>,
     reliability: &crate::config::ReliabilityConfig,
     model_routes: &[crate::config::ModelRouteConfig],
-    default_model: &str,
     options: &ProviderRuntimeOptions,
-) -> anyhow::Result<Box<dyn Provider>> {
-    if model_routes.is_empty() {
-        return create_resilient_provider_with_options(
-            primary_name,
-            api_key,
-            api_url,
-            reliability,
-            options,
-        );
-    }
+) -> (
+    Vec<(String, Box<dyn Provider>)>,
+    Vec<(String, router::Route)>,
+) {
+    let mut providers = Vec::new();
+    let mut routes = Vec::new();
 
-    // Keep a default provider for non-routed model hints.
-    let default_provider = create_resilient_provider_with_options(
-        primary_name,
-        api_key,
-        api_url,
-        reliability,
-        options,
-    )?;
-    let mut providers: Vec<(String, Box<dyn Provider>)> =
-        vec![(primary_name.to_string(), default_provider)];
-
-    // Build hint routes with dedicated provider instances so per-route API keys
-    // and max_tokens overrides do not bleed across routes.
-    let mut routes: Vec<(String, router::Route)> = Vec::new();
     for route in model_routes {
         let routed_credential = route.api_key.as_ref().and_then(|raw_key| {
             let trimmed_key = raw_key.trim();
@@ -1345,19 +1326,47 @@ pub fn create_routed_provider_with_options(
         }
     }
 
-    // Build route table
-    let routes: Vec<(String, router::Route)> = model_routes
-        .iter()
-        .map(|r| {
-            (
-                r.hint.clone(),
-                router::Route {
-                    provider_name: r.provider.clone(),
-                    model: r.model.clone(),
-                },
-            )
-        })
-        .collect();
+    (providers, routes)
+}
+
+pub fn create_routed_provider_with_options(
+    primary_name: &str,
+    api_key: Option<&str>,
+    api_url: Option<&str>,
+    reliability: &crate::config::ReliabilityConfig,
+    model_routes: &[crate::config::ModelRouteConfig],
+    default_model: &str,
+    options: &ProviderRuntimeOptions,
+) -> anyhow::Result<Box<dyn Provider>> {
+    if model_routes.is_empty() {
+        return create_resilient_provider_with_options(
+            primary_name,
+            api_key,
+            api_url,
+            reliability,
+            options,
+        );
+    }
+
+    // Keep a default provider for non-routed model hints.
+    let default_provider = create_resilient_provider_with_options(
+        primary_name,
+        api_key,
+        api_url,
+        reliability,
+        options,
+    )?;
+    let (mut route_providers, routes) = build_initialized_route_entries(
+        primary_name,
+        api_key,
+        api_url,
+        reliability,
+        model_routes,
+        options,
+    );
+    let mut providers: Vec<(String, Box<dyn Provider>)> =
+        vec![(primary_name.to_string(), default_provider)];
+    providers.append(&mut route_providers);
 
     Ok(Box::new(
         router::RouterProvider::new(providers, routes, default_model.to_string())
@@ -2914,6 +2923,33 @@ mod tests {
             &ProviderRuntimeOptions::default(),
         );
         assert!(provider.is_ok());
+    }
+
+    #[test]
+    fn routed_provider_entries_use_scoped_provider_ids() {
+        let reliability = crate::config::ReliabilityConfig::default();
+        let routes = vec![crate::config::ModelRouteConfig {
+            hint: "reasoning".to_string(),
+            provider: "ollama".to_string(),
+            model: "qwen2.5-coder:7b".to_string(),
+            max_tokens: None,
+            api_key: None,
+        }];
+
+        let (providers, route_table) = build_initialized_route_entries(
+            "openrouter",
+            None,
+            None,
+            &reliability,
+            &routes,
+            &ProviderRuntimeOptions::default(),
+        );
+
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].0, "ollama#reasoning");
+        assert_eq!(route_table.len(), 1);
+        assert_eq!(route_table[0].0, "reasoning");
+        assert_eq!(route_table[0].1.provider_name, "ollama#reasoning");
     }
 
     // --- parse_provider_profile ---

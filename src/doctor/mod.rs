@@ -357,23 +357,31 @@ fn classify_model_probe_error(err_message: &str) -> ModelProbeOutcome {
     ModelProbeOutcome::Error
 }
 
-fn doctor_model_targets(provider_override: Option<&str>) -> Vec<String> {
+fn doctor_model_targets(provider_override: Option<&str>, all_known_providers: bool) -> Vec<String> {
     if let Some(provider) = provider_override.map(str::trim).filter(|p| !p.is_empty()) {
         return vec![provider.to_string()];
     }
 
-    crate::providers::list_providers()
-        .into_iter()
-        .map(|provider| provider.name.to_string())
+    if all_known_providers {
+        return crate::providers::list_providers()
+            .into_iter()
+            .map(|provider| provider.name.to_string())
+            .collect();
+    }
+
+    crate::providers::FIRST_CLASS_PROVIDER_PRIORITY
+        .iter()
+        .map(|provider| (*provider).to_string())
         .collect()
 }
 
 pub async fn run_models(
     config: &Config,
     provider_override: Option<&str>,
+    all_known_providers: bool,
     use_cache: bool,
 ) -> Result<()> {
-    let targets = doctor_model_targets(provider_override);
+    let targets = doctor_model_targets(provider_override, all_known_providers);
 
     if targets.is_empty() {
         anyhow::bail!("No providers available for model probing");
@@ -381,6 +389,16 @@ pub async fn run_models(
 
     println!("🩺 TopClaw Doctor — Model Catalog Probe");
     println!("  Providers to probe: {}", targets.len());
+    println!(
+        "  Scope: {}",
+        if provider_override.is_some() {
+            "single provider override"
+        } else if all_known_providers {
+            "all known providers"
+        } else {
+            "first-class priority set"
+        }
+    );
     println!(
         "  Mode: {}",
         if use_cache {
@@ -1245,6 +1263,36 @@ mod tests {
             "Z.AI API error (429): plan does not include requested model",
         );
         assert_eq!(plan_outcome, ModelProbeOutcome::AuthOrAccess);
+    }
+
+    #[test]
+    fn doctor_model_targets_default_to_first_class_priority() {
+        assert_eq!(
+            doctor_model_targets(None, false),
+            crate::providers::FIRST_CLASS_PROVIDER_PRIORITY
+                .iter()
+                .map(|provider| (*provider).to_string())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_model_targets_can_expand_to_all_known_providers() {
+        let targets = doctor_model_targets(None, true);
+        assert!(targets.contains(&"anthropic".to_string()));
+        assert!(targets.contains(&"openrouter".to_string()));
+    }
+
+    #[test]
+    fn doctor_model_targets_provider_override_wins_over_scope() {
+        assert_eq!(
+            doctor_model_targets(Some("ollama"), false),
+            vec!["ollama".to_string()]
+        );
+        assert_eq!(
+            doctor_model_targets(Some("ollama"), true),
+            vec!["ollama".to_string()]
+        );
     }
 
     #[test]

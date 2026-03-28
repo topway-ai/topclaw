@@ -768,9 +768,13 @@ enum ModelCommands {
         #[arg(long)]
         provider: Option<String>,
 
-        /// Refresh all providers that support live model discovery
+        /// Refresh first-class providers in priority order
         #[arg(long)]
         all: bool,
+
+        /// Refresh every provider that supports live model discovery (advanced)
+        #[arg(long)]
+        all_providers: bool,
 
         /// Force live refresh and ignore fresh cache
         #[arg(long)]
@@ -795,9 +799,13 @@ enum ModelCommands {
 enum DoctorCommands {
     /// Probe model catalogs across providers and report availability
     Models {
-        /// Probe a specific provider only (default: all known providers)
+        /// Probe a specific provider only (default: first-class providers)
         #[arg(long)]
         provider: Option<String>,
+
+        /// Probe all known providers instead of the first-class default set
+        #[arg(long)]
+        all_providers: bool,
 
         /// Prefer cached catalogs when available (skip forced live refresh)
         #[arg(long)]
@@ -1228,13 +1236,19 @@ async fn main() -> Result<()> {
             ModelCommands::Refresh {
                 provider,
                 all,
+                all_providers,
                 force,
             } => {
-                if all {
+                if all && all_providers {
+                    bail!("`models refresh --all` cannot be combined with --all-providers");
+                }
+                if all || all_providers {
                     if provider.is_some() {
-                        bail!("`models refresh --all` cannot be combined with --provider");
+                        bail!(
+                            "`models refresh --all` / --all-providers cannot be combined with --provider"
+                        );
                     }
-                    onboard::run_models_refresh_all(&config, force).await
+                    onboard::run_models_refresh_all(&config, force, all_providers).await
                 } else {
                     onboard::run_models_refresh(&config, provider.as_deref(), force).await
                 }
@@ -1309,8 +1323,9 @@ async fn main() -> Result<()> {
         Commands::Doctor { doctor_command } => match doctor_command {
             Some(DoctorCommands::Models {
                 provider,
+                all_providers,
                 use_cache,
-            }) => doctor::run_models(&config, provider.as_deref(), use_cache).await,
+            }) => doctor::run_models(&config, provider.as_deref(), all_providers, use_cache).await,
             Some(DoctorCommands::Traces {
                 id,
                 event,
