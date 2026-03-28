@@ -489,6 +489,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "memory-qdrant")]
     #[tokio::test]
     async fn semantic_similarity_above_threshold_triggers_detection() {
         async fn get_collection(Path(_collection): Path<String>) -> Json<serde_json::Value> {
