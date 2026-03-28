@@ -190,14 +190,37 @@ pub async fn handle_command(command: crate::ChannelCommands, config: &Config) ->
             anyhow::bail!("Doctor must be handled in main.rs (requires async runtime)")
         }
         crate::ChannelCommands::List => {
-            println!("Channels:");
+            println!("Runtime channels:");
             println!("  \u{2705} CLI (always available)");
-            for (channel, configured) in config.channels_config.channels() {
+            for (index, (channel, configured)) in config
+                .channels_config
+                .launchable_channels()
+                .into_iter()
+                .enumerate()
+            {
+                let priority = match index {
+                    0 => "primary",
+                    1 => "secondary",
+                    _ => "configured",
+                };
                 println!(
-                    "  {} {}",
+                    "  {} {} ({priority})",
                     if configured { "\u{2705}" } else { "\u{274C}" },
                     channel.name()
                 );
+            }
+            let auxiliary = config.channels_config.auxiliary_channels();
+            if auxiliary.iter().any(|(_, configured)| *configured) {
+                println!();
+                println!("Auxiliary surfaces:");
+                for (channel, configured) in auxiliary {
+                    println!(
+                        "  {} {}",
+                        if configured { "\u{2705}" } else { "\u{274C}" },
+                        channel.name()
+                    );
+                }
+                println!("  \u{2139}\u{FE0F} Auxiliary surfaces ride on the daemon/gateway path when configured.");
             }
             println!("\nTo start channels: topclaw channel start");
             println!("To check health:    topclaw channel doctor");

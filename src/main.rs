@@ -52,6 +52,17 @@ fn daemon_ready(diag_results: &[doctor::DiagResult]) -> bool {
     })
 }
 
+fn auxiliary_surfaces_configured(config: &Config) -> bool {
+    let tunnel_provider = config.tunnel.provider.trim();
+    config
+        .channels_config
+        .auxiliary_channels()
+        .iter()
+        .any(|(_, configured)| *configured)
+        || config.gateway.node_control.enabled
+        || (!tunnel_provider.is_empty() && !tunnel_provider.eq_ignore_ascii_case("none"))
+}
+
 mod main_handlers;
 use main_handlers::{
     handle_auth_command, handle_estop_command, handle_security_command, handle_uninstall_command,
@@ -1152,11 +1163,21 @@ async fn main() -> Result<()> {
             println!("  OTP enabled:       {}", config.security.otp.enabled);
             println!("  E-stop enabled:    {}", config.security.estop.enabled);
             println!();
-            println!("Channels:");
-            println!("  CLI:      ✅ always");
-            for (channel, configured) in config.channels_config.launchable_channels() {
+            println!("Runtime Channels:");
+            println!("  CLI:        ✅ always");
+            for (index, (channel, configured)) in config
+                .channels_config
+                .launchable_channels()
+                .into_iter()
+                .enumerate()
+            {
+                let priority = match index {
+                    0 => "primary",
+                    1 => "secondary",
+                    _ => "configured",
+                };
                 println!(
-                    "  {:9} {}",
+                    "  {:9} {} ({priority})",
                     channel.name(),
                     if configured {
                         "✅ configured"
@@ -1165,31 +1186,46 @@ async fn main() -> Result<()> {
                     }
                 );
             }
-            println!();
-            println!("Gateway Surface:");
-            #[cfg(feature = "gateway")]
-            println!("  Build:     {}", "✅ gateway-enabled");
-            #[cfg(not(feature = "gateway"))]
-            println!(
-                "  Build:     {}",
-                "ℹ️  unavailable in this build (`--features gateway`)"
-            );
-            println!(
-                "  Webhook:   {}",
-                if config.channels_config.webhook.is_some() {
-                    "✅ configured"
-                } else {
-                    "ℹ️  disabled"
+            if auxiliary_surfaces_configured(&config) {
+                println!();
+                println!("Auxiliary Surfaces:");
+                #[cfg(feature = "gateway")]
+                println!("  Build:     {}", "✅ gateway-enabled");
+                #[cfg(not(feature = "gateway"))]
+                println!(
+                    "  Build:     {}",
+                    "ℹ️  unavailable in this build (`--features gateway`)"
+                );
+                for (channel, configured) in config.channels_config.auxiliary_channels() {
+                    println!(
+                        "  {:9} {}",
+                        channel.name(),
+                        if configured {
+                            "✅ configured"
+                        } else {
+                            "ℹ️  disabled"
+                        }
+                    );
                 }
-            );
-            println!(
-                "  Node ctl:  {}",
-                if config.gateway.node_control.enabled {
-                    "✅ enabled"
-                } else {
-                    "ℹ️  disabled"
-                }
-            );
+                println!(
+                    "  Node ctl:  {}",
+                    if config.gateway.node_control.enabled {
+                        "✅ enabled"
+                    } else {
+                        "ℹ️  disabled"
+                    }
+                );
+                println!(
+                    "  Tunnel:    {}",
+                    if config.tunnel.provider.trim().is_empty()
+                        || config.tunnel.provider.eq_ignore_ascii_case("none")
+                    {
+                        "ℹ️  disabled".to_string()
+                    } else {
+                        format!("✅ {}", config.tunnel.provider)
+                    }
+                );
+            }
             #[cfg(feature = "hardware")]
             {
                 println!();
