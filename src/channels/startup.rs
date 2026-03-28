@@ -7,7 +7,7 @@ use crate::config::Config;
 use crate::memory;
 use crate::providers::{self, Provider};
 use anyhow::{Context, Result};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
@@ -367,7 +367,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
     let temperature = config.default_temperature;
     let wiring::ExecutionSupport {
         memory: mem, tools, ..
-    } = wiring::build_execution_support(&config, &[])?;
+    } = wiring::build_channel_execution_support(&config, &[])?;
     // Build system prompt from workspace identity files + skills
     let workspace = config.workspace_dir.clone();
     let tools_registry = Arc::new(tools);
@@ -375,13 +375,14 @@ pub async fn start_channels(config: Config) -> Result<()> {
 
     // Collect tool descriptions for the prompt
     let mut tool_descs = build_channel_tool_descriptions(&config);
+    let loaded_tool_names: HashSet<&str> = tools_registry.iter().map(|tool| tool.name()).collect();
 
     // Filter out tools excluded for non-CLI channels so the system prompt
     // does not advertise them for channel-driven runs.
     let excluded = &config.autonomy.non_cli_excluded_tools;
-    if !excluded.is_empty() {
-        tool_descs.retain(|(name, _)| !excluded.iter().any(|ex| ex == name));
-    }
+    tool_descs.retain(|(name, _)| {
+        loaded_tool_names.contains(name) && !excluded.iter().any(|ex| ex.eq_ignore_ascii_case(name))
+    });
 
     let bootstrap_max_chars = if config.agent.compact_context {
         Some(6000)

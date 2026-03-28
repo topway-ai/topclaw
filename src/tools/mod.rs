@@ -178,7 +178,7 @@ fn boxed_registry_from_arcs(tools: Vec<Arc<dyn Tool>>) -> Vec<Box<dyn Tool>> {
     tools.into_iter().map(ArcDelegatingTool::boxed).collect()
 }
 
-fn core_non_shell_tool_arcs(
+fn core_work_non_shell_tool_arcs(
     config: &Arc<Config>,
     security: &Arc<SecurityPolicy>,
     memory: Arc<dyn Memory>,
@@ -190,16 +190,8 @@ fn core_non_shell_tool_arcs(
         Arc::new(MemoryRecallTool::new(memory.clone())),
         Arc::new(MemoryForgetTool::new(memory, security.clone())),
         Arc::new(TaskPlanTool::new(security.clone())),
-        Arc::new(ModelRoutingConfigTool::new(
-            config.clone(),
-            security.clone(),
-        )),
-        Arc::new(ProxyConfigTool::new(config.clone(), security.clone())),
         Arc::new(LosslessDescribeTool::new(workspace_dir.to_path_buf())),
         Arc::new(LosslessSearchTool::new(workspace_dir.to_path_buf())),
-        Arc::new(PdfReadTool::new(security.clone())),
-        Arc::new(ScreenshotTool::new(security.clone())),
-        Arc::new(ImageInfoTool::new(security.clone())),
     ];
 
     if root_config.cron.enabled {
@@ -213,6 +205,27 @@ fn core_non_shell_tool_arcs(
             Arc::new(ScheduleTool::new(security.clone(), root_config.clone())),
         ]);
     }
+
+    tool_arcs
+}
+
+fn auxiliary_non_shell_tool_arcs(
+    config: &Arc<Config>,
+    security: &Arc<SecurityPolicy>,
+    workspace_dir: &std::path::Path,
+) -> Vec<Arc<dyn Tool>> {
+    let mut tool_arcs: Vec<Arc<dyn Tool>> = vec![
+        Arc::new(ModelRoutingConfigTool::new(
+            config.clone(),
+            security.clone(),
+        )),
+        Arc::new(ProxyConfigTool::new(config.clone(), security.clone())),
+        Arc::new(ScreenshotTool::new(security.clone())),
+        Arc::new(ImageInfoTool::new(security.clone())),
+    ];
+
+    #[cfg(feature = "rag-pdf")]
+    tool_arcs.push(Arc::new(PdfReadTool::new(security.clone())));
 
     if pushover_credentials_present(workspace_dir) {
         tool_arcs.push(Arc::new(PushoverTool::new(
@@ -331,7 +344,7 @@ pub fn all_tools_with_runtime(
     runtime: Arc<dyn RuntimeAdapter>,
     memory: Arc<dyn Memory>,
     composio_key: Option<&str>,
-    _composio_entity_id: Option<&str>,
+    composio_entity_id: Option<&str>,
     browser_config: &crate::config::BrowserConfig,
     http_config: &crate::config::HttpRequestConfig,
     web_fetch_config: &crate::config::WebFetchConfig,
@@ -339,6 +352,79 @@ pub fn all_tools_with_runtime(
     agents: &HashMap<String, DelegateAgentConfig>,
     fallback_api_key: Option<&str>,
     root_config: &crate::config::Config,
+) -> Vec<Box<dyn Tool>> {
+    build_tools_with_runtime(
+        config,
+        security,
+        runtime,
+        memory,
+        composio_key,
+        composio_entity_id,
+        browser_config,
+        http_config,
+        web_fetch_config,
+        workspace_dir,
+        agents,
+        fallback_api_key,
+        root_config,
+        true,
+    )
+}
+
+/// Create the channel-focused tool registry used by Telegram/Discord runtimes.
+///
+/// This keeps the default bot hot path centered on work tools instead of
+/// runtime-admin/media helpers that are better left to CLI or explicit config.
+#[allow(clippy::implicit_hasher, clippy::too_many_arguments)]
+pub fn channel_tools_with_runtime(
+    config: Arc<Config>,
+    security: &Arc<SecurityPolicy>,
+    runtime: Arc<dyn RuntimeAdapter>,
+    memory: Arc<dyn Memory>,
+    composio_key: Option<&str>,
+    composio_entity_id: Option<&str>,
+    browser_config: &crate::config::BrowserConfig,
+    http_config: &crate::config::HttpRequestConfig,
+    web_fetch_config: &crate::config::WebFetchConfig,
+    workspace_dir: &std::path::Path,
+    agents: &HashMap<String, DelegateAgentConfig>,
+    fallback_api_key: Option<&str>,
+    root_config: &crate::config::Config,
+) -> Vec<Box<dyn Tool>> {
+    build_tools_with_runtime(
+        config,
+        security,
+        runtime,
+        memory,
+        composio_key,
+        composio_entity_id,
+        browser_config,
+        http_config,
+        web_fetch_config,
+        workspace_dir,
+        agents,
+        fallback_api_key,
+        root_config,
+        false,
+    )
+}
+
+#[allow(clippy::implicit_hasher, clippy::too_many_arguments)]
+fn build_tools_with_runtime(
+    config: Arc<Config>,
+    security: &Arc<SecurityPolicy>,
+    runtime: Arc<dyn RuntimeAdapter>,
+    memory: Arc<dyn Memory>,
+    composio_key: Option<&str>,
+    composio_entity_id: Option<&str>,
+    browser_config: &crate::config::BrowserConfig,
+    http_config: &crate::config::HttpRequestConfig,
+    web_fetch_config: &crate::config::WebFetchConfig,
+    workspace_dir: &std::path::Path,
+    agents: &HashMap<String, DelegateAgentConfig>,
+    fallback_api_key: Option<&str>,
+    root_config: &crate::config::Config,
+    include_auxiliary_non_shell_tools: bool,
 ) -> Vec<Box<dyn Tool>> {
     let has_shell_access = runtime.has_shell_access();
     let has_filesystem_access = runtime.has_filesystem_access();
@@ -354,7 +440,14 @@ pub fn all_tools_with_runtime(
     ));
 
     let mut tool_arcs =
-        core_non_shell_tool_arcs(&config, security, memory, workspace_dir, root_config);
+        core_work_non_shell_tool_arcs(&config, security, memory, workspace_dir, root_config);
+    if include_auxiliary_non_shell_tools {
+        tool_arcs.extend(auxiliary_non_shell_tool_arcs(
+            &config,
+            security,
+            workspace_dir,
+        ));
+    }
 
     if let Some(discord) = root_config.channels_config.discord.as_ref() {
         let token = discord.bot_token.trim();
@@ -485,7 +578,7 @@ pub fn all_tools_with_runtime(
             #[cfg(feature = "tool-composio")]
             tool_arcs.push(Arc::new(ComposioTool::new(
                 key,
-                _composio_entity_id,
+                composio_entity_id,
                 security.clone(),
             )));
         }
@@ -691,9 +784,15 @@ mod tests {
         assert!(!names.contains(&"browser_open"));
         assert!(!names.contains(&"discord_history_fetch"));
         assert!(!names.contains(&"schedule"));
+        assert!(names.contains(&"image_info"));
         assert!(names.contains(&"model_routing_config"));
         assert!(!names.contains(&"pushover"));
         assert!(names.contains(&"proxy_config"));
+        assert!(names.contains(&"screenshot"));
+        #[cfg(feature = "rag-pdf")]
+        assert!(names.contains(&"pdf_read"));
+        #[cfg(not(feature = "rag-pdf"))]
+        assert!(!names.contains(&"pdf_read"));
     }
 
     #[test]
@@ -777,9 +876,60 @@ mod tests {
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(names.contains(&"browser_open"));
         assert!(names.contains(&"content_search"));
+        assert!(names.contains(&"image_info"));
         assert!(names.contains(&"model_routing_config"));
         assert!(!names.contains(&"pushover"));
         assert!(names.contains(&"proxy_config"));
+        assert!(names.contains(&"screenshot"));
+    }
+
+    #[test]
+    fn channel_tools_with_runtime_focus_on_core_work_tools() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy::default());
+        let mem_cfg = MemoryConfig {
+            backend: "markdown".into(),
+            ..MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+
+        std::fs::write(
+            tmp.path().join(".env"),
+            "PUSHOVER_TOKEN=test-token\nPUSHOVER_USER_KEY=test-user\n",
+        )
+        .unwrap();
+
+        let cfg = test_config(&tmp);
+        let tools = channel_tools_with_runtime(
+            Arc::new(cfg.clone()),
+            &security,
+            Arc::new(NativeRuntime::new()),
+            mem,
+            None,
+            None,
+            &cfg.browser,
+            &cfg.http_request,
+            &cfg.web_fetch,
+            tmp.path(),
+            &HashMap::new(),
+            None,
+            &cfg,
+        );
+
+        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+        assert!(names.contains(&"task_plan"));
+        assert!(names.contains(&"lossless_describe"));
+        assert!(names.contains(&"lossless_search"));
+        assert!(names.contains(&"shell"));
+        assert!(names.contains(&"process"));
+        assert!(names.contains(&"git_operations"));
+        assert!(!names.contains(&"model_routing_config"));
+        assert!(!names.contains(&"proxy_config"));
+        assert!(!names.contains(&"screenshot"));
+        assert!(!names.contains(&"image_info"));
+        assert!(!names.contains(&"pushover"));
+        assert!(!names.contains(&"pdf_read"));
     }
 
     #[test]

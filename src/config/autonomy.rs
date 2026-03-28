@@ -74,18 +74,27 @@ fn default_true() -> bool {
 }
 
 pub(crate) fn default_auto_approve() -> Vec<String> {
-    [
-        "file_read",
-        "glob_search",
-        "content_search",
-        "lossless_search",
-        "lossless_describe",
-        "pdf_read",
-        "memory_recall",
-    ]
-    .into_iter()
-    .map(std::string::ToString::to_string)
-    .collect()
+    #[cfg(feature = "rag-pdf")]
+    let mut tools = vec![
+        "file_read".to_string(),
+        "glob_search".to_string(),
+        "content_search".to_string(),
+        "lossless_search".to_string(),
+        "lossless_describe".to_string(),
+        "memory_recall".to_string(),
+    ];
+    #[cfg(not(feature = "rag-pdf"))]
+    let tools = vec![
+        "file_read".to_string(),
+        "glob_search".to_string(),
+        "content_search".to_string(),
+        "lossless_search".to_string(),
+        "lossless_describe".to_string(),
+        "memory_recall".to_string(),
+    ];
+    #[cfg(feature = "rag-pdf")]
+    tools.push("pdf_read".to_string());
+    tools
 }
 
 pub(crate) fn default_always_ask() -> Vec<String> {
@@ -164,7 +173,6 @@ mod tests {
             "content_search",
             "lossless_search",
             "lossless_describe",
-            "pdf_read",
             "memory_recall",
         ] {
             assert!(
@@ -172,6 +180,10 @@ mod tests {
                 "expected `{tool}` in default auto-approve set"
             );
         }
+        #[cfg(feature = "rag-pdf")]
+        assert!(defaults.contains(&"pdf_read".to_string()));
+        #[cfg(not(feature = "rag-pdf"))]
+        assert!(!defaults.contains(&"pdf_read".to_string()));
         assert!(!defaults.contains(&"shell".to_string()));
         assert!(!defaults.contains(&"file_write".to_string()));
     }

@@ -24,6 +24,21 @@ pub(crate) fn build_execution_support(
     config: &Config,
     embedding_routes: &[EmbeddingRouteConfig],
 ) -> Result<ExecutionSupport> {
+    build_execution_support_with_tool_profile(config, embedding_routes, false)
+}
+
+pub(crate) fn build_channel_execution_support(
+    config: &Config,
+    embedding_routes: &[EmbeddingRouteConfig],
+) -> Result<ExecutionSupport> {
+    build_execution_support_with_tool_profile(config, embedding_routes, true)
+}
+
+fn build_execution_support_with_tool_profile(
+    config: &Config,
+    embedding_routes: &[EmbeddingRouteConfig],
+    channel_focused_tools: bool,
+) -> Result<ExecutionSupport> {
     let runtime: Arc<dyn RuntimeAdapter> = Arc::from(runtime::create_runtime(&config.runtime)?);
     let security = Arc::new(SecurityPolicy::from_runtime_config(config)?);
 
@@ -41,21 +56,39 @@ pub(crate) fn build_execution_support(
     )?);
 
     let (composio_key, composio_entity_id) = composio_context(config);
-    let tools = tools::all_tools_with_runtime(
-        Arc::new(config.clone()),
-        &security,
-        runtime.clone(),
-        memory.clone(),
-        composio_key,
-        composio_entity_id,
-        &config.browser,
-        &config.http_request,
-        &config.web_fetch,
-        &config.workspace_dir,
-        &config.agents,
-        config.api_key.as_deref(),
-        config,
-    );
+    let tools = if channel_focused_tools {
+        tools::channel_tools_with_runtime(
+            Arc::new(config.clone()),
+            &security,
+            runtime.clone(),
+            memory.clone(),
+            composio_key,
+            composio_entity_id,
+            &config.browser,
+            &config.http_request,
+            &config.web_fetch,
+            &config.workspace_dir,
+            &config.agents,
+            config.api_key.as_deref(),
+            config,
+        )
+    } else {
+        tools::all_tools_with_runtime(
+            Arc::new(config.clone()),
+            &security,
+            runtime.clone(),
+            memory.clone(),
+            composio_key,
+            composio_entity_id,
+            &config.browser,
+            &config.http_request,
+            &config.web_fetch,
+            &config.workspace_dir,
+            &config.agents,
+            config.api_key.as_deref(),
+            config,
+        )
+    };
 
     Ok(ExecutionSupport {
         runtime,
