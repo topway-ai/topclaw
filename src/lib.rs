@@ -10,7 +10,7 @@
 //! - [`memory::traits::Memory`] for persistence and recall
 //! - [`observability::traits::Observer`] for telemetry sinks
 //! - [`runtime::traits::RuntimeAdapter`] for execution environments
-//! - [`peripherals::traits::Peripheral`] for hardware boards that expose tools
+//! - optional peripheral integration for hardware boards that expose tools
 //!
 //! # Execution Flow
 //!
@@ -72,6 +72,7 @@ pub mod daemon;
 pub mod doctor;
 #[cfg(feature = "gateway")]
 pub mod gateway;
+#[cfg(feature = "hardware")]
 pub mod hardware;
 pub(crate) mod health;
 pub(crate) mod heartbeat;
@@ -80,6 +81,7 @@ pub mod memory;
 pub(crate) mod multimodal;
 pub mod observability;
 pub mod onboard;
+#[cfg(feature = "hardware")]
 pub mod peripherals;
 pub mod providers;
 pub mod runtime;
@@ -395,6 +397,7 @@ pub enum MemoryCommands {
 }
 
 /// Hardware discovery and peripheral management subcommands
+#[cfg(feature = "hardware")]
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum HardwareCommands {
     /// Enumerate USB devices (VID/PID) and show known boards

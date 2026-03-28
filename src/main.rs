@@ -6,9 +6,11 @@ use clap::{Parser, Subcommand, ValueEnum};
 #[cfg(feature = "gateway")]
 use topclaw::gateway;
 use topclaw::{
-    agent, auth, backup, channels, config, cron, daemon, doctor, hardware, memory, observability,
-    onboard, peripherals, providers, security, service, skills, update, Config,
+    agent, auth, backup, channels, config, cron, daemon, doctor, memory, observability, onboard,
+    providers, security, service, skills, update, Config,
 };
+#[cfg(feature = "hardware")]
+use topclaw::{hardware, peripherals, HardwareCommands};
 use tracing::info;
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -59,8 +61,7 @@ use std::ffi::OsString;
 
 // Re-export so binary modules can use crate::<CommandEnum> while keeping a single source of truth.
 pub use topclaw::{
-    BackupCommands, ChannelCommands, CronCommands, HardwareCommands, MemoryCommands,
-    ServiceCommands, SkillCommands,
+    BackupCommands, ChannelCommands, CronCommands, MemoryCommands, ServiceCommands, SkillCommands,
 };
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
@@ -220,6 +221,7 @@ Examples:
         temperature: f64,
 
         /// Attach a peripheral (board:path, e.g. nucleo-f401re:/dev/ttyACM0)
+        #[cfg(feature = "hardware")]
         #[arg(long)]
         peripheral: Vec<String>,
 
@@ -515,6 +517,7 @@ Examples:
     },
 
     /// Discover, manage, and flash hardware boards
+    #[cfg(feature = "hardware")]
     #[command(long_about = "\
 Discover, manage, and flash hardware boards.
 
@@ -950,6 +953,7 @@ async fn main() -> Result<()> {
             provider,
             model,
             temperature,
+            #[cfg(feature = "hardware")]
             peripheral,
             autonomy_level,
             max_actions_per_hour,
@@ -976,13 +980,17 @@ async fn main() -> Result<()> {
             if let Some(ref backend) = memory_backend {
                 config.memory.backend = backend.clone();
             }
+            #[cfg(feature = "hardware")]
+            let peripheral_overrides = peripheral;
+            #[cfg(not(feature = "hardware"))]
+            let peripheral_overrides = Vec::new();
             Box::pin(agent::run(
                 config,
                 message,
                 provider,
                 model,
                 temperature,
-                peripheral,
+                peripheral_overrides,
                 true,
             ))
             .await
@@ -1174,17 +1182,20 @@ async fn main() -> Result<()> {
                     "ℹ️  disabled"
                 }
             );
-            println!();
-            println!("Peripherals:");
-            println!(
-                "  Enabled:   {}",
-                if config.peripherals.enabled {
-                    "yes"
-                } else {
-                    "no"
-                }
-            );
-            println!("  Boards:    {}", config.peripherals.boards.len());
+            #[cfg(feature = "hardware")]
+            {
+                println!();
+                println!("Peripherals:");
+                println!(
+                    "  Enabled:   {}",
+                    if config.peripherals.enabled {
+                        "yes"
+                    } else {
+                        "no"
+                    }
+                );
+                println!("  Boards:    {}", config.peripherals.boards.len());
+            }
 
             if diagnose {
                 println!();
@@ -1329,6 +1340,7 @@ async fn main() -> Result<()> {
 
         Commands::Auth { auth_command } => handle_auth_command(auth_command, &config).await,
 
+        #[cfg(feature = "hardware")]
         Commands::Hardware { hardware_command } => match &hardware_command {
             HardwareCommands::Discover
             | HardwareCommands::Introspect { .. }
@@ -1514,6 +1526,31 @@ mod tests {
             cmd.get_subcommands()
                 .all(|subcommand| subcommand.get_name() != "gateway"),
             "gateway subcommand should be hidden without the gateway feature"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "hardware")]
+    fn hardware_cli_accepts_list_subcommand() {
+        let cli = Cli::try_parse_from(["topclaw", "hardware", "list"])
+            .expect("hardware list should parse");
+
+        match cli.command {
+            Commands::Hardware {
+                hardware_command: HardwareCommands::List,
+            } => {}
+            other => panic!("expected hardware list command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    #[cfg(not(feature = "hardware"))]
+    fn hardware_command_hidden_without_hardware_feature() {
+        let cmd = Cli::command();
+        assert!(
+            cmd.get_subcommands()
+                .all(|subcommand| subcommand.get_name() != "hardware"),
+            "hardware subcommand should be hidden without the hardware feature"
         );
     }
 

@@ -196,6 +196,21 @@ pub(crate) fn is_tool_iteration_limit_error(err: &anyhow::Error) -> bool {
     })
 }
 
+#[cfg(feature = "hardware")]
+async fn load_peripheral_tools(
+    config: &crate::config::PeripheralsConfig,
+) -> Result<Vec<Box<dyn Tool>>> {
+    crate::peripherals::create_peripheral_tools(config).await
+}
+
+#[cfg(not(feature = "hardware"))]
+#[allow(clippy::unused_async)]
+async fn load_peripheral_tools(
+    _config: &crate::config::PeripheralsConfig,
+) -> Result<Vec<Box<dyn Tool>>> {
+    Ok(Vec::new())
+}
+
 /// Execute a single turn of the agent loop: send messages, parse tool calls,
 /// execute tools, and loop until the LLM produces a final text response.
 /// When `silent` is true, suppresses stdout (for channel use).
@@ -1423,8 +1438,7 @@ pub async fn run(
 
     // ── Tools (including memory tools and peripherals) ────────────
 
-    let peripheral_tools: Vec<Box<dyn Tool>> =
-        crate::peripherals::create_peripheral_tools(&config.peripherals).await?;
+    let peripheral_tools = load_peripheral_tools(&config.peripherals).await?;
     if !peripheral_tools.is_empty() {
         tracing::info!(count = peripheral_tools.len(), "Peripheral tools added");
         tools_registry.extend(peripheral_tools);
@@ -1842,8 +1856,7 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         tools: mut tools_registry,
         ..
     } = wiring::build_execution_support(&config, &[])?;
-    let peripheral_tools: Vec<Box<dyn Tool>> =
-        crate::peripherals::create_peripheral_tools(&config.peripherals).await?;
+    let peripheral_tools = load_peripheral_tools(&config.peripherals).await?;
     tools_registry.extend(peripheral_tools);
 
     let provider_name = config

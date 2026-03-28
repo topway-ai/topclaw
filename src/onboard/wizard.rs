@@ -1,10 +1,12 @@
 use crate::config::schema::StreamMode;
+#[cfg(feature = "hardware")]
+use crate::config::HardwareTransport;
 use crate::config::{
     AutonomyConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config, DiscordConfig,
-    HeartbeatConfig, HttpRequestConfig, MemoryConfig, ObservabilityConfig, RuntimeConfig,
-    SecretsConfig, StorageConfig, TelegramConfig, WebFetchConfig, WebSearchConfig, WebhookConfig,
+    HardwareConfig, HeartbeatConfig, HttpRequestConfig, MemoryConfig, ObservabilityConfig,
+    RuntimeConfig, SecretsConfig, StorageConfig, TelegramConfig, WebFetchConfig, WebSearchConfig,
+    WebhookConfig,
 };
-use crate::hardware::{self, HardwareConfig};
 use crate::memory::{
     default_memory_backend_key, memory_backend_profile, selectable_memory_backends,
 };
@@ -2536,17 +2538,15 @@ fn print_summary(config: &Config, service_outcome: &BackgroundServiceOutcome) {
         }
     );
 
-    // Hardware
+    #[cfg(feature = "hardware")]
     println!(
         "    {} Hardware:      {}",
         style("🔌").cyan(),
         if config.hardware.enabled {
             let mode = config.hardware.transport_mode();
             match mode {
-                hardware::HardwareTransport::Native => {
-                    style("Native GPIO (direct)").green().to_string()
-                }
-                hardware::HardwareTransport::Serial => format!(
+                HardwareTransport::Native => style("Native GPIO (direct)").green().to_string(),
+                HardwareTransport::Serial => format!(
                     "{}",
                     style(format!(
                         "Serial → {} @ {} baud",
@@ -2555,7 +2555,7 @@ fn print_summary(config: &Config, service_outcome: &BackgroundServiceOutcome) {
                     ))
                     .green()
                 ),
-                hardware::HardwareTransport::Probe => format!(
+                HardwareTransport::Probe => format!(
                     "{}",
                     style(format!(
                         "Probe → {}",
@@ -2563,7 +2563,7 @@ fn print_summary(config: &Config, service_outcome: &BackgroundServiceOutcome) {
                     ))
                     .green()
                 ),
-                hardware::HardwareTransport::None => "disabled (software only)".to_string(),
+                HardwareTransport::None => "disabled (software only)".to_string(),
             }
         } else {
             "disabled (software only)".to_string()
