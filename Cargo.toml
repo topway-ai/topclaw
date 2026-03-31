@@ -107,7 +107,7 @@ dialoguer = { version = "0.12", features = ["fuzzy-select"] }
 rustyline = "17.0"
 console = "0.16"
 
-# Hardware discovery (device path globbing)
+# File globbing (core tool: glob_search)
 glob = "0.3"
 
 # Binary discovery (init system detection)
@@ -181,7 +181,7 @@ channel-discord = ["dep:tokio-tungstenite"]
 gateway = ["dep:axum", "dep:tower", "dep:tower-http", "dep:http-body-util"]
 
 builtin-preloaded-skills = []
-hardware = ["nusb", "tokio-serial"]
+hardware = ["dep:nusb", "dep:tokio-serial"]
 memory-qdrant = []
 memory-lucid = []
 memory-postgres = ["dep:postgres", "dep:tokio-postgres-rustls"]
@@ -190,7 +190,7 @@ observability-otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentel
 web-fetch-html2md = ["dep:fast_html2md"]
 web-fetch-plaintext = ["dep:nanohtml2text"]
 firecrawl = []
-peripheral-rpi = ["rppal"]
+peripheral-rpi = ["dep:rppal"]
 browser-native = ["dep:fantoccini"]
 
 # Tool feature flags - gate heavier tools

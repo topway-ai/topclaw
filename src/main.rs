@@ -9,8 +9,6 @@ use topclaw::{
     agent, auth, backup, channels, config, cron, daemon, doctor, memory, observability, onboard,
     providers, security, service, skills, update, Config,
 };
-#[cfg(feature = "hardware")]
-use topclaw::{hardware, peripherals, HardwareCommands};
 use tracing::info;
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -230,11 +228,6 @@ Examples:
         /// Temperature (0.0 - 2.0)
         #[arg(short, long, default_value = "0.7", value_parser = parse_temperature)]
         temperature: f64,
-
-        /// Attach a peripheral (board:path, e.g. nucleo-f401re:/dev/ttyACM0)
-        #[cfg(feature = "hardware")]
-        #[arg(long)]
-        peripheral: Vec<String>,
 
         /// Autonomy level (read_only, supervised, full)
         #[arg(long, value_parser = clap::value_parser!(security::AutonomyLevel))]
@@ -516,27 +509,6 @@ Examples:
     Auth {
         #[command(subcommand)]
         auth_command: AuthCommands,
-    },
-
-    /// Discover, manage, and flash hardware boards
-    #[cfg(feature = "hardware")]
-    #[command(long_about = "\
-Discover, manage, and flash hardware boards.
-
-Enumerate connected USB devices, identify known development boards, \
-add peripherals, and flash firmware. Supported boards: \
-nucleo-f401re, rpi-gpio, esp32, arduino-uno.
-
-Examples:
-  topclaw hardware discover
-  topclaw hardware introspect /dev/ttyACM0
-  topclaw hardware info --chip STM32F401RETx
-  topclaw hardware list
-  topclaw hardware add nucleo-f401re /dev/ttyACM0
-  topclaw hardware flash --port /dev/cu.usbmodem12345")]
-    Hardware {
-        #[command(subcommand)]
-        hardware_command: topclaw::HardwareCommands,
     },
 
     /// Inspect and manage stored memory
@@ -963,8 +935,6 @@ async fn main() -> Result<()> {
             provider,
             model,
             temperature,
-            #[cfg(feature = "hardware")]
-            peripheral,
             autonomy_level,
             max_actions_per_hour,
             max_tool_iterations,
@@ -990,17 +960,13 @@ async fn main() -> Result<()> {
             if let Some(ref backend) = memory_backend {
                 config.memory.backend = backend.clone();
             }
-            #[cfg(feature = "hardware")]
-            let peripheral_overrides = peripheral;
-            #[cfg(not(feature = "hardware"))]
-            let peripheral_overrides = Vec::new();
             Box::pin(agent::run(
                 config,
                 message,
                 provider,
                 model,
                 temperature,
-                peripheral_overrides,
+                Vec::new(),
                 true,
             ))
             .await
@@ -1211,20 +1177,6 @@ async fn main() -> Result<()> {
                     }
                 );
             }
-            #[cfg(feature = "hardware")]
-            {
-                println!();
-                println!("Peripherals:");
-                println!(
-                    "  Enabled:   {}",
-                    if config.peripherals.enabled {
-                        "yes"
-                    } else {
-                        "no"
-                    }
-                );
-                println!("  Boards:    {}", config.peripherals.boards.len());
-            }
 
             if diagnose {
                 println!();
@@ -1375,22 +1327,6 @@ async fn main() -> Result<()> {
         }
 
         Commands::Auth { auth_command } => handle_auth_command(auth_command, &config).await,
-
-        #[cfg(feature = "hardware")]
-        Commands::Hardware { hardware_command } => match &hardware_command {
-            HardwareCommands::Discover
-            | HardwareCommands::Introspect { .. }
-            | HardwareCommands::Info { .. } => {
-                hardware::handle_command(hardware_command.clone(), &config)
-            }
-            HardwareCommands::List
-            | HardwareCommands::Add { .. }
-            | HardwareCommands::Flash { .. }
-            | HardwareCommands::SetupUnoQ { .. }
-            | HardwareCommands::FlashNucleo => {
-                peripherals::handle_command_from_hardware(hardware_command.clone(), &config).await
-            }
-        },
 
         Commands::Config { config_command } => match config_command {
             ConfigCommands::Schema => {
@@ -1562,31 +1498,6 @@ mod tests {
             cmd.get_subcommands()
                 .all(|subcommand| subcommand.get_name() != "gateway"),
             "gateway subcommand should be hidden without the gateway feature"
-        );
-    }
-
-    #[test]
-    #[cfg(feature = "hardware")]
-    fn hardware_cli_accepts_list_subcommand() {
-        let cli = Cli::try_parse_from(["topclaw", "hardware", "list"])
-            .expect("hardware list should parse");
-
-        match cli.command {
-            Commands::Hardware {
-                hardware_command: HardwareCommands::List,
-            } => {}
-            other => panic!("expected hardware list command, got {other:?}"),
-        }
-    }
-
-    #[test]
-    #[cfg(not(feature = "hardware"))]
-    fn hardware_command_hidden_without_hardware_feature() {
-        let cmd = Cli::command();
-        assert!(
-            cmd.get_subcommands()
-                .all(|subcommand| subcommand.get_name() != "hardware"),
-            "hardware subcommand should be hidden without the hardware feature"
         );
     }
 

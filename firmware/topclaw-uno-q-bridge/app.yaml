@@ -1,7 +1,0 @@
-name: topclaw-uno-q-bridge
-version: 0.1.0
-description: TopClaw GPIO bridge app for Arduino UNO Q.
-python:
-  entrypoint: python/main.py
-sketch:
-  directory: sketch
