@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "topclaw"
-version = "2026.3.31"
+version = "2026.4.4"
 edition = "2021"
 authors = ["theonlyhennygod"]
 license = "MIT OR Apache-2.0"
@@ -95,9 +95,6 @@ ring = "0.17"
 
 # Memory / persistence
 rusqlite = { version = "0.37", features = ["bundled"] }
-postgres = { version = "0.19", features = ["with-chrono-0_4"], optional = true }
-tokio-postgres-rustls = { version = "0.12", optional = true }
-mysql = { version = "28", optional = true }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 chrono-tz = "0.10"
 cron = "0.16"
@@ -182,13 +179,6 @@ gateway = ["dep:axum", "dep:tower", "dep:tower-http", "dep:http-body-util"]
 
 builtin-preloaded-skills = []
 hardware = ["dep:nusb", "dep:tokio-serial"]
-# Umbrella flag: enable all non-core memory backends at once
-memory-backends = ["memory-qdrant", "memory-lucid", "memory-postgres", "memory-mariadb"]
-# Individual backend flags (kept for fine-grained control)
-memory-qdrant = []
-memory-lucid = []
-memory-postgres = ["dep:postgres", "dep:tokio-postgres-rustls"]
-memory-mariadb = ["dep:mysql"]
 observability-otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp"]
 web-fetch-html2md = ["dep:fast_html2md"]
 web-fetch-plaintext = ["dep:nanohtml2text"]

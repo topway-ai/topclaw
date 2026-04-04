@@ -88,11 +88,6 @@ fn factory_kimi_alias_resolves_to_moonshot() {
     assert_provider_ok("kimi", Some("test-key"), None);
 }
 
-#[test]
-fn factory_zhipu_alias_resolves_to_glm() {
-    assert_provider_ok("zhipu", Some("test-key"), None);
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Custom URL provider creation
 // ─────────────────────────────────────────────────────────────────────────────
@@ -258,16 +253,6 @@ fn factory_resolves_gemini_provider() {
 }
 
 #[test]
-fn factory_resolves_bedrock_provider() {
-    assert_provider_ok("bedrock", None, None);
-}
-
-#[test]
-fn factory_resolves_copilot_provider() {
-    assert_provider_ok("copilot", Some("test-key"), None);
-}
-
-#[test]
 fn factory_resolves_synthetic_provider() {
     assert_provider_ok("synthetic", Some("test-key"), None);
 }
@@ -314,11 +299,6 @@ fn factory_resolves_astrai_provider() {
 #[test]
 fn factory_resolves_moonshot_provider() {
     assert_provider_ok("moonshot", Some("test-key"), None);
-}
-
-#[test]
-fn factory_resolves_glm_provider() {
-    assert_provider_ok("glm", Some("test-key"), None);
 }
 
 #[test]
@@ -406,16 +386,6 @@ fn factory_google_alias_resolves_to_gemini() {
 #[test]
 fn factory_google_gemini_alias_resolves_to_gemini() {
     assert_provider_ok("google-gemini", Some("test-key"), None);
-}
-
-#[test]
-fn factory_aws_bedrock_alias_resolves_to_bedrock() {
-    assert_provider_ok("aws-bedrock", None, None);
-}
-
-#[test]
-fn factory_github_copilot_alias_resolves_to_copilot() {
-    assert_provider_ok("github-copilot", Some("test-key"), None);
 }
 
 #[test]

@@ -55,15 +55,14 @@ fn build_execution_support_with_tool_profile(
         config.api_key.as_deref(),
     )?);
 
-    let (composio_key, composio_entity_id) = composio_context(config);
     let tools = if channel_focused_tools {
         tools::channel_tools_with_runtime(
             Arc::new(config.clone()),
             &security,
             runtime.clone(),
             memory.clone(),
-            composio_key,
-            composio_entity_id,
+            None,
+            None,
             &config.browser,
             &config.http_request,
             &config.web_fetch,
@@ -78,8 +77,8 @@ fn build_execution_support_with_tool_profile(
             &security,
             runtime.clone(),
             memory.clone(),
-            composio_key,
-            composio_entity_id,
+            None,
+            None,
             &config.browser,
             &config.http_request,
             &config.web_fetch,
@@ -100,15 +99,4 @@ fn build_execution_support_with_tool_profile(
 
 pub(crate) fn load_skills(config: &Config) -> Vec<crate::skills::Skill> {
     crate::skills::load_skills_with_config(&config.workspace_dir, config)
-}
-
-fn composio_context(config: &Config) -> (Option<&str>, Option<&str>) {
-    if config.composio.enabled {
-        (
-            config.composio.api_key.as_deref(),
-            Some(config.composio.entity_id.as_str()),
-        )
-    } else {
-        (None, None)
-    }
 }

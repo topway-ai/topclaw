@@ -21,7 +21,6 @@ pub(super) fn models_endpoint_for_provider(provider_name: &str) -> Option<&'stat
         "qwen-intl" => Some("https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models"),
         "dashscope-us" => Some("https://dashscope-us.aliyuncs.com/compatible-mode/v1/models"),
         "moonshot-cn" | "kimi-cn" => Some("https://api.moonshot.cn/v1/models"),
-        "glm-cn" | "bigmodel" => Some("https://open.bigmodel.cn/api/paas/v4/models"),
         "zai-cn" | "z.ai-cn" => Some("https://open.bigmodel.cn/api/coding/paas/v4/models"),
         _ => match super::canonical_provider_name(provider_name) {
             "openai-codex" | "openai" => Some("https://api.openai.com/v1/models"),
@@ -35,7 +34,6 @@ pub(super) fn models_endpoint_for_provider(provider_name: &str) -> Option<&'stat
             "novita" => Some("https://api.novita.ai/openai/v1/models"),
             "cohere" => Some("https://api.cohere.com/compatibility/v1/models"),
             "moonshot" => Some("https://api.moonshot.ai/v1/models"),
-            "glm" => Some("https://api.z.ai/api/paas/v4/models"),
             "zai" => Some("https://api.z.ai/api/coding/paas/v4/models"),
             "qwen" => Some("https://dashscope.aliyuncs.com/compatible-mode/v1/models"),
             "nvidia" => Some("https://integrate.api.nvidia.com/v1/models"),

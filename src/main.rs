@@ -485,7 +485,7 @@ Manage communication channels.
 
 Add, remove, list, and health-check channels that connect TopClaw \
 to messaging platforms. Supported channel types: telegram, discord, \
-bridge, webhook.
+webhook.
 
 Examples:
   topclaw bootstrap --channels-only # guided channel setup without touching provider settings

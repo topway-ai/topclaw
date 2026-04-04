@@ -8,13 +8,9 @@
 //! structs re-exported here model specific runtime areas such as providers,
 //! channels, sandboxing, memory, and observability.
 pub mod agent;
-pub mod agents_ipc;
 pub mod audit;
 pub mod autonomy;
-pub mod bridge;
 pub mod browser;
-pub mod browser_computer_use;
-pub mod composio;
 pub mod coordination;
 pub mod cost;
 pub mod cron;
@@ -22,7 +18,6 @@ pub mod delegate_agent;
 pub mod embedding_route;
 pub mod estop;
 pub mod gateway;
-pub mod hardware;
 pub mod heartbeat;
 pub mod hooks;
 pub mod http_request;
@@ -52,13 +47,9 @@ pub mod web_tools;
 pub mod workspaces;
 
 pub use agent::AgentConfig;
-pub use agents_ipc::AgentsIpcConfig;
 pub use audit::AuditConfig;
 pub use autonomy::{AutonomyConfig, NonCliNaturalLanguageApprovalMode};
-pub use bridge::BridgeConfig;
-pub use browser::BrowserConfig;
-pub use browser_computer_use::BrowserComputerUseConfig;
-pub use composio::ComposioConfig;
+pub use browser::{BrowserComputerUseConfig, BrowserConfig};
 pub use coordination::CoordinationConfig;
 pub use cost::CostConfig;
 pub use cron::CronConfig;
@@ -66,7 +57,6 @@ pub use delegate_agent::DelegateAgentConfig;
 pub use embedding_route::EmbeddingRouteConfig;
 pub use estop::EstopConfig;
 pub use gateway::{GatewayConfig, NodeControlConfig};
-pub use hardware::{HardwareConfig, HardwareTransport, PeripheralBoardConfig, PeripheralsConfig};
 pub use heartbeat::HeartbeatConfig;
 pub use hooks::{BuiltinHooksConfig, HooksConfig};
 pub use http_request::HttpRequestConfig;
@@ -90,6 +80,7 @@ pub use runtime::{
     DockerRuntimeConfig, RuntimeConfig, WasmCapabilityEscalationMode, WasmModuleHashPolicy,
     WasmRuntimeConfig, WasmSecurityConfig,
 };
+// Note: Docker/Wasm runtime config types kept for backward-compatible config deserialization
 pub use sandbox::{SandboxBackend, SandboxConfig};
 pub use scheduler::SchedulerConfig;
 pub use schema::{

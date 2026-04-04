@@ -19,7 +19,6 @@
 // SECTION 1: Module Declarations and Imports
 // ============================================================================
 
-pub mod agents_ipc;
 pub mod apply_patch;
 #[cfg(feature = "browser-native")]
 pub mod browser;
@@ -44,12 +43,6 @@ pub mod file_read;
 pub mod file_write;
 pub mod git_operations;
 pub mod glob_search;
-#[cfg(feature = "hardware")]
-pub mod hardware_board_info;
-#[cfg(feature = "hardware")]
-pub mod hardware_memory_map;
-#[cfg(feature = "hardware")]
-pub mod hardware_memory_read;
 pub mod http_request;
 pub mod image_info;
 pub mod lossless_describe;
@@ -63,7 +56,6 @@ pub mod pdf_read;
 mod policy_gate;
 pub mod process;
 pub mod proxy_config;
-pub mod pushover;
 pub mod schedule;
 pub mod schema;
 pub mod screenshot;
@@ -75,7 +67,6 @@ pub mod subagent_spawn;
 pub mod task_plan;
 pub mod traits;
 pub mod url_validation;
-pub mod wasm_module;
 pub mod web_fetch;
 pub mod web_search_tool;
 
@@ -101,12 +92,6 @@ pub use file_read::FileReadTool;
 pub use file_write::FileWriteTool;
 pub use git_operations::GitOperationsTool;
 pub use glob_search::GlobSearchTool;
-#[cfg(feature = "hardware")]
-pub use hardware_board_info::HardwareBoardInfoTool;
-#[cfg(feature = "hardware")]
-pub use hardware_memory_map::HardwareMemoryMapTool;
-#[cfg(feature = "hardware")]
-pub use hardware_memory_read::HardwareMemoryReadTool;
 pub use http_request::HttpRequestTool;
 pub use image_info::ImageInfoTool;
 pub use lossless_describe::LosslessDescribeTool;
@@ -118,7 +103,6 @@ pub use model_routing_config::ModelRoutingConfigTool;
 pub use pdf_read::PdfReadTool;
 pub use process::ProcessTool;
 pub use proxy_config::ProxyConfigTool;
-pub use pushover::PushoverTool;
 pub use schedule::ScheduleTool;
 #[allow(unused_imports)]
 pub use schema::{CleaningStrategy, SchemaCleanr};
@@ -132,7 +116,6 @@ pub use task_plan::TaskPlanTool;
 pub use traits::Tool;
 #[allow(unused_imports)]
 pub use traits::{ToolResult, ToolSpec};
-pub use wasm_module::WasmModuleTool;
 pub use web_fetch::WebFetchTool;
 pub use web_search_tool::WebSearchTool;
 
@@ -212,9 +195,9 @@ fn core_work_non_shell_tool_arcs(
 fn auxiliary_non_shell_tool_arcs(
     config: &Arc<Config>,
     security: &Arc<SecurityPolicy>,
-    workspace_dir: &std::path::Path,
+    _workspace_dir: &std::path::Path,
 ) -> Vec<Arc<dyn Tool>> {
-    let mut tool_arcs: Vec<Arc<dyn Tool>> = vec![
+    let tool_arcs: Vec<Arc<dyn Tool>> = vec![
         Arc::new(ModelRoutingConfigTool::new(
             config.clone(),
             security.clone(),
@@ -227,44 +210,7 @@ fn auxiliary_non_shell_tool_arcs(
     #[cfg(feature = "rag-pdf")]
     tool_arcs.push(Arc::new(PdfReadTool::new(security.clone())));
 
-    if pushover_credentials_present(workspace_dir) {
-        tool_arcs.push(Arc::new(PushoverTool::new(
-            security.clone(),
-            workspace_dir.to_path_buf(),
-        )));
-    }
-
     tool_arcs
-}
-
-fn pushover_credentials_present(workspace_dir: &std::path::Path) -> bool {
-    let env_path = workspace_dir.join(".env");
-    let Ok(content) = std::fs::read_to_string(env_path) else {
-        return false;
-    };
-
-    let mut has_token = false;
-    let mut has_user_key = false;
-    for line in content.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let line = line.strip_prefix("export ").map(str::trim).unwrap_or(line);
-        let Some((key, value)) = line.split_once('=') else {
-            continue;
-        };
-        if value.trim().is_empty() {
-            continue;
-        }
-        if key.trim().eq_ignore_ascii_case("PUSHOVER_TOKEN") {
-            has_token = true;
-        } else if key.trim().eq_ignore_ascii_case("PUSHOVER_USER_KEY") {
-            has_user_key = true;
-        }
-    }
-
-    has_token && has_user_key
 }
 
 // ============================================================================
@@ -296,10 +242,6 @@ pub fn default_tools_with_runtime(
         tools.push(Box::new(GlobSearchTool::new(security.clone())));
         tools.push(Box::new(ContentSearchTool::new(security.clone())));
     }
-    if runtime.as_any().is::<crate::runtime::WasmRuntime>() {
-        tools.push(Box::new(WasmModuleTool::new(security, runtime)));
-    }
-
     tools
 }
 
@@ -485,13 +427,6 @@ fn build_tools_with_runtime(
         tool_arcs.push(Arc::new(GlobSearchTool::new(security.clone())));
         tool_arcs.push(Arc::new(ContentSearchTool::new(security.clone())));
     }
-    if runtime.as_any().is::<crate::runtime::WasmRuntime>() {
-        tool_arcs.push(Arc::new(WasmModuleTool::new(
-            security.clone(),
-            runtime.clone(),
-        )));
-    }
-
     if browser_config.enabled {
         // Add legacy browser_open tool for simple URL opening (unless disabled)
         if has_shell_access && !browser_config.browser_open.eq_ignore_ascii_case("disable") {
@@ -667,29 +602,6 @@ fn build_tools_with_runtime(
         )));
     }
 
-    // Inter-process agent communication (opt-in)
-    if root_config.agents_ipc.enabled {
-        match agents_ipc::IpcDb::open(workspace_dir, &root_config.agents_ipc) {
-            Ok(ipc_db) => {
-                let ipc_db = Arc::new(ipc_db);
-                tool_arcs.push(Arc::new(agents_ipc::AgentsListTool::new(ipc_db.clone())));
-                tool_arcs.push(Arc::new(agents_ipc::AgentsSendTool::new(
-                    ipc_db.clone(),
-                    security.clone(),
-                )));
-                tool_arcs.push(Arc::new(agents_ipc::AgentsInboxTool::new(ipc_db.clone())));
-                tool_arcs.push(Arc::new(agents_ipc::StateGetTool::new(ipc_db.clone())));
-                tool_arcs.push(Arc::new(agents_ipc::StateSetTool::new(
-                    ipc_db,
-                    security.clone(),
-                )));
-            }
-            Err(e) => {
-                tracing::warn!("agents_ipc: failed to open IPC database: {e}");
-            }
-        }
-    }
-
     boxed_registry_from_arcs(tool_arcs)
 }
 
@@ -700,8 +612,7 @@ fn build_tools_with_runtime(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{BrowserConfig, Config, DiscordConfig, MemoryConfig, WasmRuntimeConfig};
-    use crate::runtime::WasmRuntime;
+    use crate::config::{BrowserConfig, Config, DiscordConfig, MemoryConfig};
     use tempfile::TempDir;
 
     fn test_config(tmp: &TempDir) -> Config {
@@ -718,32 +629,6 @@ mod tests {
         let tools = default_tools(security);
         assert_eq!(tools.len(), 7);
         assert!(tools.iter().any(|tool| tool.name() == "apply_patch"));
-    }
-
-    #[test]
-    fn default_tools_with_runtime_includes_wasm_module_for_wasm_runtime() {
-        let security = Arc::new(SecurityPolicy::default());
-        let runtime: Arc<dyn RuntimeAdapter> =
-            Arc::new(WasmRuntime::new(WasmRuntimeConfig::default()));
-        let tools = default_tools_with_runtime(security, runtime);
-        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
-        assert!(names.contains(&"wasm_module"));
-    }
-
-    #[test]
-    fn default_tools_with_runtime_excludes_shell_and_fs_for_wasm_runtime() {
-        let security = Arc::new(SecurityPolicy::default());
-        let runtime: Arc<dyn RuntimeAdapter> =
-            Arc::new(WasmRuntime::new(WasmRuntimeConfig::default()));
-        let tools = default_tools_with_runtime(security, runtime);
-        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
-        assert!(!names.contains(&"shell"));
-        assert!(!names.contains(&"file_read"));
-        assert!(!names.contains(&"file_write"));
-        assert!(!names.contains(&"file_edit"));
-        assert!(!names.contains(&"apply_patch"));
-        assert!(!names.contains(&"glob_search"));
-        assert!(!names.contains(&"content_search"));
     }
 
     #[test]
@@ -986,145 +871,6 @@ mod tests {
         assert!(enabled_names.contains(&"cron_add"));
         assert!(enabled_names.contains(&"cron_list"));
         assert!(enabled_names.contains(&"schedule"));
-    }
-
-    #[test]
-    fn all_tools_include_pushover_only_when_workspace_has_credentials() {
-        let tmp = TempDir::new().unwrap();
-        let security = Arc::new(SecurityPolicy::default());
-        let mem_cfg = MemoryConfig {
-            backend: "markdown".into(),
-            ..MemoryConfig::default()
-        };
-        let mem: Arc<dyn Memory> =
-            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
-
-        let browser = BrowserConfig::default();
-        let http = crate::config::HttpRequestConfig::default();
-        let cfg = test_config(&tmp);
-
-        let tools_without_env = all_tools(
-            Arc::new(cfg.clone()),
-            &security,
-            mem.clone(),
-            None,
-            None,
-            &browser,
-            &http,
-            &crate::config::WebFetchConfig::default(),
-            tmp.path(),
-            &HashMap::new(),
-            None,
-            &cfg,
-        );
-        let names_without_env: Vec<&str> = tools_without_env.iter().map(|t| t.name()).collect();
-        assert!(!names_without_env.contains(&"pushover"));
-
-        std::fs::write(
-            tmp.path().join(".env"),
-            "PUSHOVER_TOKEN=test-token\nPUSHOVER_USER_KEY=test-user\n",
-        )
-        .unwrap();
-        let tools_with_env = all_tools(
-            Arc::new(cfg.clone()),
-            &security,
-            mem,
-            None,
-            None,
-            &browser,
-            &http,
-            &crate::config::WebFetchConfig::default(),
-            tmp.path(),
-            &HashMap::new(),
-            None,
-            &cfg,
-        );
-        let names_with_env: Vec<&str> = tools_with_env.iter().map(|t| t.name()).collect();
-        assert!(names_with_env.contains(&"pushover"));
-    }
-
-    #[test]
-    fn all_tools_with_runtime_includes_wasm_module_for_wasm_runtime() {
-        let tmp = TempDir::new().unwrap();
-        let security = Arc::new(SecurityPolicy::default());
-        let mem_cfg = MemoryConfig {
-            backend: "markdown".into(),
-            ..MemoryConfig::default()
-        };
-        let mem: Arc<dyn Memory> =
-            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
-        let runtime: Arc<dyn RuntimeAdapter> =
-            Arc::new(WasmRuntime::new(WasmRuntimeConfig::default()));
-
-        let browser = BrowserConfig::default();
-        let http = crate::config::HttpRequestConfig::default();
-        let cfg = test_config(&tmp);
-
-        let tools = all_tools_with_runtime(
-            Arc::new(Config::default()),
-            &security,
-            runtime,
-            mem,
-            None,
-            None,
-            &browser,
-            &http,
-            &crate::config::WebFetchConfig::default(),
-            tmp.path(),
-            &HashMap::new(),
-            None,
-            &cfg,
-        );
-        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
-        assert!(names.contains(&"wasm_module"));
-        assert!(!names.contains(&"shell"));
-        assert!(!names.contains(&"process"));
-        assert!(!names.contains(&"git_operations"));
-        assert!(!names.contains(&"file_read"));
-        assert!(!names.contains(&"file_write"));
-        assert!(!names.contains(&"file_edit"));
-        assert!(!names.contains(&"browser_open"));
-    }
-
-    #[test]
-    fn all_tools_with_runtime_excludes_browser_open_without_shell_access() {
-        let tmp = TempDir::new().unwrap();
-        let security = Arc::new(SecurityPolicy::default());
-        let mem_cfg = MemoryConfig {
-            backend: "markdown".into(),
-            ..MemoryConfig::default()
-        };
-        let mem: Arc<dyn Memory> =
-            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
-        let runtime: Arc<dyn RuntimeAdapter> =
-            Arc::new(WasmRuntime::new(WasmRuntimeConfig::default()));
-
-        let browser = BrowserConfig {
-            enabled: true,
-            allowed_domains: vec!["example.com".into()],
-            session_name: None,
-            ..BrowserConfig::default()
-        };
-        let http = crate::config::HttpRequestConfig::default();
-        let cfg = test_config(&tmp);
-
-        let tools = all_tools_with_runtime(
-            Arc::new(Config::default()),
-            &security,
-            runtime,
-            mem,
-            None,
-            None,
-            &browser,
-            &http,
-            &crate::config::WebFetchConfig::default(),
-            tmp.path(),
-            &HashMap::new(),
-            None,
-            &cfg,
-        );
-        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
-        assert!(!names.contains(&"browser_open"));
     }
 
     #[test]

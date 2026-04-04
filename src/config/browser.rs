@@ -1,6 +1,53 @@
-use crate::config::BrowserComputerUseConfig;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+
+/// Computer-use sidecar configuration for browser automation.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct BrowserComputerUseConfig {
+    /// Sidecar endpoint URL
+    #[serde(default = "default_computer_use_endpoint")]
+    pub endpoint: String,
+    /// Optional API key for the sidecar
+    #[serde(default)]
+    pub api_key: Option<String>,
+    /// Request timeout in milliseconds
+    #[serde(default = "default_computer_use_timeout_ms")]
+    pub timeout_ms: u64,
+    /// Allow non-localhost sidecar endpoints
+    #[serde(default)]
+    pub allow_remote_endpoint: bool,
+    /// Window title allowlist for computer-use actions
+    #[serde(default)]
+    pub window_allowlist: Vec<String>,
+    /// Maximum X coordinate for computer-use actions
+    #[serde(default)]
+    pub max_coordinate_x: Option<i64>,
+    /// Maximum Y coordinate for computer-use actions
+    #[serde(default)]
+    pub max_coordinate_y: Option<i64>,
+}
+
+fn default_computer_use_endpoint() -> String {
+    "http://127.0.0.1:8787/v1/actions".into()
+}
+
+const fn default_computer_use_timeout_ms() -> u64 {
+    15_000
+}
+
+impl Default for BrowserComputerUseConfig {
+    fn default() -> Self {
+        Self {
+            endpoint: default_computer_use_endpoint(),
+            api_key: None,
+            timeout_ms: default_computer_use_timeout_ms(),
+            allow_remote_endpoint: false,
+            window_allowlist: Vec::new(),
+            max_coordinate_x: None,
+            max_coordinate_y: None,
+        }
+    }
+}
 
 /// Browser automation configuration (`[browser]` section).
 ///

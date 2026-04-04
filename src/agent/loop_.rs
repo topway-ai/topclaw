@@ -196,21 +196,6 @@ pub(crate) fn is_tool_iteration_limit_error(err: &anyhow::Error) -> bool {
     })
 }
 
-#[cfg(feature = "hardware")]
-async fn load_peripheral_tools(
-    config: &crate::config::PeripheralsConfig,
-) -> Result<Vec<Box<dyn Tool>>> {
-    crate::peripherals::create_peripheral_tools(config).await
-}
-
-#[cfg(not(feature = "hardware"))]
-#[allow(clippy::unused_async)]
-async fn load_peripheral_tools(
-    _config: &crate::config::PeripheralsConfig,
-) -> Result<Vec<Box<dyn Tool>>> {
-    Ok(Vec::new())
-}
-
 /// Execute a single turn of the agent loop: send messages, parse tool calls,
 /// execute tools, and loop until the LLM produces a final text response.
 /// When `silent` is true, suppresses stdout (for channel use).
@@ -1423,7 +1408,7 @@ pub async fn run(
     let observer = wiring::build_observer(&config);
     let wiring::ExecutionSupport {
         memory: mem,
-        tools: mut tools_registry,
+        tools: tools_registry,
         ..
     } = wiring::build_execution_support(&config, &[])?;
     tracing::info!(backend = mem.name(), "Memory initialized");
@@ -1434,14 +1419,6 @@ pub async fn run(
             peripherals = ?peripheral_overrides,
             "Peripheral overrides from CLI (config boards take precedence)"
         );
-    }
-
-    // ── Tools (including memory tools and peripherals) ────────────
-
-    let peripheral_tools = load_peripheral_tools(&config.peripherals).await?;
-    if !peripheral_tools.is_empty() {
-        tracing::info!(count = peripheral_tools.len(), "Peripheral tools added");
-        tools_registry.extend(peripheral_tools);
     }
 
     // ── Resolve provider ─────────────────────────────────────────
@@ -1532,12 +1509,6 @@ pub async fn run(
             "Open approved HTTPS URLs in system browser (allowlist-only, no scraping)",
         ));
     }
-    if config.composio.enabled {
-        tool_descs.push((
-            "composio",
-            "Execute actions on 1000+ apps via Composio (Gmail, Notion, GitHub, Slack, etc.). Use action='list' to discover, 'execute' to run (optionally with connected_account_id), 'connect' to OAuth.",
-        ));
-    }
     if config.channels_config.discord.is_some() {
         tool_descs.push((
             "discord_history_fetch",
@@ -1556,36 +1527,6 @@ pub async fn run(
         tool_descs.push((
             "delegate",
             "Delegate a sub-task to a specialized agent. Use when: task needs different model/capability, or to parallelize work.",
-        ));
-    }
-    if config.peripherals.enabled && !config.peripherals.boards.is_empty() {
-        tool_descs.push((
-            "gpio_read",
-            "Read GPIO pin value (0 or 1) on connected hardware (STM32, Arduino). Use when: checking sensor/button state, LED status.",
-        ));
-        tool_descs.push((
-            "gpio_write",
-            "Set GPIO pin high (1) or low (0) on connected hardware. Use when: turning LED on/off, controlling actuators.",
-        ));
-        tool_descs.push((
-            "arduino_upload",
-            "Upload agent-generated Arduino sketch. Use when: user asks for 'make a heart', 'blink pattern', or custom LED behavior on Arduino. You write the full .ino code; TopClaw compiles and uploads it. Pin 13 = built-in LED on Uno.",
-        ));
-        tool_descs.push((
-            "hardware_memory_map",
-            "Return flash and RAM address ranges for connected hardware. Use when: user asks for 'upper and lower memory addresses', 'memory map', or 'readable addresses'.",
-        ));
-        tool_descs.push((
-            "hardware_board_info",
-            "Return full board info (chip, architecture, memory map) for connected hardware. Use when: user asks for 'board info', 'what board do I have', 'connected hardware', 'chip info', or 'what hardware'.",
-        ));
-        tool_descs.push((
-            "hardware_memory_read",
-            "Read actual memory/register values from Nucleo via USB. Use when: user asks to 'read register values', 'read memory', 'dump lower memory 0-126', 'give address and value'. Params: address (hex, default 0x20000000), length (bytes, default 128).",
-        ));
-        tool_descs.push((
-            "hardware_capabilities",
-            "Query connected hardware for reported GPIO pins and LED pin. Use when: user asks what pins are available.",
         ));
     }
     let bootstrap_max_chars = if config.agent.compact_context {
@@ -1853,11 +1794,9 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
     let observer = wiring::build_observer(&config);
     let wiring::ExecutionSupport {
         memory: mem,
-        tools: mut tools_registry,
+        tools: tools_registry,
         ..
     } = wiring::build_execution_support(&config, &[])?;
-    let peripheral_tools = load_peripheral_tools(&config.peripherals).await?;
-    tools_registry.extend(peripheral_tools);
 
     let provider_name = config
         .default_provider
@@ -1896,40 +1835,10 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
     if config.browser.enabled {
         tool_descs.push(("browser_open", "Open approved URLs in browser."));
     }
-    if config.composio.enabled {
-        tool_descs.push(("composio", "Execute actions on 1000+ apps via Composio."));
-    }
     if config.channels_config.discord.is_some() {
         tool_descs.push((
             "discord_history_fetch",
             "Fetch Discord message history on demand for current conversation context or explicit channel_id.",
-        ));
-    }
-    if config.peripherals.enabled && !config.peripherals.boards.is_empty() {
-        tool_descs.push(("gpio_read", "Read GPIO pin value on connected hardware."));
-        tool_descs.push((
-            "gpio_write",
-            "Set GPIO pin high or low on connected hardware.",
-        ));
-        tool_descs.push((
-            "arduino_upload",
-            "Upload Arduino sketch. Use for 'make a heart', custom patterns. You write full .ino code; TopClaw uploads it.",
-        ));
-        tool_descs.push((
-            "hardware_memory_map",
-            "Return flash and RAM address ranges. Use when user asks for memory addresses or memory map.",
-        ));
-        tool_descs.push((
-            "hardware_board_info",
-            "Return full board info (chip, architecture, memory map). Use when user asks for board info, what board, connected hardware, or chip info.",
-        ));
-        tool_descs.push((
-            "hardware_memory_read",
-            "Read actual memory/register values from Nucleo. Use when user asks to read registers, read memory, dump lower memory 0-126, or give address and value.",
-        ));
-        tool_descs.push((
-            "hardware_capabilities",
-            "Query connected hardware for reported GPIO pins and LED pin. Use when user asks what pins are available.",
         ));
     }
     let bootstrap_max_chars = if config.agent.compact_context {

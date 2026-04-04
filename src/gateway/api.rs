@@ -590,7 +590,6 @@ fn mask_sensitive_fields(config: &crate::config::Config) -> crate::config::Confi
 
     mask_optional_secret(&mut masked.api_key);
     mask_vec_secrets(&mut masked.reliability.api_keys);
-    mask_optional_secret(&mut masked.composio.api_key);
     mask_optional_secret(&mut masked.proxy.http_proxy);
     mask_optional_secret(&mut masked.proxy.https_proxy);
     mask_optional_secret(&mut masked.proxy.all_proxy);
@@ -631,7 +630,6 @@ fn restore_masked_sensitive_fields(
         &mut incoming.reliability.api_keys,
         &current.reliability.api_keys,
     );
-    restore_optional_secret(&mut incoming.composio.api_key, &current.composio.api_key);
     restore_optional_secret(&mut incoming.proxy.http_proxy, &current.proxy.http_proxy);
     restore_optional_secret(&mut incoming.proxy.https_proxy, &current.proxy.https_proxy);
     restore_optional_secret(&mut incoming.proxy.all_proxy, &current.proxy.all_proxy);

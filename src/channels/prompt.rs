@@ -192,11 +192,6 @@ pub(crate) fn build_channel_tool_descriptions(
             "cron_update",
             "Update an existing cron job's schedule, command, or delivery. Use when: modifying a scheduled task without recreating it.",
         ),
-        // ── Notifications ──
-        (
-            "pushover",
-            "Send a push notification to the user's device. Use when: user wants mobile alerts. Requires PUSHOVER_TOKEN and PUSHOVER_USER_KEY in .env.",
-        ),
         // ── Media ──
         (
             "screenshot",
@@ -249,14 +244,6 @@ pub(crate) fn build_channel_tool_descriptions(
         ));
     }
 
-    // ── Conditional: composio ──
-    if config.composio.enabled {
-        tool_descs.push((
-            "composio",
-            "Execute actions on 1000+ OAuth-integrated apps (Gmail, Notion, GitHub, Slack, etc.). Use action='list' to discover, 'execute' to run, 'connect' for OAuth setup.",
-        ));
-    }
-
     // ── Conditional: discord history ──
     if config.channels_config.discord.is_some() {
         tool_descs.push((
@@ -286,30 +273,6 @@ pub(crate) fn build_channel_tool_descriptions(
         tool_descs.push((
             "delegate_coordination_status",
             "Inspect delegate coordination runtime state for debugging multi-agent workflows.",
-        ));
-    }
-
-    // ── Conditional: IPC ──
-    if config.agents_ipc.enabled {
-        tool_descs.push((
-            "agents_list",
-            "List other TopClaw instances on this host. Use when: discovering agents for inter-process communication.",
-        ));
-        tool_descs.push((
-            "agents_send",
-            "Send a message to another agent. Use when: coordinating between agent instances.",
-        ));
-        tool_descs.push((
-            "agents_inbox",
-            "Read messages from other agents. Use when: checking for incoming inter-agent communications.",
-        ));
-        tool_descs.push((
-            "agents_state_get",
-            "Read shared IPC state by key. Use when: accessing state published by other agents.",
-        ));
-        tool_descs.push((
-            "agents_state_set",
-            "Write shared IPC state. Use when: publishing state for other agents to consume.",
         ));
     }
 

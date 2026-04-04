@@ -3,16 +3,8 @@ pub mod chunker;
 pub mod cli;
 pub mod embeddings;
 pub mod hygiene;
-#[cfg(feature = "memory-lucid")]
-pub mod lucid;
-#[cfg(feature = "memory-mariadb")]
-pub mod mariadb;
 pub mod markdown;
 pub mod none;
-#[cfg(feature = "memory-postgres")]
-pub mod postgres;
-#[cfg(feature = "memory-qdrant")]
-pub mod qdrant;
 pub mod response_cache;
 pub mod snapshot;
 pub mod sqlite;
@@ -24,16 +16,8 @@ pub use backend::{
     classify_memory_backend, default_memory_backend_key, memory_backend_profile,
     selectable_memory_backends, MemoryBackendKind, MemoryBackendProfile,
 };
-#[cfg(feature = "memory-lucid")]
-pub use lucid::LucidMemory;
-#[cfg(feature = "memory-mariadb")]
-pub use mariadb::MariadbMemory;
 pub use markdown::MarkdownMemory;
 pub use none::NoneMemory;
-#[cfg(feature = "memory-postgres")]
-pub use postgres::PostgresMemory;
-#[cfg(feature = "memory-qdrant")]
-pub use qdrant::QdrantMemory;
 pub use response_cache::ResponseCache;
 pub use sqlite::SqliteMemory;
 pub use traits::Memory;
@@ -41,42 +25,21 @@ pub use traits::Memory;
 pub use traits::{MemoryCategory, MemoryEntry};
 
 use crate::config::{EmbeddingRouteConfig, MemoryConfig, StorageProviderConfig};
-#[cfg(feature = "memory-qdrant")]
-use anyhow::Context;
 use std::path::Path;
 use std::sync::Arc;
 
-fn create_memory_with_builders<F, G>(
+fn create_memory_with_builder<F>(
     backend_name: &str,
     workspace_dir: &Path,
     mut sqlite_builder: F,
-    mut postgres_builder: G,
     unknown_context: &str,
 ) -> anyhow::Result<Box<dyn Memory>>
 where
     F: FnMut() -> anyhow::Result<SqliteMemory>,
-    G: FnMut() -> anyhow::Result<Box<dyn Memory>>,
 {
     match classify_memory_backend(backend_name) {
         MemoryBackendKind::Sqlite => Ok(Box::new(sqlite_builder()?)),
-        #[cfg(feature = "memory-lucid")]
-        MemoryBackendKind::Lucid => {
-            let local = sqlite_builder()?;
-            Ok(Box::new(LucidMemory::new(workspace_dir, local)))
-        }
-        #[cfg(not(feature = "memory-lucid"))]
-        MemoryBackendKind::Lucid => {
-            anyhow::bail!(
-                "memory backend 'lucid' requested but this build was compiled without `memory-lucid`; rebuild with `--features memory-lucid`"
-            )
-        }
-        MemoryBackendKind::Postgres => postgres_builder(),
-        MemoryBackendKind::Mariadb => {
-            anyhow::bail!("memory backend 'mariadb' is not available in this build context")
-        }
-        MemoryBackendKind::Qdrant | MemoryBackendKind::Markdown => {
-            Ok(Box::new(MarkdownMemory::new(workspace_dir)))
-        }
+        MemoryBackendKind::Markdown => Ok(Box::new(MarkdownMemory::new(workspace_dir))),
         MemoryBackendKind::None => Ok(Box::new(NoneMemory::new())),
         MemoryBackendKind::Unknown => {
             tracing::warn!(
@@ -288,7 +251,6 @@ pub fn create_memory_backend_with_storage_and_routes(
     api_key: Option<&str>,
 ) -> anyhow::Result<Box<dyn Memory>> {
     let backend_name = effective_memory_backend_name(&config.backend, storage_provider);
-    let backend_kind = classify_memory_backend(&backend_name);
     let resolved_embedding = resolve_embedding_config(config, embedding_routes, api_key);
 
     fn build_sqlite_memory(
@@ -316,128 +278,10 @@ pub fn create_memory_backend_with_storage_and_routes(
         Ok(mem)
     }
 
-    #[cfg(feature = "memory-postgres")]
-    fn build_postgres_memory(
-        storage_provider: Option<&StorageProviderConfig>,
-    ) -> anyhow::Result<Box<dyn Memory>> {
-        let storage_provider = storage_provider
-            .context("memory backend 'postgres' requires [storage.provider.config] settings")?;
-        let db_url = storage_provider
-            .db_url
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .context("memory backend 'postgres' requires [storage.provider.config].db_url")?;
-
-        let memory = PostgresMemory::new(
-            db_url,
-            &storage_provider.schema,
-            &storage_provider.table,
-            storage_provider.connect_timeout_secs,
-            storage_provider.tls,
-        )?;
-        Ok(Box::new(memory))
-    }
-
-    #[cfg(not(feature = "memory-postgres"))]
-    fn build_postgres_memory(
-        _storage_provider: Option<&StorageProviderConfig>,
-    ) -> anyhow::Result<Box<dyn Memory>> {
-        anyhow::bail!(
-            "memory backend 'postgres' requested but this build was compiled without `memory-postgres`; rebuild with `--features memory-postgres`"
-        );
-    }
-
-    #[cfg(feature = "memory-mariadb")]
-    fn build_mariadb_memory(
-        storage_provider: Option<&StorageProviderConfig>,
-    ) -> anyhow::Result<Box<dyn Memory>> {
-        let storage_provider = storage_provider
-            .context("memory backend 'mariadb' requires [storage.provider.config] settings")?;
-        let db_url = storage_provider
-            .db_url
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .context("memory backend 'mariadb' requires [storage.provider.config].db_url")?;
-
-        let memory = MariadbMemory::new(
-            db_url,
-            &storage_provider.schema,
-            &storage_provider.table,
-            storage_provider.connect_timeout_secs,
-            storage_provider.tls,
-        )?;
-        Ok(Box::new(memory))
-    }
-
-    #[cfg(not(feature = "memory-mariadb"))]
-    fn build_mariadb_memory(
-        _storage_provider: Option<&StorageProviderConfig>,
-    ) -> anyhow::Result<Box<dyn Memory>> {
-        anyhow::bail!(
-            "memory backend 'mariadb' requested but this build was compiled without `memory-mariadb`; rebuild with `--features memory-mariadb`"
-        );
-    }
-
-    #[cfg(feature = "memory-qdrant")]
-    if matches!(backend_kind, MemoryBackendKind::Qdrant) {
-        let url = config
-            .qdrant
-            .url
-            .clone()
-            .filter(|s| !s.trim().is_empty())
-            .or_else(|| std::env::var("QDRANT_URL").ok())
-            .filter(|s| !s.trim().is_empty())
-            .context(
-                "Qdrant memory backend requires url in [memory.qdrant] or QDRANT_URL env var",
-            )?;
-        let collection = std::env::var("QDRANT_COLLECTION")
-            .ok()
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| config.qdrant.collection.clone());
-        let qdrant_api_key = config
-            .qdrant
-            .api_key
-            .clone()
-            .or_else(|| std::env::var("QDRANT_API_KEY").ok())
-            .filter(|s| !s.trim().is_empty());
-        let embedder: Arc<dyn embeddings::EmbeddingProvider> =
-            Arc::from(embeddings::create_embedding_provider(
-                &resolved_embedding.provider,
-                resolved_embedding.api_key.as_deref(),
-                &resolved_embedding.model,
-                resolved_embedding.dimensions,
-            ));
-        tracing::info!(
-            "📦 Qdrant memory backend configured (url: {}, collection: {})",
-            url,
-            collection
-        );
-        return Ok(Box::new(QdrantMemory::new_lazy(
-            &url,
-            &collection,
-            qdrant_api_key,
-            embedder,
-        )));
-    }
-
-    #[cfg(not(feature = "memory-qdrant"))]
-    if matches!(backend_kind, MemoryBackendKind::Qdrant) {
-        anyhow::bail!(
-            "memory backend 'qdrant' requested but this build was compiled without `memory-qdrant`; rebuild with `--features memory-qdrant`"
-        );
-    }
-
-    if matches!(backend_kind, MemoryBackendKind::Mariadb) {
-        return build_mariadb_memory(storage_provider);
-    }
-
-    create_memory_with_builders(
+    create_memory_with_builder(
         &backend_name,
         workspace_dir,
         || build_sqlite_memory(config, workspace_dir, &resolved_embedding),
-        || build_postgres_memory(storage_provider),
         "",
     )
 }
@@ -448,24 +292,14 @@ pub fn create_memory_for_migration(
 ) -> anyhow::Result<Box<dyn Memory>> {
     if matches!(classify_memory_backend(backend), MemoryBackendKind::None) {
         anyhow::bail!(
-            "memory backend 'none' disables persistence; choose sqlite, lucid, or markdown before migration"
+            "memory backend 'none' disables persistence; choose sqlite or markdown before migration"
         );
     }
 
-    if matches!(
-        classify_memory_backend(backend),
-        MemoryBackendKind::Postgres | MemoryBackendKind::Mariadb
-    ) {
-        anyhow::bail!(
-            "memory migration for SQL backends ('postgres' / 'mariadb') is unsupported; migrate with sqlite or markdown first"
-        );
-    }
-
-    create_memory_with_builders(
+    create_memory_with_builder(
         backend,
         workspace_dir,
         || SqliteMemory::new(workspace_dir),
-        || anyhow::bail!("postgres backend is not available in migration context"),
         " during migration",
     )
 }
@@ -499,7 +333,7 @@ pub fn create_response_cache(config: &MemoryConfig, workspace_dir: &Path) -> Opt
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{EmbeddingRouteConfig, StorageProviderConfig};
+    use crate::config::EmbeddingRouteConfig;
     use tempfile::TempDir;
 
     #[test]
@@ -534,32 +368,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "memory-lucid")]
-    fn factory_lucid() {
-        let tmp = TempDir::new().unwrap();
-        let cfg = MemoryConfig {
-            backend: "lucid".into(),
-            ..MemoryConfig::default()
-        };
-        let mem = create_memory(&cfg, tmp.path(), None).unwrap();
-        assert_eq!(mem.name(), "lucid");
-    }
-
-    #[test]
-    #[cfg(not(feature = "memory-lucid"))]
-    fn factory_lucid_requires_feature() {
-        let tmp = TempDir::new().unwrap();
-        let cfg = MemoryConfig {
-            backend: "lucid".into(),
-            ..MemoryConfig::default()
-        };
-        let err = create_memory(&cfg, tmp.path(), None)
-            .err()
-            .expect("backend=lucid should require the memory-lucid feature");
-        assert!(err.to_string().contains("memory-lucid"));
-    }
-
-    #[test]
     fn factory_none_uses_noop_memory() {
         let tmp = TempDir::new().unwrap();
         let cfg = MemoryConfig {
@@ -582,24 +390,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "memory-lucid")]
-    fn migration_factory_lucid() {
-        let tmp = TempDir::new().unwrap();
-        let mem = create_memory_for_migration("lucid", tmp.path()).unwrap();
-        assert_eq!(mem.name(), "lucid");
-    }
-
-    #[test]
-    #[cfg(not(feature = "memory-lucid"))]
-    fn migration_factory_lucid_requires_feature() {
-        let tmp = TempDir::new().unwrap();
-        let err = create_memory_for_migration("lucid", tmp.path())
-            .err()
-            .expect("backend=lucid should require the memory-lucid feature");
-        assert!(err.to_string().contains("memory-lucid"));
-    }
-
-    #[test]
     fn migration_factory_none_is_rejected() {
         let tmp = TempDir::new().unwrap();
         let error = create_memory_for_migration("none", tmp.path())
@@ -611,62 +401,14 @@ mod tests {
     #[test]
     fn effective_backend_name_prefers_storage_override() {
         let storage = StorageProviderConfig {
-            provider: "postgres".into(),
+            provider: "sqlite".into(),
             ..StorageProviderConfig::default()
         };
 
         assert_eq!(
-            effective_memory_backend_name("sqlite", Some(&storage)),
-            "postgres"
+            effective_memory_backend_name("markdown", Some(&storage)),
+            "sqlite"
         );
-    }
-
-    #[test]
-    fn factory_postgres_without_db_url_is_rejected() {
-        let tmp = TempDir::new().unwrap();
-        let cfg = MemoryConfig {
-            backend: "postgres".into(),
-            ..MemoryConfig::default()
-        };
-
-        let storage = StorageProviderConfig {
-            provider: "postgres".into(),
-            db_url: None,
-            ..StorageProviderConfig::default()
-        };
-
-        let error = create_memory_with_storage(&cfg, Some(&storage), tmp.path(), None)
-            .err()
-            .expect("postgres without db_url should be rejected");
-        if cfg!(feature = "memory-postgres") {
-            assert!(error.to_string().contains("db_url"));
-        } else {
-            assert!(error.to_string().contains("memory-postgres"));
-        }
-    }
-
-    #[test]
-    fn factory_mariadb_without_db_url_is_rejected() {
-        let tmp = TempDir::new().unwrap();
-        let cfg = MemoryConfig {
-            backend: "mariadb".into(),
-            ..MemoryConfig::default()
-        };
-
-        let storage = StorageProviderConfig {
-            provider: "mariadb".into(),
-            db_url: None,
-            ..StorageProviderConfig::default()
-        };
-
-        let error = create_memory_with_storage(&cfg, Some(&storage), tmp.path(), None)
-            .err()
-            .expect("mariadb without db_url should be rejected");
-        if cfg!(feature = "memory-mariadb") {
-            assert!(error.to_string().contains("db_url"));
-        } else {
-            assert!(error.to_string().contains("memory-mariadb"));
-        }
     }
 
     #[test]

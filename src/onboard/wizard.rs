@@ -1,18 +1,15 @@
 use crate::config::schema::StreamMode;
-#[cfg(feature = "hardware")]
-use crate::config::HardwareTransport;
 use crate::config::{
-    AutonomyConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config, DiscordConfig,
-    HardwareConfig, HeartbeatConfig, HttpRequestConfig, MemoryConfig, ObservabilityConfig,
-    RuntimeConfig, SecretsConfig, StorageConfig, TelegramConfig, WebFetchConfig, WebSearchConfig,
-    WebhookConfig,
+    AutonomyConfig, BrowserConfig, ChannelsConfig, Config, DiscordConfig, HeartbeatConfig,
+    HttpRequestConfig, MemoryConfig, ObservabilityConfig, RuntimeConfig, SecretsConfig,
+    StorageConfig, TelegramConfig, WebFetchConfig, WebSearchConfig, WebhookConfig,
 };
 use crate::memory::{
     default_memory_backend_key, memory_backend_profile, selectable_memory_backends,
 };
 use crate::providers::{
-    is_glm_alias, is_glm_cn_alias, is_minimax_alias, is_moonshot_alias, is_qianfan_alias,
-    is_qwen_alias, is_qwen_oauth_alias, is_zai_alias, is_zai_cn_alias, list_providers,
+    is_minimax_alias, is_moonshot_alias, is_qianfan_alias, is_qwen_alias, is_qwen_oauth_alias,
+    is_zai_alias, is_zai_cn_alias, list_providers,
 };
 use anyhow::{bail, Context, Result};
 use console::style;
@@ -232,7 +229,6 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         storage: StorageConfig::default(),
         tunnel: crate::config::TunnelConfig::default(),
         gateway: crate::config::GatewayConfig::default(),
-        composio: ComposioConfig::default(),
         secrets: SecretsConfig::default(),
         browser: BrowserConfig::default(),
         http_request: HttpRequestConfig::default(),
@@ -242,13 +238,10 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         proxy: crate::config::ProxyConfig::default(),
         identity: crate::config::IdentityConfig::default(),
         cost: crate::config::CostConfig::default(),
-        peripherals: crate::config::PeripheralsConfig::default(),
         agents: std::collections::HashMap::new(),
         hooks: crate::config::HooksConfig::default(),
-        hardware: HardwareConfig::default(),
         query_classification: crate::config::QueryClassificationConfig::default(),
         transcription: crate::config::TranscriptionConfig::default(),
-        agents_ipc: crate::config::AgentsIpcConfig::default(),
         model_support_vision: None,
     };
     apply_onboarding_skill_tool_defaults(&mut config, &skill_selection);
@@ -762,7 +755,6 @@ async fn run_quick_setup_with_home(
         storage: StorageConfig::default(),
         tunnel: crate::config::TunnelConfig::default(),
         gateway: crate::config::GatewayConfig::default(),
-        composio: ComposioConfig::default(),
         secrets: SecretsConfig::default(),
         browser: BrowserConfig::default(),
         http_request: crate::config::HttpRequestConfig::default(),
@@ -772,13 +764,10 @@ async fn run_quick_setup_with_home(
         proxy: crate::config::ProxyConfig::default(),
         identity: crate::config::IdentityConfig::default(),
         cost: crate::config::CostConfig::default(),
-        peripherals: crate::config::PeripheralsConfig::default(),
         agents: std::collections::HashMap::new(),
         hooks: crate::config::HooksConfig::default(),
-        hardware: crate::config::HardwareConfig::default(),
         query_classification: crate::config::QueryClassificationConfig::default(),
         transcription: crate::config::TranscriptionConfig::default(),
-        agents_ipc: crate::config::AgentsIpcConfig::default(),
         model_support_vision: None,
     };
 
@@ -869,20 +858,13 @@ async fn run_quick_setup_with_home(
             println!("    2. Chat:     topclaw agent -m \"Hello!\"");
             println!("    3. Status:   topclaw status");
         } else if provider_supports_device_flow(&provider_name) {
-            if canonical_provider_name(&provider_name) == "copilot" {
-                println!("    1. Channels:          topclaw bootstrap --channels-only");
-                println!("    2. Chat:              topclaw agent -m \"Hello!\"");
-                println!("       (device / OAuth auth will prompt on first run)");
-                println!("    3. Status:            topclaw status");
-            } else {
-                println!(
-                    "    1. Login:             topclaw auth login --provider {}",
-                    provider_name
-                );
-                println!("    2. Channels:          topclaw bootstrap --channels-only");
-                println!("    3. Chat:              topclaw agent -m \"Hello!\"");
-                println!("    4. Status:            topclaw status");
-            }
+            println!(
+                "    1. Login:             topclaw auth login --provider {}",
+                provider_name
+            );
+            println!("    2. Channels:          topclaw bootstrap --channels-only");
+            println!("    3. Chat:              topclaw agent -m \"Hello!\"");
+            println!("    4. Status:            topclaw status");
         } else {
             let env_var = provider_env_var(&provider_name);
             println!("    1. Set your API key:  export {env_var}=\"sk-...\"");
@@ -957,7 +939,7 @@ fn default_model_for_provider(provider: &str) -> String {
         "cohere" => "command-a-03-2025".into(),
         "moonshot" => "kimi-k2.5".into(),
         "hunyuan" => "hunyuan-t1-latest".into(),
-        "glm" | "zai" => "glm-5".into(),
+        "zai" => "glm-5".into(),
         "minimax" => "MiniMax-M2.5".into(),
         "qwen" => "qwen-plus".into(),
         "qwen-code" => "qwen3-coder-plus".into(),
@@ -966,7 +948,6 @@ fn default_model_for_provider(provider: &str) -> String {
         "sglang" | "vllm" | "osaurus" => "default".into(),
         "gemini" => "gemini-2.5-pro".into(),
         "kimi-code" => "kimi-for-coding".into(),
-        "bedrock" => "anthropic.claude-sonnet-4-5-20250929-v1:0".into(),
         "nvidia" => "meta/llama-3.3-70b-instruct".into(),
         _ => "anthropic/claude-sonnet-4.6".into(),
     }
@@ -1218,7 +1199,7 @@ fn curated_models_for_provider(provider_name: &str) -> Vec<(String, String)> {
                 "Kimi K2 0905 Preview (strong coding)".to_string(),
             ),
         ],
-        "glm" | "zai" => vec![
+        "zai" => vec![
             ("glm-5".to_string(), "GLM-5 (high reasoning)".to_string()),
             (
                 "glm-4.7".to_string(),
@@ -1356,24 +1337,6 @@ fn curated_models_for_provider(provider_name: &str) -> Vec<(String, String)> {
             (
                 "phi-4-mini-reasoning-mlx-4bit".to_string(),
                 "Phi-4 Mini Reasoning (local, fast reasoning)".to_string(),
-            ),
-        ],
-        "bedrock" => vec![
-            (
-                "anthropic.claude-sonnet-4-6".to_string(),
-                "Claude Sonnet 4.6 (latest, recommended)".to_string(),
-            ),
-            (
-                "anthropic.claude-opus-4-6-v1".to_string(),
-                "Claude Opus 4.6 (strongest)".to_string(),
-            ),
-            (
-                "anthropic.claude-haiku-4-5-20251001-v1:0".to_string(),
-                "Claude Haiku 4.5 (fastest, cheapest)".to_string(),
-            ),
-            (
-                "anthropic.claude-sonnet-4-5-20250929-v1:0".to_string(),
-                "Claude Sonnet 4.5".to_string(),
             ),
         ],
         "gemini" => vec![
@@ -1958,7 +1921,6 @@ fn provider_env_var(name: &str) -> &'static str {
         "cohere" => "COHERE_API_KEY",
         "kimi-code" => "KIMI_CODE_API_KEY",
         "moonshot" => "MOONSHOT_API_KEY",
-        "glm" => "GLM_API_KEY",
         "minimax" => "MINIMAX_API_KEY",
         "qwen" => "DASHSCOPE_API_KEY",
         "hunyuan" => "HUNYUAN_API_KEY",
@@ -1968,7 +1930,6 @@ fn provider_env_var(name: &str) -> &'static str {
         "opencode" | "opencode-zen" => "OPENCODE_API_KEY",
         "vercel" | "vercel-ai" => "VERCEL_API_KEY",
         "cloudflare" | "cloudflare-ai" => "CLOUDFLARE_API_KEY",
-        "bedrock" | "aws-bedrock" => "AWS_ACCESS_KEY_ID",
         "gemini" => "GEMINI_API_KEY",
         "nvidia" | "nvidia-nim" | "build.nvidia.com" => "NVIDIA_API_KEY",
         "astrai" => "ASTRAI_API_KEY",
@@ -1990,7 +1951,7 @@ fn provider_supports_keyless_local_usage(provider_name: &str) -> bool {
 fn provider_supports_device_flow(provider_name: &str) -> bool {
     matches!(
         canonical_provider_name(provider_name),
-        "copilot" | "gemini" | "openai-codex"
+        "gemini" | "openai-codex"
     )
 }
 
@@ -2491,17 +2452,6 @@ fn print_summary(config: &Config, service_outcome: &BackgroundServiceOutcome) {
             "none (local only)".to_string()
         } else {
             config.tunnel.provider.clone()
-        }
-    );
-
-    // Composio
-    println!(
-        "    {} Composio:      {}",
-        style("🔗").cyan(),
-        if config.composio.enabled {
-            style("enabled (1000+ OAuth apps)").green().to_string()
-        } else {
-            "disabled (sovereign mode)".to_string()
         }
     );
 
@@ -3563,16 +3513,11 @@ mod tests {
         assert_eq!(default_model_for_provider("qwen"), "qwen-plus");
         assert_eq!(default_model_for_provider("qwen-intl"), "qwen-plus");
         assert_eq!(default_model_for_provider("qwen-code"), "qwen3-coder-plus");
-        assert_eq!(default_model_for_provider("glm-cn"), "glm-5");
         assert_eq!(default_model_for_provider("minimax-cn"), "MiniMax-M2.5");
         assert_eq!(default_model_for_provider("zai-cn"), "glm-5");
         assert_eq!(default_model_for_provider("gemini"), "gemini-2.5-pro");
         assert_eq!(default_model_for_provider("google"), "gemini-2.5-pro");
         assert_eq!(default_model_for_provider("kimi-code"), "kimi-for-coding");
-        assert_eq!(
-            default_model_for_provider("bedrock"),
-            "anthropic.claude-sonnet-4-5-20250929-v1:0"
-        );
         assert_eq!(
             default_model_for_provider("google-gemini"),
             "gemini-2.5-pro"
@@ -3613,13 +3558,10 @@ mod tests {
         assert_eq!(canonical_provider_name("kimi-cn"), "moonshot");
         assert_eq!(canonical_provider_name("kimi_coding"), "kimi-code");
         assert_eq!(canonical_provider_name("kimi_for_coding"), "kimi-code");
-        assert_eq!(canonical_provider_name("glm-cn"), "glm");
-        assert_eq!(canonical_provider_name("bigmodel"), "glm");
         assert_eq!(canonical_provider_name("minimax-cn"), "minimax");
         assert_eq!(canonical_provider_name("zai-cn"), "zai");
         assert_eq!(canonical_provider_name("z.ai-global"), "zai");
         assert_eq!(canonical_provider_name("nvidia-nim"), "nvidia");
-        assert_eq!(canonical_provider_name("aws-bedrock"), "bedrock");
         assert_eq!(canonical_provider_name("build.nvidia.com"), "nvidia");
         assert_eq!(canonical_provider_name("llama.cpp"), "llamacpp");
         assert_eq!(canonical_provider_name("together"), "together");
@@ -3649,20 +3591,6 @@ mod tests {
 
         assert!(ids.contains(&"gpt-5.2".to_string()));
         assert!(ids.contains(&"gpt-5-mini".to_string()));
-    }
-
-    #[test]
-    fn curated_models_for_glm_removes_deprecated_flash_plus_aliases() {
-        let ids: Vec<String> = curated_models_for_provider("glm")
-            .into_iter()
-            .map(|(id, _)| id)
-            .collect();
-
-        assert!(ids.contains(&"glm-5".to_string()));
-        assert!(ids.contains(&"glm-4.7".to_string()));
-        assert!(ids.contains(&"glm-4.5-air".to_string()));
-        assert!(!ids.contains(&"glm-4-plus".to_string()));
-        assert!(!ids.contains(&"glm-4-flash".to_string()));
     }
 
     #[test]
@@ -3778,19 +3706,6 @@ mod tests {
     }
 
     #[test]
-    fn curated_models_for_bedrock_include_verified_model_ids() {
-        let ids: Vec<String> = curated_models_for_provider("bedrock")
-            .into_iter()
-            .map(|(id, _)| id)
-            .collect();
-
-        assert!(ids.contains(&"anthropic.claude-sonnet-4-6".to_string()));
-        assert!(ids.contains(&"anthropic.claude-opus-4-6-v1".to_string()));
-        assert!(ids.contains(&"anthropic.claude-haiku-4-5-20251001-v1:0".to_string()));
-        assert!(ids.contains(&"anthropic.claude-sonnet-4-5-20250929-v1:0".to_string()));
-    }
-
-    #[test]
     fn curated_models_for_moonshot_drop_deprecated_aliases() {
         let ids: Vec<String> = curated_models_for_provider("moonshot")
             .into_iter()
@@ -3861,7 +3776,6 @@ mod tests {
         assert!(supports_live_model_fetch("vllm"));
         assert!(supports_live_model_fetch("astrai"));
         assert!(supports_live_model_fetch("venice"));
-        assert!(supports_live_model_fetch("glm-cn"));
         assert!(supports_live_model_fetch("qwen-intl"));
         assert!(!supports_live_model_fetch("openai-codex"));
         assert!(!supports_live_model_fetch("minimax-cn"));
@@ -3914,10 +3828,6 @@ mod tests {
             curated_models_for_provider("llamacpp"),
             curated_models_for_provider("llama.cpp")
         );
-        assert_eq!(
-            curated_models_for_provider("bedrock"),
-            curated_models_for_provider("aws-bedrock")
-        );
     }
 
     #[test]
@@ -3934,10 +3844,6 @@ mod tests {
 
     #[test]
     fn models_endpoint_for_provider_handles_region_aliases() {
-        assert_eq!(
-            models_endpoint_for_provider("glm-cn"),
-            Some("https://open.bigmodel.cn/api/paas/v4/models")
-        );
         assert_eq!(
             models_endpoint_for_provider("zai-cn"),
             Some("https://open.bigmodel.cn/api/coding/paas/v4/models")
@@ -4254,7 +4160,6 @@ mod tests {
         assert_eq!(provider_env_var("dashscope-us"), "DASHSCOPE_API_KEY");
         assert_eq!(provider_env_var("qwen-code"), "QWEN_OAUTH_TOKEN");
         assert_eq!(provider_env_var("qwen-oauth"), "QWEN_OAUTH_TOKEN");
-        assert_eq!(provider_env_var("glm-cn"), "GLM_API_KEY");
         assert_eq!(provider_env_var("minimax-cn"), "MINIMAX_API_KEY");
         assert_eq!(provider_env_var("kimi-code"), "KIMI_CODE_API_KEY");
         assert_eq!(provider_env_var("kimi_coding"), "KIMI_CODE_API_KEY");
@@ -4331,9 +4236,7 @@ mod tests {
     }
 
     #[test]
-    fn provider_supports_device_flow_copilot() {
-        assert!(provider_supports_device_flow("copilot"));
-        assert!(provider_supports_device_flow("github-copilot"));
+    fn provider_supports_device_flow_coverage() {
         assert!(provider_supports_device_flow("gemini"));
         assert!(provider_supports_device_flow("openai-codex"));
         assert!(!provider_supports_device_flow("openai"));
@@ -4382,13 +4285,7 @@ mod tests {
     }
 
     #[test]
-    fn memory_backend_profile_marks_lucid_as_optional_sqlite_backed() {
-        let lucid = memory_backend_profile("lucid");
-        assert!(lucid.auto_save_default);
-        assert!(lucid.uses_sqlite_hygiene);
-        assert!(lucid.sqlite_based);
-        assert!(lucid.optional_dependency);
-
+    fn memory_backend_profile_known_variants() {
         let markdown = memory_backend_profile("markdown");
         assert!(markdown.auto_save_default);
         assert!(!markdown.uses_sqlite_hygiene);
@@ -4400,17 +4297,19 @@ mod tests {
         let custom = memory_backend_profile("custom-memory");
         assert!(custom.auto_save_default);
         assert!(!custom.uses_sqlite_hygiene);
+
+        // Removed backends (lucid, qdrant, postgres, mariadb) now classify as unknown/custom.
+        let lucid = memory_backend_profile("lucid");
+        assert_eq!(lucid.key, "custom");
     }
 
     #[test]
-    fn memory_config_defaults_for_lucid_enable_sqlite_hygiene() {
+    fn memory_config_defaults_for_unknown_backend() {
         let config = memory_config_defaults_for_backend("lucid");
         assert_eq!(config.backend, "lucid");
         assert!(config.auto_save);
-        assert!(config.hygiene_enabled);
-        assert_eq!(config.archive_after_days, 7);
-        assert_eq!(config.purge_after_days, 30);
-        assert_eq!(config.embedding_cache_size, 10000);
+        // Unknown backends (including removed ones) get custom/fallback settings.
+        assert_eq!(config.embedding_cache_size, 0);
     }
 
     #[test]

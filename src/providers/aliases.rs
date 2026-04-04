@@ -28,18 +28,6 @@ pub(crate) fn is_minimax_alias(name: &str) -> bool {
     is_minimax_intl_alias(name) || is_minimax_cn_alias(name)
 }
 
-pub(crate) fn is_glm_global_alias(name: &str) -> bool {
-    matches!(name, "glm" | "zhipu" | "glm-global" | "zhipu-global")
-}
-
-pub(crate) fn is_glm_cn_alias(name: &str) -> bool {
-    matches!(name, "glm-cn" | "zhipu-cn" | "bigmodel")
-}
-
-pub(crate) fn is_glm_alias(name: &str) -> bool {
-    is_glm_global_alias(name) || is_glm_cn_alias(name)
-}
-
 pub(crate) fn is_moonshot_intl_alias(name: &str) -> bool {
     matches!(
         name,
