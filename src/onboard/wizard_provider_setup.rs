@@ -1,9 +1,8 @@
 use super::{
-    canonical_provider_name, is_glm_alias, is_glm_cn_alias, is_minimax_alias, is_moonshot_alias,
-    is_qianfan_alias, is_qwen_alias, is_zai_alias, is_zai_cn_alias, local_provider_choices,
-    maybe_prompt_openai_codex_login, normalize_ollama_endpoint_url, print_bullet,
-    prompt_for_default_model, provider_env_var, provider_supports_keyless_local_usage,
-    provider_uses_oauth_without_api_key,
+    canonical_provider_name, is_minimax_alias, is_moonshot_alias, is_qianfan_alias, is_qwen_alias,
+    is_zai_alias, is_zai_cn_alias, local_provider_choices, maybe_prompt_openai_codex_login,
+    normalize_ollama_endpoint_url, print_bullet, prompt_for_default_model, provider_env_var,
+    provider_supports_keyless_local_usage, provider_uses_oauth_without_api_key,
 };
 use anyhow::{Context, Result};
 use console::style;
@@ -94,7 +93,6 @@ pub(super) fn advanced_provider_choices(tier_idx: usize) -> Vec<(&'static str, &
                 "astrai",
                 "Astrai — compliant AI routing (PII stripping, cost optimization)",
             ),
-            ("bedrock", "Amazon Bedrock — AWS managed models"),
         ],
         3 => vec![
             (
@@ -110,8 +108,6 @@ pub(super) fn advanced_provider_choices(tier_idx: usize) -> Vec<(&'static str, &
                 "moonshot-intl",
                 "Moonshot — Kimi API (international endpoint)",
             ),
-            ("glm", "GLM — ChatGLM / Zhipu (international endpoint)"),
-            ("glm-cn", "GLM — ChatGLM / Zhipu (China endpoint)"),
             (
                 "minimax",
                 "MiniMax — international endpoint (api.minimax.io)",
@@ -491,9 +487,9 @@ pub(super) async fn prompt_advanced_provider_credentials(
             "https://platform.moonshot.cn/console/api-keys"
         } else if canonical_provider_name(provider_name) == "qwen-code" {
             "https://qwen.readthedocs.io/en/latest/getting_started/installation.html"
-        } else if is_glm_cn_alias(provider_name) || is_zai_cn_alias(provider_name) {
+        } else if is_zai_cn_alias(provider_name) {
             "https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys"
-        } else if is_glm_alias(provider_name) || is_zai_alias(provider_name) {
+        } else if is_zai_alias(provider_name) {
             "https://platform.z.ai/"
         } else if is_minimax_alias(provider_name) {
             "https://www.minimaxi.com/user-center/basic-information"
@@ -518,7 +514,6 @@ pub(super) async fn prompt_advanced_provider_credentials(
                 "vercel" => "https://vercel.com/account/tokens",
                 "cloudflare" => "https://dash.cloudflare.com/profile/api-tokens",
                 "nvidia" | "nvidia-nim" | "build.nvidia.com" => "https://build.nvidia.com/",
-                "bedrock" => "https://console.aws.amazon.com/iam",
                 "gemini" => "https://aistudio.google.com/app/apikey",
                 "astrai" => "https://as-trai.com",
                 _ => "",
@@ -526,50 +521,29 @@ pub(super) async fn prompt_advanced_provider_credentials(
         };
 
         println!();
-        if matches!(provider_name, "bedrock" | "aws-bedrock") {
-            print_bullet("Bedrock uses AWS credentials (not a single API key).");
+        if !key_url.is_empty() {
             print_bullet(&format!(
-                "Set {} and {} environment variables.",
-                style("AWS_ACCESS_KEY_ID").yellow(),
-                style("AWS_SECRET_ACCESS_KEY").yellow(),
+                "Get your API key at: {}",
+                style(key_url).cyan().underlined()
             ));
-            print_bullet(&format!(
-                "Optionally set {} for the region (default: us-east-1).",
-                style("AWS_REGION").yellow(),
-            ));
-            if !key_url.is_empty() {
-                print_bullet(&format!(
-                    "Manage IAM credentials at: {}",
-                    style(key_url).cyan().underlined()
-                ));
-            }
-            println!();
-            String::new()
-        } else {
-            if !key_url.is_empty() {
-                print_bullet(&format!(
-                    "Get your API key at: {}",
-                    style(key_url).cyan().underlined()
-                ));
-            }
-            print_bullet("You can also set it later via env var or config file.");
-            println!();
-
-            let key: String = Input::new()
-                .with_prompt("  Paste your API key (or press Enter to skip)")
-                .allow_empty(true)
-                .interact_text()?;
-
-            if key.is_empty() {
-                let env_var = provider_env_var(provider_name);
-                print_bullet(&format!(
-                    "Skipped. Set {} or edit config.toml later.",
-                    style(env_var).yellow()
-                ));
-            }
-
-            key
         }
+        print_bullet("You can also set it later via env var or config file.");
+        println!();
+
+        let key: String = Input::new()
+            .with_prompt("  Paste your API key (or press Enter to skip)")
+            .allow_empty(true)
+            .interact_text()?;
+
+        if key.is_empty() {
+            let env_var = provider_env_var(provider_name);
+            print_bullet(&format!(
+                "Skipped. Set {} or edit config.toml later.",
+                style(env_var).yellow()
+            ));
+        }
+
+        key
     };
 
     Ok((api_key, provider_api_url))

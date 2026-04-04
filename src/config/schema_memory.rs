@@ -1,18 +1,4 @@
-use super::{MemoryConfig, QdrantConfig};
-
-pub(crate) fn default_qdrant_collection() -> String {
-    "topclaw_memories".into()
-}
-
-impl Default for QdrantConfig {
-    fn default() -> Self {
-        Self {
-            url: None,
-            collection: default_qdrant_collection(),
-            api_key: None,
-        }
-    }
-}
+use super::MemoryConfig;
 
 pub(crate) fn default_embedding_provider() -> String {
     "none".into()
@@ -94,7 +80,7 @@ impl Default for MemoryConfig {
             snapshot_on_hygiene: false,
             auto_hydrate: true,
             sqlite_open_timeout_secs: None,
-            qdrant: QdrantConfig::default(),
+            qdrant: super::QdrantConfig::default(),
         }
     }
 }

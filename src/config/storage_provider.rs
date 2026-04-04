@@ -9,7 +9,7 @@ pub struct StorageProviderSection {
     pub config: StorageProviderConfig,
 }
 
-/// Storage provider backend configuration (e.g. postgres/mariadb connection details).
+/// Storage provider backend configuration (e.g. connection details for remote storage).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct StorageProviderConfig {
     /// Storage engine key (e.g. "postgres", "mariadb", "sqlite").

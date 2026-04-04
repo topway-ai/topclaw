@@ -48,10 +48,6 @@ impl ChannelsConfig {
     pub fn auxiliary_channels(&self) -> Vec<(Box<dyn crate::config::traits::ConfigHandle>, bool)> {
         vec![
             (
-                Box::new(ConfigWrapper::new(self.bridge.as_ref())),
-                self.bridge.is_some(),
-            ),
-            (
                 Box::new(ConfigWrapper::new(self.webhook.as_ref())),
                 self.webhook.is_some(),
             ),
@@ -69,7 +65,6 @@ impl Default for ChannelsConfig {
     fn default() -> Self {
         Self {
             cli: true,
-            bridge: None,
             telegram: None,
             discord: None,
             webhook: None,

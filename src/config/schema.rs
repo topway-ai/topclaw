@@ -6,12 +6,9 @@ use crate::config::proxy::{
 use crate::config::set_runtime_proxy_config;
 use crate::config::traits::ChannelConfig;
 use crate::config::AgentConfig;
-use crate::config::AgentsIpcConfig;
 use crate::config::AuditConfig;
 use crate::config::AutonomyConfig;
-use crate::config::BridgeConfig;
 use crate::config::BrowserConfig;
-use crate::config::ComposioConfig;
 use crate::config::CoordinationConfig;
 use crate::config::CostConfig;
 use crate::config::CronConfig;
@@ -19,7 +16,6 @@ use crate::config::DelegateAgentConfig;
 use crate::config::EmbeddingRouteConfig;
 use crate::config::EstopConfig;
 use crate::config::GatewayConfig;
-use crate::config::HardwareConfig;
 use crate::config::HeartbeatConfig;
 use crate::config::HooksConfig;
 use crate::config::HttpRequestConfig;
@@ -29,7 +25,6 @@ use crate::config::ModelRouteConfig;
 use crate::config::MultimodalConfig;
 use crate::config::ObservabilityConfig;
 use crate::config::OtpConfig;
-use crate::config::PeripheralsConfig;
 use crate::config::ProviderConfig;
 use crate::config::ProxyConfig;
 use crate::config::ProxyScope;
@@ -48,7 +43,7 @@ use crate::config::TunnelConfig;
 use crate::config::WebFetchConfig;
 use crate::config::WebSearchConfig;
 use crate::config::WorkspacesConfig;
-use crate::providers::{is_glm_alias, is_zai_alias};
+use crate::providers::is_zai_alias;
 use crate::security::DomainMatcher;
 use anyhow::{Context, Result};
 use directories::UserDirs;
@@ -83,8 +78,8 @@ use self::schema_memory::{
     default_archive_after_days, default_cache_size, default_chunk_size,
     default_conversation_retention_days, default_embedding_dims, default_embedding_model,
     default_embedding_provider, default_hygiene_enabled, default_keyword_weight,
-    default_min_relevance_score, default_purge_after_days, default_qdrant_collection,
-    default_response_cache_max, default_response_cache_ttl, default_vector_weight,
+    default_min_relevance_score, default_purge_after_days, default_response_cache_max,
+    default_response_cache_ttl, default_vector_weight,
 };
 use self::schema_security::{
     default_semantic_guard_collection, default_semantic_guard_threshold,
@@ -243,10 +238,6 @@ pub struct Config {
     #[serde(default)]
     pub gateway: GatewayConfig,
 
-    /// Composio managed OAuth tools integration (`[composio]`).
-    #[serde(default)]
-    pub composio: ComposioConfig,
-
     /// Secrets encryption configuration (`[secrets]`).
     #[serde(default)]
     pub secrets: SecretsConfig,
@@ -283,10 +274,6 @@ pub struct Config {
     #[serde(default)]
     pub cost: CostConfig,
 
-    /// Peripheral board configuration for hardware integration (`[peripherals]`).
-    #[serde(default)]
-    pub peripherals: PeripheralsConfig,
-
     /// Delegate agent configurations for multi-agent workflows.
     #[serde(default)]
     pub agents: HashMap<String, DelegateAgentConfig>,
@@ -299,17 +286,9 @@ pub struct Config {
     #[serde(default)]
     pub hooks: HooksConfig,
 
-    /// Hardware configuration (wizard-driven physical world setup).
-    #[serde(default)]
-    pub hardware: HardwareConfig,
-
     /// Voice transcription configuration (Whisper API via Groq).
     #[serde(default)]
     pub transcription: TranscriptionConfig,
-
-    /// Inter-process agent communication (`[agents_ipc]`).
-    #[serde(default)]
-    pub agents_ipc: AgentsIpcConfig,
 
     /// Vision support override for the active provider/model.
     /// - `None` (default): use provider's built-in default
@@ -327,7 +306,6 @@ impl std::fmt::Debug for Config {
             self.model_providers.keys().map(String::as_str).collect();
         let delegate_agent_ids: Vec<&str> = self.agents.keys().map(String::as_str).collect();
         let enabled_channel_count = [
-            self.channels_config.bridge.is_some(),
             self.channels_config.telegram.is_some(),
             self.channels_config.discord.is_some(),
             self.channels_config.webhook.is_some(),
@@ -388,7 +366,7 @@ fn parse_proxy_enabled(raw: &str) -> Option<bool> {
 /// Persistent storage configuration (`[storage]` section).
 #[derive(Debug, Clone, Serialize, Deserialize, Default, JsonSchema)]
 pub struct StorageConfig {
-    /// Storage provider settings (e.g. sqlite, postgres, mariadb).
+    /// Storage provider settings.
     #[serde(default)]
     pub provider: StorageProviderSection,
 }
@@ -397,20 +375,14 @@ pub struct StorageConfig {
 ///
 /// Controls conversation memory storage, embeddings, hybrid search, response caching,
 /// and memory snapshot/hydration.
-/// Configuration for Qdrant vector database backend (`[memory.qdrant]`).
-/// Used when `[memory].backend = "qdrant"`.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+/// Qdrant config stub kept for backward-compatible TOML deserialization.
+/// The qdrant backend has been removed; these values are ignored at runtime.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct QdrantConfig {
-    /// Qdrant server URL (e.g. "http://localhost:6333").
-    /// Falls back to `QDRANT_URL` env var if not set.
     #[serde(default)]
     pub url: Option<String>,
-    /// Qdrant collection name for storing memories.
-    /// Falls back to `QDRANT_COLLECTION` env var, or default "topclaw_memories".
-    #[serde(default = "default_qdrant_collection")]
-    pub collection: String,
-    /// Optional API key for Qdrant Cloud or secured instances.
-    /// Falls back to `QDRANT_API_KEY` env var if not set.
+    #[serde(default)]
+    pub collection: Option<String>,
     #[serde(default)]
     pub api_key: Option<String>,
 }
@@ -418,10 +390,7 @@ pub struct QdrantConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct MemoryConfig {
-    /// "sqlite" | "lucid" | "postgres" | "mariadb" | "qdrant" | "markdown" | "none" (`none` = explicit no-op memory)
-    ///
-    /// `postgres` / `mariadb` require `[storage.provider.config]` with `db_url`.
-    /// `qdrant` uses `[memory.qdrant]` config or `QDRANT_URL` env var and requires the `memory-qdrant` feature.
+    /// "sqlite" | "markdown" | "none" (`none` = explicit no-op memory)
     pub backend: String,
     /// Auto-save user-stated conversation input to memory (assistant output is excluded)
     pub auto_save: bool,
@@ -492,9 +461,7 @@ pub struct MemoryConfig {
     #[serde(default)]
     pub sqlite_open_timeout_secs: Option<u64>,
 
-    // ── Qdrant backend options ─────────────────────────────────
-    /// Configuration for Qdrant vector database backend.
-    /// Only used when `backend = "qdrant"`.
+    // ── Qdrant backend options (removed, kept for backward-compatible deserialization) ──
     #[serde(default)]
     pub qdrant: QdrantConfig,
 }
@@ -539,8 +506,6 @@ pub struct MemoryConfig {
 pub struct ChannelsConfig {
     /// Enable the CLI interactive channel. Default: `true`.
     pub cli: bool,
-    /// Local bridge websocket channel configuration.
-    pub bridge: Option<BridgeConfig>,
     /// Telegram bot channel configuration.
     pub telegram: Option<TelegramConfig>,
     /// Discord bot channel configuration.
@@ -838,7 +803,6 @@ impl Default for Config {
             storage: StorageConfig::default(),
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
-            composio: ComposioConfig::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
             http_request: HttpRequestConfig::default(),
@@ -847,14 +811,11 @@ impl Default for Config {
             web_search: WebSearchConfig::default(),
             proxy: ProxyConfig::default(),
             cost: CostConfig::default(),
-            peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
             coordination: CoordinationConfig::default(),
             hooks: HooksConfig::default(),
-            hardware: HardwareConfig::default(),
             query_classification: QueryClassificationConfig::default(),
             transcription: TranscriptionConfig::default(),
-            agents_ipc: AgentsIpcConfig::default(),
             model_support_vision: None,
         }
     }
@@ -1248,14 +1209,6 @@ impl Config {
         if let Ok(key) = std::env::var("TOPCLAW_API_KEY") {
             if !key.is_empty() {
                 self.api_key = Some(key);
-            }
-        }
-        // API Key: GLM_API_KEY overrides when provider is a GLM/Zhipu variant.
-        if self.default_provider.as_deref().is_some_and(is_glm_alias) {
-            if let Ok(key) = std::env::var("GLM_API_KEY") {
-                if !key.is_empty() {
-                    self.api_key = Some(key);
-                }
             }
         }
 
@@ -1657,10 +1610,8 @@ mod tests {
     use crate::config::NodeControlConfig;
     use crate::config::NonCliNaturalLanguageApprovalMode;
     use crate::config::OtpMethod;
-    use crate::config::PeripheralBoardConfig;
     use crate::config::SkillsPromptInjectionMode;
-    use crate::config::WasmCapabilityEscalationMode;
-    use crate::config::WasmModuleHashPolicy;
+    use crate::config::{WasmCapabilityEscalationMode, WasmModuleHashPolicy};
     use crate::security::{AutonomyLevel, ShellRedirectPolicy};
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
@@ -2064,7 +2015,6 @@ default_temperature = 0.7
 
             channels_config: ChannelsConfig {
                 cli: true,
-                bridge: None,
                 telegram: Some(TelegramConfig {
                     bot_token: "123:ABC".into(),
                     allowed_users: vec!["user1".into()],
@@ -2082,7 +2032,6 @@ default_temperature = 0.7
             storage: StorageConfig::default(),
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
-            composio: ComposioConfig::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
             http_request: HttpRequestConfig::default(),
@@ -2093,12 +2042,9 @@ default_temperature = 0.7
             agent: AgentConfig::default(),
 
             cost: CostConfig::default(),
-            peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
             hooks: HooksConfig::default(),
-            hardware: HardwareConfig::default(),
             transcription: TranscriptionConfig::default(),
-            agents_ipc: AgentsIpcConfig::default(),
             model_support_vision: None,
         };
 
@@ -2417,7 +2363,6 @@ tool_dispatcher = "xml"
             storage: StorageConfig::default(),
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
-            composio: ComposioConfig::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
             http_request: HttpRequestConfig::default(),
@@ -2428,12 +2373,9 @@ tool_dispatcher = "xml"
             agent: AgentConfig::default(),
 
             cost: CostConfig::default(),
-            peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
             hooks: HooksConfig::default(),
-            hardware: HardwareConfig::default(),
             transcription: TranscriptionConfig::default(),
-            agents_ipc: AgentsIpcConfig::default(),
             model_support_vision: None,
         };
 
@@ -2467,7 +2409,6 @@ tool_dispatcher = "xml"
         config.workspace_dir = dir.join("workspace");
         config.config_path = dir.join("config.toml");
         config.api_key = Some("root-credential".into());
-        config.composio.api_key = Some("composio-credential".into());
         config.proxy.http_proxy = Some("http://user:pass@proxy.internal:8080".into());
         config.proxy.https_proxy = Some("https://user:pass@proxy.internal:8443".into());
         config.proxy.all_proxy = Some("socks5://user:pass@proxy.internal:1080".into());
@@ -2516,15 +2457,6 @@ tool_dispatcher = "xml"
         let root_encrypted = stored.api_key.as_deref().unwrap();
         assert!(crate::security::SecretStore::is_encrypted(root_encrypted));
         assert_eq!(store.decrypt(root_encrypted).unwrap(), "root-credential");
-
-        let composio_encrypted = stored.composio.api_key.as_deref().unwrap();
-        assert!(crate::security::SecretStore::is_encrypted(
-            composio_encrypted
-        ));
-        assert_eq!(
-            store.decrypt(composio_encrypted).unwrap(),
-            "composio-credential"
-        );
 
         let proxy_http_encrypted = stored.proxy.http_proxy.as_deref().unwrap();
         assert!(crate::security::SecretStore::is_encrypted(
@@ -2931,43 +2863,6 @@ tool_dispatcher = "xml"
         );
     }
 
-    #[test]
-    async fn bridge_config_deserializes_with_safe_defaults() {
-        let parsed: BridgeConfig = serde_json::from_str("{}").unwrap();
-        assert_eq!(parsed.bind_host, "127.0.0.1");
-        assert_eq!(parsed.bind_port, 8765);
-        assert_eq!(parsed.path, "/ws");
-        assert!(parsed.auth_token.is_empty());
-        assert!(parsed.allowed_senders.is_empty());
-        assert!(!parsed.allow_public_bind);
-        assert_eq!(parsed.max_connections, 64);
-    }
-
-    #[test]
-    async fn channels_config_supports_bridge_section() {
-        let toml_str = r#"
-cli = true
-
-[bridge]
-bind_host = "127.0.0.1"
-bind_port = 9010
-path = "/bridge"
-auth_token = "test-token"
-allowed_senders = ["sender_a", "sender_b"]
-allow_public_bind = false
-max_connections = 16
-"#;
-        let parsed: ChannelsConfig = toml::from_str(toml_str).unwrap();
-        let bridge = parsed.bridge.expect("bridge should be present");
-        assert_eq!(bridge.bind_host, "127.0.0.1");
-        assert_eq!(bridge.bind_port, 9010);
-        assert_eq!(bridge.path, "/bridge");
-        assert_eq!(bridge.auth_token, "test-token");
-        assert_eq!(bridge.allowed_senders, vec!["sender_a", "sender_b"]);
-        assert!(!bridge.allow_public_bind);
-        assert_eq!(bridge.max_connections, 16);
-    }
-
     // ── Edge cases: serde(default) for allowed_users ─────────
 
     #[test]
@@ -3168,58 +3063,6 @@ require_pairing = false
     }
 
     // ══════════════════════════════════════════════════════════
-    // COMPOSIO CONFIG TESTS
-    // ══════════════════════════════════════════════════════════
-
-    #[test]
-    async fn composio_config_default_disabled() {
-        let c = ComposioConfig::default();
-        assert!(!c.enabled, "Composio must be disabled by default");
-        assert!(c.api_key.is_none(), "No API key by default");
-        assert_eq!(c.entity_id, "default");
-    }
-
-    #[test]
-    async fn composio_config_serde_roundtrip() {
-        let c = ComposioConfig {
-            enabled: true,
-            api_key: Some("comp-key-123".into()),
-            entity_id: "user42".into(),
-        };
-        let toml_str = toml::to_string(&c).unwrap();
-        let parsed: ComposioConfig = toml::from_str(&toml_str).unwrap();
-        assert!(parsed.enabled);
-        assert_eq!(parsed.api_key.as_deref(), Some("comp-key-123"));
-        assert_eq!(parsed.entity_id, "user42");
-    }
-
-    #[test]
-    async fn composio_config_backward_compat_missing_section() {
-        let minimal = r#"
-workspace_dir = "/tmp/ws"
-config_path = "/tmp/config.toml"
-default_temperature = 0.7
-"#;
-        let parsed: Config = toml::from_str(minimal).unwrap();
-        assert!(
-            !parsed.composio.enabled,
-            "Missing [composio] must default to disabled"
-        );
-        assert!(parsed.composio.api_key.is_none());
-    }
-
-    #[test]
-    async fn composio_config_partial_toml() {
-        let toml_str = r"
-enabled = true
-";
-        let parsed: ComposioConfig = toml::from_str(toml_str).unwrap();
-        assert!(parsed.enabled);
-        assert!(parsed.api_key.is_none());
-        assert_eq!(parsed.entity_id, "default");
-    }
-
-    // ══════════════════════════════════════════════════════════
     // SECRETS CONFIG TESTS
     // ══════════════════════════════════════════════════════════
 
@@ -3252,10 +3095,8 @@ default_temperature = 0.7
     }
 
     #[test]
-    async fn config_default_has_composio_and_secrets() {
+    async fn config_default_has_secrets_and_browser() {
         let c = Config::default();
-        assert!(!c.composio.enabled);
-        assert!(c.composio.api_key.is_none());
         assert!(c.secrets.encrypt);
         assert!(!c.browser.enabled);
         assert!(c.browser.allowed_domains.is_empty());
@@ -3499,21 +3340,6 @@ provider_api = "not-a-real-mode"
         assert!(err
             .to_string()
             .contains("model_routes[0].max_tokens must be greater than 0"));
-    }
-
-    #[test]
-    async fn env_override_glm_api_key_for_regional_aliases() {
-        let _env_guard = env_override_lock().await;
-        let mut config = Config {
-            default_provider: Some("glm-cn".to_string()),
-            ..Config::default()
-        };
-
-        std::env::set_var("GLM_API_KEY", "glm-regional-key");
-        config.apply_env_overrides();
-        assert_eq!(config.api_key.as_deref(), Some("glm-regional-key"));
-
-        std::env::remove_var("GLM_API_KEY");
     }
 
     #[test]
@@ -4434,44 +4260,6 @@ default_model = "legacy-model"
         assert!(!g.node_control.enabled);
         assert!(g.node_control.auth_token.is_none());
         assert!(g.node_control.allowed_node_ids.is_empty());
-    }
-
-    // ── Peripherals config ───────────────────────────────────────
-
-    #[test]
-    async fn peripherals_config_default_disabled() {
-        let p = PeripheralsConfig::default();
-        assert!(!p.enabled);
-        assert!(p.boards.is_empty());
-    }
-
-    #[test]
-    async fn peripheral_board_config_defaults() {
-        let b = PeripheralBoardConfig::default();
-        assert!(b.board.is_empty());
-        assert_eq!(b.transport, "serial");
-        assert!(b.path.is_none());
-        assert_eq!(b.baud, 115_200);
-    }
-
-    #[test]
-    async fn peripherals_config_toml_roundtrip() {
-        let p = PeripheralsConfig {
-            enabled: true,
-            boards: vec![PeripheralBoardConfig {
-                board: "nucleo-f401re".into(),
-                transport: "serial".into(),
-                path: Some("/dev/ttyACM0".into()),
-                baud: 115_200,
-            }],
-            datasheet_dir: None,
-        };
-        let toml_str = toml::to_string(&p).unwrap();
-        let parsed: PeripheralsConfig = toml::from_str(&toml_str).unwrap();
-        assert!(parsed.enabled);
-        assert_eq!(parsed.boards.len(), 1);
-        assert_eq!(parsed.boards[0].board, "nucleo-f401re");
-        assert_eq!(parsed.boards[0].path.as_deref(), Some("/dev/ttyACM0"));
     }
 
     // ── Config file permission hardening (Unix only) ───────────────

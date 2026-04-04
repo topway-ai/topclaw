@@ -17,10 +17,8 @@
 //! in [`create_provider_with_url`]. See `AGENTS.md` §7.1 for the full change playbook.
 
 pub mod anthropic;
-pub mod bedrock;
 pub mod circuit_breaker;
 pub mod compatible;
-pub mod copilot;
 pub mod error_parser;
 pub mod gemini;
 pub mod health_probe;
@@ -31,13 +29,10 @@ pub mod openrouter;
 pub mod registry;
 pub mod reliable;
 pub mod router;
-pub mod telnyx;
 pub mod traits;
 
 pub mod aliases;
 pub(crate) use aliases::*;
-
-pub mod glm;
 
 #[allow(unused_imports)]
 pub use traits::{
@@ -66,8 +61,6 @@ const MINIMAX_OAUTH_REFRESH_TOKEN_ENV: &str = "MINIMAX_OAUTH_REFRESH_TOKEN";
 const MINIMAX_OAUTH_REGION_ENV: &str = "MINIMAX_OAUTH_REGION";
 const MINIMAX_OAUTH_CLIENT_ID_ENV: &str = "MINIMAX_OAUTH_CLIENT_ID";
 const MINIMAX_OAUTH_DEFAULT_CLIENT_ID: &str = "78257093-7e40-4613-99e0-527b14b39113";
-const GLM_GLOBAL_BASE_URL: &str = "https://api.z.ai/api/paas/v4";
-const GLM_CN_BASE_URL: &str = "https://open.bigmodel.cn/api/paas/v4";
 const MOONSHOT_INTL_BASE_URL: &str = "https://api.moonshot.ai/v1";
 const MOONSHOT_CN_BASE_URL: &str = "https://api.moonshot.cn/v1";
 const QWEN_CN_BASE_URL: &str = "https://dashscope.aliyuncs.com/compatible-mode/v1";
@@ -512,8 +505,6 @@ fn resolve_minimax_oauth_refresh_token(name: &str) -> Option<String> {
 pub(crate) fn canonical_china_provider_name(name: &str) -> Option<&'static str> {
     if is_qwen_alias(name) {
         Some("qwen")
-    } else if is_glm_alias(name) {
-        Some("glm")
     } else if is_moonshot_alias(name) {
         Some("moonshot")
     } else if is_minimax_alias(name) {
@@ -536,16 +527,6 @@ fn minimax_base_url(name: &str) -> Option<&'static str> {
         Some(MINIMAX_CN_BASE_URL)
     } else if is_minimax_intl_alias(name) {
         Some(MINIMAX_INTL_BASE_URL)
-    } else {
-        None
-    }
-}
-
-fn glm_base_url(name: &str) -> Option<&'static str> {
-    if is_glm_cn_alias(name) {
-        Some(GLM_CN_BASE_URL)
-    } else if is_glm_global_alias(name) {
-        Some(GLM_GLOBAL_BASE_URL)
     } else {
         None
     }
@@ -783,17 +764,12 @@ fn resolve_provider_credential(name: &str, credential_override: Option<&str>) ->
         "kimi-code" | "kimi_coding" | "kimi_for_coding" => {
             vec!["KIMI_CODE_API_KEY", "MOONSHOT_API_KEY"]
         }
-        name if is_glm_alias(name) => vec!["GLM_API_KEY"],
         name if is_minimax_alias(name) => vec![MINIMAX_OAUTH_TOKEN_ENV, MINIMAX_API_KEY_ENV],
-        // Bedrock uses AWS AKSK from env vars (AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY),
-        // not a single API key. Credential resolution happens inside BedrockProvider.
-        "bedrock" | "aws-bedrock" => return None,
         name if is_qianfan_alias(name) => vec!["QIANFAN_API_KEY"],
         name if is_doubao_alias(name) => vec!["ARK_API_KEY", "DOUBAO_API_KEY"],
         name if is_qwen_alias(name) => vec!["DASHSCOPE_API_KEY"],
         name if is_zai_alias(name) => vec!["ZAI_API_KEY"],
         "ovhcloud" | "ovh" => vec!["OVH_AI_ENDPOINTS_ACCESS_TOKEN"],
-        "telnyx" => vec!["TELNYX_API_KEY"],
         _ => {
             // Fall back to registry-defined env key names.
             if let Some(entry) = registry::lookup(name) {
@@ -973,8 +949,6 @@ fn create_provider_with_url_and_options(
                 options.auth_profile_override.clone(),
             )))
         }
-        "telnyx" => Ok(Box::new(telnyx::TelnyxProvider::new(key))),
-
         // ── OpenAI-compatible providers (non-registry) ──────
         name if moonshot_base_url(name).is_some() => Ok(Box::new(OpenAiCompatibleProvider::new(
             "Moonshot",
@@ -997,14 +971,6 @@ fn create_provider_with_url_and_options(
             key,
             AuthStyle::Bearer,
         ))),
-        name if glm_base_url(name).is_some() => Ok(Box::new(
-            OpenAiCompatibleProvider::new_no_responses_fallback(
-                "GLM",
-                glm_base_url(name).expect("checked in guard"),
-                key,
-                AuthStyle::Bearer,
-            ),
-        )),
         name if minimax_base_url(name).is_some() => Ok(Box::new(
             OpenAiCompatibleProvider::new_merge_system_into_user(
                 "MiniMax",
@@ -1013,7 +979,6 @@ fn create_provider_with_url_and_options(
                 AuthStyle::Bearer,
             )
         )),
-        "bedrock" | "aws-bedrock" => Ok(Box::new(bedrock::BedrockProvider::new())),
         name if is_qwen_oauth_alias(name) => {
             let base_url = api_url
                 .map(str::trim)
@@ -1048,8 +1013,6 @@ fn create_provider_with_url_and_options(
             AuthStyle::Bearer,
             true,
         ))),
-
-        "copilot" | "github-copilot" => Ok(Box::new(copilot::CopilotProvider::new(key))),
 
         // ── Cloud AI endpoints ───────────────────────────────
         "ovhcloud" | "ovh" => Ok(Box::new(openai::OpenAiProvider::with_base_url(
@@ -1401,12 +1364,10 @@ pub fn canonical_provider_name(name: &str) -> &str {
     match provider_name {
         "openai_codex" | "codex" => "openai-codex",
         "google" | "google-gemini" => "gemini",
-        "github-copilot" => "copilot",
         "grok" => "xai",
         "together-ai" => "together",
         "vercel-ai" => "vercel",
         "cloudflare-ai" => "cloudflare",
-        "aws-bedrock" => "bedrock",
         "nvidia-nim" | "build.nvidia.com" => "nvidia",
         "llama.cpp" => "llamacpp",
         "kimi_coding" | "kimi_for_coding" => "kimi-code",
@@ -1445,7 +1406,6 @@ pub fn supports_model_catalog_refresh(name: &str) -> bool {
             | "novita"
             | "cohere"
             | "moonshot"
-            | "glm"
             | "zai"
             | "qwen"
             | "nvidia"
@@ -1494,12 +1454,6 @@ pub fn list_providers() -> Vec<ProviderInfo> {
             name: "gemini",
             display_name: "Google Gemini",
             aliases: &["google", "google-gemini"],
-            local: false,
-        },
-        ProviderInfo {
-            name: "telnyx",
-            display_name: "Telnyx",
-            aliases: &[],
             local: false,
         },
         // ── OpenAI-compatible providers ──────────────────────
@@ -1552,12 +1506,6 @@ pub fn list_providers() -> Vec<ProviderInfo> {
             local: false,
         },
         ProviderInfo {
-            name: "glm",
-            display_name: "GLM (Zhipu)",
-            aliases: &["zhipu", "glm-cn", "glm-global", "bigmodel"],
-            local: false,
-        },
-        ProviderInfo {
             name: "minimax",
             display_name: "MiniMax",
             aliases: &[
@@ -1571,12 +1519,6 @@ pub fn list_providers() -> Vec<ProviderInfo> {
                 "minimax-portal",
                 "minimax-portal-cn",
             ],
-            local: false,
-        },
-        ProviderInfo {
-            name: "bedrock",
-            display_name: "Amazon Bedrock",
-            aliases: &["aws-bedrock"],
             local: false,
         },
         ProviderInfo {
@@ -1658,12 +1600,6 @@ pub fn list_providers() -> Vec<ProviderInfo> {
             name: "cohere",
             display_name: "Cohere",
             aliases: &[],
-            local: false,
-        },
-        ProviderInfo {
-            name: "copilot",
-            display_name: "GitHub Copilot",
-            aliases: &["github-copilot"],
             local: false,
         },
         ProviderInfo {
@@ -1800,19 +1736,6 @@ mod tests {
     }
 
     #[test]
-    fn resolve_provider_credential_bedrock_uses_internal_credential_path() {
-        let _generic_guard = EnvGuard::set("TOPCLAW_API_KEY", Some("generic-key"));
-        let _override_guard = EnvGuard::set("OPENROUTER_API_KEY", Some("openrouter-key"));
-
-        assert_eq!(
-            resolve_provider_credential("bedrock", Some("explicit")),
-            Some("explicit".to_string())
-        );
-        assert!(resolve_provider_credential("bedrock", None).is_none());
-        assert!(resolve_provider_credential("aws-bedrock", None).is_none());
-    }
-
-    #[test]
     fn resolve_qwen_oauth_context_prefers_explicit_override() {
         let _env_lock = env_lock();
         let fake_home = format!("/tmp/topclaw-qwen-oauth-home-{}", std::process::id());
@@ -1901,8 +1824,6 @@ mod tests {
     fn regional_alias_predicates_cover_expected_variants() {
         assert!(is_moonshot_alias("moonshot"));
         assert!(is_moonshot_alias("kimi-global"));
-        assert!(is_glm_alias("glm"));
-        assert!(is_glm_alias("bigmodel"));
         assert!(is_minimax_alias("minimax-io"));
         assert!(is_minimax_alias("minimaxi"));
         assert!(is_minimax_alias("minimax-oauth"));
@@ -1922,7 +1843,6 @@ mod tests {
         assert!(is_doubao_alias("doubao-cn"));
 
         assert!(!is_moonshot_alias("openrouter"));
-        assert!(!is_glm_alias("openai"));
         assert!(!is_qwen_alias("gemini"));
         assert!(!is_zai_alias("anthropic"));
         assert!(!is_qianfan_alias("cohere"));
@@ -1933,8 +1853,6 @@ mod tests {
     fn canonical_china_provider_name_maps_regional_aliases() {
         assert_eq!(canonical_china_provider_name("moonshot"), Some("moonshot"));
         assert_eq!(canonical_china_provider_name("kimi-intl"), Some("moonshot"));
-        assert_eq!(canonical_china_provider_name("glm"), Some("glm"));
-        assert_eq!(canonical_china_provider_name("zhipu-cn"), Some("glm"));
         assert_eq!(canonical_china_provider_name("minimax"), Some("minimax"));
         assert_eq!(canonical_china_provider_name("minimax-cn"), Some("minimax"));
         assert_eq!(canonical_china_provider_name("qwen"), Some("qwen"));
@@ -1959,10 +1877,6 @@ mod tests {
             Some(MINIMAX_INTL_BASE_URL)
         );
         assert_eq!(minimax_base_url("minimax-cn"), Some(MINIMAX_CN_BASE_URL));
-
-        assert_eq!(glm_base_url("glm"), Some(GLM_GLOBAL_BASE_URL));
-        assert_eq!(glm_base_url("glm-cn"), Some(GLM_CN_BASE_URL));
-        assert_eq!(glm_base_url("bigmodel"), Some(GLM_CN_BASE_URL));
 
         assert_eq!(moonshot_base_url("moonshot"), Some(MOONSHOT_CN_BASE_URL));
         assert_eq!(
@@ -2023,12 +1937,6 @@ mod tests {
         assert!(create_provider("google-gemini", Some("test-key")).is_ok());
         // Should also work without key (will try CLI auth)
         assert!(create_provider("gemini", None).is_ok());
-    }
-
-    #[test]
-    fn factory_telnyx() {
-        assert!(create_provider("telnyx", Some("test-key")).is_ok());
-        assert!(create_provider("telnyx", None).is_ok());
     }
 
     // ── OpenAI-compatible providers ──────────────────────────
@@ -2095,16 +2003,6 @@ mod tests {
     }
 
     #[test]
-    fn factory_glm() {
-        assert!(create_provider("glm", Some("key")).is_ok());
-        assert!(create_provider("zhipu", Some("key")).is_ok());
-        assert!(create_provider("glm-cn", Some("key")).is_ok());
-        assert!(create_provider("zhipu-cn", Some("key")).is_ok());
-        assert!(create_provider("glm-global", Some("key")).is_ok());
-        assert!(create_provider("bigmodel", Some("key")).is_ok());
-    }
-
-    #[test]
     fn factory_minimax() {
         assert!(create_provider("minimax", Some("key")).is_ok());
         assert!(create_provider("minimax-intl", Some("key")).is_ok());
@@ -2126,15 +2024,6 @@ mod tests {
         let minimax_cn =
             create_provider("minimax-cn", Some("key")).expect("provider should resolve");
         assert!(!minimax_cn.supports_native_tools());
-    }
-
-    #[test]
-    fn factory_bedrock() {
-        // Bedrock uses AWS env vars for credentials, not API key.
-        assert!(create_provider("bedrock", None).is_ok());
-        assert!(create_provider("aws-bedrock", None).is_ok());
-        // Passing an api_key is harmless (ignored).
-        assert!(create_provider("bedrock", Some("ignored")).is_ok());
     }
 
     #[test]
@@ -2352,12 +2241,6 @@ mod tests {
     #[test]
     fn factory_cohere() {
         assert!(create_provider("cohere", Some("key")).is_ok());
-    }
-
-    #[test]
-    fn factory_copilot() {
-        assert!(create_provider("copilot", Some("key")).is_ok());
-        assert!(create_provider("github-copilot", Some("key")).is_ok());
     }
 
     #[test]
@@ -2697,14 +2580,10 @@ mod tests {
             "fireworks",
             "perplexity",
             "cohere",
-            "copilot",
             "nvidia",
             "astrai",
             "ovhcloud",
         ];
-        providers.extend(["glm", "glm-cn"]);
-        providers.push("bedrock");
-        providers.push("telnyx");
         for name in providers {
             assert!(
                 create_provider(name, Some("test-key")).is_ok(),
@@ -2778,7 +2657,6 @@ mod tests {
         assert!(is_product_priority_provider("codex"));
         assert!(!is_product_priority_provider("anthropic"));
         assert_eq!(canonical_provider_name("together-ai"), "together");
-        assert_eq!(canonical_provider_name("github-copilot"), "copilot");
     }
 
     #[test]

@@ -3,19 +3,13 @@
 //! TopClaw currently ships with:
 //!
 //! - `native`: direct execution on the host
-//! - `docker`: command execution through a lightweight container boundary
-//! - `wasm`: in-process capability-limited execution for WASM modules
 //!
 //! [`create_runtime`] is the config-driven factory used by the agent builder.
-pub mod docker;
 pub mod native;
 pub mod traits;
-pub mod wasm;
 
-pub use docker::DockerRuntime;
 pub use native::NativeRuntime;
 pub use traits::RuntimeAdapter;
-pub use wasm::{WasmCapabilities, WasmRuntime};
 
 use crate::config::RuntimeConfig;
 
@@ -23,16 +17,20 @@ use crate::config::RuntimeConfig;
 pub fn create_runtime(config: &RuntimeConfig) -> anyhow::Result<Box<dyn RuntimeAdapter>> {
     match config.kind.as_str() {
         "native" => Ok(Box::new(NativeRuntime::new())),
-        "docker" => Ok(Box::new(DockerRuntime::new(config.docker.clone()))),
-        "wasm" => Ok(Box::new(WasmRuntime::new(config.wasm.clone()))),
+        "docker" => anyhow::bail!(
+            "runtime.kind='docker' has been removed. Use runtime.kind='native' for now."
+        ),
+        "wasm" => anyhow::bail!(
+            "runtime.kind='wasm' has been removed. Use runtime.kind='native' for now."
+        ),
         "cloudflare" => anyhow::bail!(
             "runtime.kind='cloudflare' is not implemented yet. Use runtime.kind='native' for now."
         ),
         other if other.trim().is_empty() => {
-            anyhow::bail!("runtime.kind cannot be empty. Supported values: native, docker, wasm")
+            anyhow::bail!("runtime.kind cannot be empty. Supported value: native")
         }
         other => {
-            anyhow::bail!("Unknown runtime kind '{other}'. Supported values: native, docker, wasm")
+            anyhow::bail!("Unknown runtime kind '{other}'. Supported value: native")
         }
     }
 }
@@ -53,25 +51,27 @@ mod tests {
     }
 
     #[test]
-    fn factory_docker() {
+    fn factory_docker_errors() {
         let cfg = RuntimeConfig {
             kind: "docker".into(),
             ..RuntimeConfig::default()
         };
-        let rt = create_runtime(&cfg).unwrap();
-        assert_eq!(rt.name(), "docker");
-        assert!(rt.has_shell_access());
+        match create_runtime(&cfg) {
+            Err(err) => assert!(err.to_string().contains("removed")),
+            Ok(_) => panic!("docker runtime should error"),
+        }
     }
 
     #[test]
-    fn factory_wasm() {
+    fn factory_wasm_errors() {
         let cfg = RuntimeConfig {
             kind: "wasm".into(),
             ..RuntimeConfig::default()
         };
-        let rt = create_runtime(&cfg).unwrap();
-        assert_eq!(rt.name(), "wasm");
-        assert!(!rt.has_shell_access());
+        match create_runtime(&cfg) {
+            Err(err) => assert!(err.to_string().contains("removed")),
+            Ok(_) => panic!("wasm runtime should error"),
+        }
     }
 
     #[test]

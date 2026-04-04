@@ -10,11 +10,6 @@ pub(super) fn decrypt_config_secrets(topclaw_dir: &Path, config: &mut Config) ->
     decrypt_optional_secret(&store, &mut config.api_key, "config.api_key")?;
     decrypt_optional_secret(
         &store,
-        &mut config.composio.api_key,
-        "config.composio.api_key",
-    )?;
-    decrypt_optional_secret(
-        &store,
         &mut config.proxy.http_proxy,
         "config.proxy.http_proxy",
     )?;
@@ -71,11 +66,6 @@ pub(super) fn encrypt_config_secrets(topclaw_dir: &Path, config: &mut Config) ->
     let store = SecretStore::new(topclaw_dir, config.secrets.encrypt);
 
     encrypt_optional_secret(&store, &mut config.api_key, "config.api_key")?;
-    encrypt_optional_secret(
-        &store,
-        &mut config.composio.api_key,
-        "config.composio.api_key",
-    )?;
     encrypt_optional_secret(
         &store,
         &mut config.proxy.http_proxy,
@@ -256,15 +246,6 @@ fn decrypt_channel_secrets(store: &SecretStore, channels: &mut ChannelsConfig) -
             "config.channels_config.webhook.secret",
         )?;
     }
-    if let Some(ref mut bridge) = channels.bridge {
-        if !bridge.auth_token.trim().is_empty() {
-            decrypt_secret(
-                store,
-                &mut bridge.auth_token,
-                "config.channels_config.bridge.auth_token",
-            )?;
-        }
-    }
     Ok(())
 }
 
@@ -289,15 +270,6 @@ fn encrypt_channel_secrets(store: &SecretStore, channels: &mut ChannelsConfig) -
             &mut webhook.secret,
             "config.channels_config.webhook.secret",
         )?;
-    }
-    if let Some(ref mut bridge) = channels.bridge {
-        if !bridge.auth_token.trim().is_empty() {
-            encrypt_secret(
-                store,
-                &mut bridge.auth_token,
-                "config.channels_config.bridge.auth_token",
-            )?;
-        }
     }
     Ok(())
 }
