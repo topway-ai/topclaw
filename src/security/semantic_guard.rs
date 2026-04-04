@@ -89,7 +89,7 @@ impl SemanticGuard {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "memory-qdrant"))]
     fn with_embedder_for_tests(
         enabled: bool,
         collection: &str,
@@ -462,15 +462,23 @@ async fn load_corpus_source(source: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "memory-qdrant")]
     use anyhow::Result;
+    #[cfg(feature = "memory-qdrant")]
     use async_trait::async_trait;
+    #[cfg(feature = "memory-qdrant")]
     use axum::extract::Path;
+    #[cfg(feature = "memory-qdrant")]
     use axum::routing::{get, post};
+    #[cfg(feature = "memory-qdrant")]
     use axum::{Json, Router};
+    #[cfg(feature = "memory-qdrant")]
     use serde_json::json;
 
+    #[cfg(feature = "memory-qdrant")]
     struct FakeEmbedding;
 
+    #[cfg(feature = "memory-qdrant")]
     #[async_trait]
     impl EmbeddingProvider for FakeEmbedding {
         fn name(&self) -> &str {

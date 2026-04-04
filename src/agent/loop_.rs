@@ -3107,6 +3107,292 @@ mod tests {
         assert!(workspace.path().join("approved-turn-grant.txt").exists());
     }
 
+    /// Simulates the full Telegram approval-to-shell cycle:
+    /// 1. First turn: tool loop hits non-CLI approval gate, returns pending error
+    /// 2. Approval: grant turn with approved shell commands
+    /// 3. Resumed turn: tool loop consumes grant, shell executes with real ShellTool
+    ///
+    /// This proves the complete Telegram supervised shell-command flow works.
+    #[tokio::test]
+    async fn run_tool_call_loop_full_telegram_approval_to_shell_cycle() {
+        let workspace = tempfile::tempdir().expect("temp dir should be created");
+        let shell_command = "touch telegram-approval-cycle-test.txt";
+
+        // Step 1: First turn — should return NonCliApprovalPending
+        let provider_turn1 = ScriptedProvider::from_text_responses(vec![
+            &format!(
+                r#"<tool_call>
+{{"name":"shell","arguments":{{"command":"{shell_command}"}}}}
+</tool_call>"#
+            ),
+            "done",
+        ]);
+
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Supervised,
+            workspace_dir: workspace.path().to_path_buf(),
+            allowed_commands: vec!["touch".into()],
+            ..SecurityPolicy::default()
+        });
+        let tools_registry: Vec<Box<dyn Tool>> = vec![Box::new(crate::tools::ShellTool::new(
+            Arc::clone(&security),
+            Arc::new(NativeRuntime::new()),
+        ))];
+
+        let approval_mgr = Arc::new(ApprovalManager::from_config(
+            &crate::config::AutonomyConfig::default(),
+        ));
+        let (prompt_tx, mut prompt_rx) =
+            tokio::sync::mpsc::unbounded_channel::<NonCliApprovalPrompt>();
+
+        let mut history = vec![
+            ChatMessage::system("test-system"),
+            ChatMessage::user("create the file"),
+        ];
+        let observer = NoopObserver;
+
+        let err = run_tool_call_loop_with_non_cli_approval_context(
+            &provider_turn1,
+            &mut history,
+            &tools_registry,
+            &observer,
+            "mock-provider",
+            "mock-model",
+            0.0,
+            true,
+            Some(approval_mgr.as_ref()),
+            "telegram",
+            Some(NonCliApprovalContext {
+                sender: "alice".to_string(),
+                reply_target: "chat-cycle".to_string(),
+                message_id: "msg-cycle".to_string(),
+                content: "create the file".to_string(),
+                timestamp: 1,
+                thread_ts: None,
+                prompt_tx,
+            }),
+            &crate::config::MultimodalConfig::default(),
+            4,
+            None,
+            None,
+            None,
+            &[],
+        )
+        .await
+        .expect_err("first turn must return pending approval error");
+
+        let pending =
+            is_non_cli_approval_pending(&err).expect("error should be NonCliApprovalPending");
+        assert_eq!(pending.tool_name, "current execution plan");
+
+        let prompt = prompt_rx
+            .recv()
+            .await
+            .expect("approval prompt should arrive");
+        assert!(prompt.details.contains("`shell`"));
+        assert!(prompt.details.contains(shell_command));
+        assert!(
+            !workspace
+                .path()
+                .join("telegram-approval-cycle-test.txt")
+                .exists(),
+            "file must NOT exist before approval"
+        );
+
+        // Step 2: Simulate user clicking "Approve" — grant the turn with approved commands
+        let pending_req = approval_mgr.list_non_cli_pending_requests(
+            Some("alice"),
+            Some("telegram"),
+            Some("chat-cycle"),
+        );
+        assert_eq!(pending_req.len(), 1);
+        let req = &pending_req[0];
+        assert!(req
+            .approved_shell_commands
+            .contains(&shell_command.to_string()));
+
+        let confirmed = approval_mgr
+            .confirm_non_cli_pending_request(&req.request_id, "alice", "telegram", "chat-cycle")
+            .expect("confirm should succeed");
+        approval_mgr.grant_non_cli_turn_grant(crate::approval::NonCliTurnApprovalGrant {
+            approved_shell_commands: confirmed.approved_shell_commands.clone(),
+        });
+
+        // Step 3: Resumed turn — should consume grant and execute shell
+        let provider_turn2 = ScriptedProvider::from_text_responses(vec![
+            &format!(
+                r#"<tool_call>
+{{"name":"shell","arguments":{{"command":"{shell_command}"}}}}
+</tool_call>"#
+            ),
+            "done",
+        ]);
+
+        let mut resumed_history = vec![
+            ChatMessage::system("test-system"),
+            ChatMessage::user("create the file"),
+        ];
+
+        let result = run_tool_call_loop(
+            &provider_turn2,
+            &mut resumed_history,
+            &tools_registry,
+            &observer,
+            "mock-provider",
+            "mock-model",
+            0.0,
+            true,
+            Some(approval_mgr.as_ref()),
+            "telegram",
+            &crate::config::MultimodalConfig::default(),
+            4,
+            None,
+            None,
+            None,
+            &[],
+        )
+        .await
+        .expect("resumed turn should complete successfully");
+
+        assert_eq!(result, "done");
+        assert!(
+            workspace
+                .path()
+                .join("telegram-approval-cycle-test.txt")
+                .exists(),
+            "file MUST exist after approved execution"
+        );
+        assert_eq!(
+            approval_mgr.non_cli_allow_all_once_remaining(),
+            0,
+            "turn grant must be consumed"
+        );
+    }
+
+    /// Proves that denying a pending Telegram approval request prevents shell execution.
+    #[tokio::test]
+    async fn run_tool_call_loop_telegram_deny_prevents_shell_execution() {
+        let workspace = tempfile::tempdir().expect("temp dir should be created");
+
+        let approval_mgr = Arc::new(ApprovalManager::from_config(
+            &crate::config::AutonomyConfig::default(),
+        ));
+
+        // Create pending request
+        let req = approval_mgr.create_non_cli_pending_request(
+            crate::channels::APPROVAL_ALL_TOOLS_ONCE_TOKEN,
+            "alice",
+            "telegram",
+            "chat-deny",
+            Some(crate::approval::PendingNonCliResumeRequest {
+                message_id: "msg-deny".into(),
+                content: "create a file".into(),
+                timestamp: 1,
+                thread_ts: None,
+            }),
+            None,
+            vec!["touch deny-test.txt".into()],
+        );
+
+        // Deny the request
+        let rejected = approval_mgr
+            .reject_non_cli_pending_request(&req.request_id, "alice", "telegram", "chat-deny")
+            .expect("reject should succeed");
+        assert_eq!(rejected.request_id, req.request_id);
+
+        // No turn grant should exist
+        assert_eq!(approval_mgr.non_cli_allow_all_once_remaining(), 0);
+
+        // Confirm the request is gone
+        assert!(approval_mgr
+            .list_non_cli_pending_requests(Some("alice"), Some("telegram"), Some("chat-deny"))
+            .is_empty());
+
+        // File must not exist
+        assert!(
+            !workspace.path().join("deny-test.txt").exists(),
+            "file must NOT exist after denial"
+        );
+    }
+
+    /// Proves that expired requests cannot be confirmed (duplicate/stale callback).
+    #[tokio::test]
+    async fn run_tool_call_loop_telegram_expired_request_fails_cleanly() {
+        let approval_mgr = Arc::new(ApprovalManager::from_config(
+            &crate::config::AutonomyConfig::default(),
+        ));
+
+        let req = approval_mgr.create_non_cli_pending_request(
+            crate::channels::APPROVAL_ALL_TOOLS_ONCE_TOKEN,
+            "alice",
+            "telegram",
+            "chat-expire",
+            None,
+            None,
+            vec!["echo expired".into()],
+        );
+
+        // Force the request to expire
+        {
+            let pending = approval_mgr.list_non_cli_pending_requests(None, None, None);
+            assert_eq!(pending.len(), 1);
+        }
+
+        // Confirm once — should succeed
+        let confirmed = approval_mgr
+            .confirm_non_cli_pending_request(&req.request_id, "alice", "telegram", "chat-expire")
+            .expect("first confirm should succeed");
+        assert_eq!(confirmed.request_id, req.request_id);
+
+        // Second confirm on same ID — should fail (already consumed)
+        let err = approval_mgr
+            .confirm_non_cli_pending_request(&req.request_id, "alice", "telegram", "chat-expire")
+            .expect_err("duplicate confirm should fail");
+        assert_eq!(err, crate::approval::PendingApprovalError::NotFound);
+    }
+
+    /// Proves that unauthorized approvers cannot confirm requests.
+    #[tokio::test]
+    async fn run_tool_call_loop_telegram_unauthorized_approver_rejected() {
+        let approval_mgr = Arc::new(ApprovalManager::from_config(
+            &crate::config::AutonomyConfig::default(),
+        ));
+
+        let req = approval_mgr.create_non_cli_pending_request(
+            crate::channels::APPROVAL_ALL_TOOLS_ONCE_TOKEN,
+            "alice",
+            "telegram",
+            "chat-auth",
+            None,
+            None,
+            vec!["echo authorized".into()],
+        );
+
+        // Different sender tries to confirm
+        let err = approval_mgr
+            .confirm_non_cli_pending_request(&req.request_id, "mallory", "telegram", "chat-auth")
+            .expect_err("different sender should fail");
+        assert_eq!(
+            err,
+            crate::approval::PendingApprovalError::RequesterMismatch
+        );
+
+        // Different channel tries to confirm
+        let err = approval_mgr
+            .confirm_non_cli_pending_request(&req.request_id, "alice", "discord", "chat-auth")
+            .expect_err("different channel should fail");
+        assert_eq!(
+            err,
+            crate::approval::PendingApprovalError::RequesterMismatch
+        );
+
+        // Correct sender + channel should still work
+        let confirmed = approval_mgr
+            .confirm_non_cli_pending_request(&req.request_id, "alice", "telegram", "chat-auth")
+            .expect("correct sender+channel should succeed");
+        assert_eq!(confirmed.request_id, req.request_id);
+    }
+
     #[tokio::test]
     async fn run_tool_call_loop_parallelizes_approved_non_cli_turn() {
         let provider = ScriptedProvider::from_text_responses(vec![

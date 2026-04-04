@@ -112,9 +112,9 @@ fn capability_tool_state_with_set(
     }
     if excluded.contains(&tool_name.trim().to_ascii_lowercase()) {
         CapabilityState::Excluded
-    } else if approval_manager.non_cli_allow_all_once_remaining() > 0 {
-        CapabilityState::Available
-    } else if approval_manager.is_non_cli_session_granted(tool_name) {
+    } else if approval_manager.non_cli_allow_all_once_remaining() > 0
+        || approval_manager.is_non_cli_session_granted(tool_name)
+    {
         CapabilityState::Available
     } else if approval_manager.needs_approval(tool_name) {
         CapabilityState::NeedsApproval

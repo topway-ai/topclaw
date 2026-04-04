@@ -1,0 +1,15 @@
+[package]
+name = "topclaw-hardware"
+version = "0.1.0"
+edition = "2021"
+description = "Hardware discovery and peripheral integration for TopClaw (not yet independently compilable)"
+publish = false
+
+# This crate preserves the hardware/peripherals source extracted from the main
+# topclaw crate. The modules still contain `crate::` imports referencing the
+# parent crate's types (Config, Tool, ToolResult, HardwareCommands). Before
+# this crate can compile, a shared `topclaw-traits` crate must be introduced
+# to break the circular dependency.
+#
+# For now, the source is preserved here and excluded from the default build
+# via the workspace member list in the root Cargo.toml.

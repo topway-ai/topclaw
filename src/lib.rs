@@ -66,6 +66,7 @@ pub mod backup;
 pub mod channels;
 pub mod config;
 pub mod coordination;
+#[cfg(feature = "gateway")]
 pub(crate) mod cost;
 pub mod cron;
 pub mod daemon;

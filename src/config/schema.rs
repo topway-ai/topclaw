@@ -1838,7 +1838,13 @@ mod tests {
         let a = AutonomyConfig::default();
         assert_eq!(a.level, AutonomyLevel::Supervised);
         assert!(a.workspace_only);
-        assert!(a.allowed_commands.is_empty());
+        assert!(
+            !a.allowed_commands.is_empty(),
+            "default allowed_commands should include common development tools"
+        );
+        assert!(a.allowed_commands.contains(&"git".to_string()));
+        assert!(a.allowed_commands.contains(&"cargo".to_string()));
+        assert!(a.allowed_commands.contains(&"touch".to_string()));
         assert!(a.forbidden_paths.contains(&"/etc".to_string()));
         assert_eq!(a.max_actions_per_hour, 20);
         assert_eq!(a.max_cost_per_day_cents, 500);

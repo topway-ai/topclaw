@@ -62,6 +62,7 @@ pub use traits::{Channel, SendMessage};
 
 // Re-export for crate-internal use
 pub(crate) use runtime_commands::APPROVAL_ALL_TOOLS_ONCE_TOKEN;
+#[cfg(feature = "gateway")]
 pub(crate) use sanitize::sanitize_channel_response;
 
 // Re-export constants needed by parent module
@@ -680,9 +681,11 @@ mod tests {
                 message.push('\n');
                 message.push_str(details);
             }
-            message.push_str(&format!(
+            use std::fmt::Write;
+            let _ = write!(
+                message,
                 "\nConfirm: `/approve-confirm {request_id}`\nDeny: `/approve-deny {request_id}`"
-            ));
+            );
 
             self.approval_prompts
                 .lock()
@@ -3256,18 +3259,19 @@ BTC is currently around $65,000 based on latest tool output."#
         assert!(approval_prompts[0].contains("supervised access to `shell`"));
         drop(approval_prompts);
 
-        let history_key = "telegram_alice".to_string();
-        let histories = runtime_ctx
-            .conversation_histories
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let cached = histories
-            .get(&history_key)
-            .expect("blocked shell request should remain in sender history");
-        assert!(cached
-            .iter()
-            .any(|entry| entry.role == "user" && entry.content.contains("please run cargo test")));
-        drop(histories);
+        {
+            let history_key = "telegram_alice".to_string();
+            let histories = runtime_ctx
+                .conversation_histories
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let cached = histories
+                .get(&history_key)
+                .expect("blocked shell request should remain in sender history");
+            assert!(cached.iter().any(|entry| {
+                entry.role == "user" && entry.content.contains("please run cargo test")
+            }));
+        }
 
         let request_id = {
             let sent = channel_impl.sent_messages.lock().await;

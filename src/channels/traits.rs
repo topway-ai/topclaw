@@ -154,9 +154,11 @@ pub trait Channel: Send + Sync {
             message.push('\n');
             message.push_str(details);
         }
-        message.push_str(&format!(
+        use std::fmt::Write;
+        let _ = write!(
+            message,
             "\nConfirm: `/approve-confirm {request_id}`\nDeny: `/approve-deny {request_id}`"
-        ));
+        );
         self.send(&SendMessage::new(message, recipient).in_thread(thread_ts))
             .await
     }

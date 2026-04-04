@@ -4685,7 +4685,10 @@ mod tests {
 
         apply_onboarding_skill_tool_defaults(&mut config, &selection);
 
-        assert_eq!(config.autonomy.allowed_commands, vec!["*"]);
+        assert!(
+            config.autonomy.allowed_commands.contains(&"*".to_string()),
+            "capability-first shell should include wildcard '*' in allowed commands"
+        );
         assert_eq!(
             config.autonomy.shell_redirect_policy,
             ShellRedirectPolicy::Allow

@@ -163,18 +163,21 @@ impl Default for AutonomyConfig {
 fn default_allowed_commands() -> Vec<String> {
     [
         // File navigation and inspection
-        "ls", "cat", "head", "tail", "wc", "less", "more", "file", "stat", "tree",
-        // Search
-        "grep", "find", "rg", "ag", // Git workflows
+        "ls", "cat", "head", "tail", "wc", "less", "more", "file", "stat", "tree", "du", "df",
+        // File manipulation (approval-gated for medium/high-risk via security policy)
+        "touch", "mkdir", "cp", "mv", "rm", "ln", "chmod", // Search
+        "grep", "find", "rg", "ag", "fd",  // Git workflows
         "git", // Build and package managers
-        "cargo", "npm", "pnpm", "yarn", "pip", "pip3", "python3", "python", "node", "go",
-        // Common utilities
+        "cargo", "rustc", "npm", "pnpm", "yarn", "pip", "pip3", "python3", "python", "node", "go",
+        "make", "cmake", // Common utilities
         "echo", "date", "pwd", "whoami", "uname", "hostname", "id", "env", "printenv", "sort",
-        "uniq", "cut", "tr", "awk", "sed", "xargs", "tee", // Compression
+        "uniq", "cut", "tr", "awk", "sed", "xargs", // Network (approval-gated)
+        "curl", "wget", // Compression
         "tar", "gzip", "gunzip", "zip", "unzip", // Diff and patch
         "diff", "patch", // Line count and code analysis
         "cloc", "tokei", // Process inspection
-        "ps", "top",
+        "ps", "top", // Container (approval-gated)
+        "docker", "podman",
     ]
     .into_iter()
     .map(std::string::ToString::to_string)

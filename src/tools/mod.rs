@@ -416,7 +416,7 @@ fn build_tools_with_runtime(
     runtime: Arc<dyn RuntimeAdapter>,
     memory: Arc<dyn Memory>,
     composio_key: Option<&str>,
-    composio_entity_id: Option<&str>,
+    _composio_entity_id: Option<&str>,
     browser_config: &crate::config::BrowserConfig,
     http_config: &crate::config::HttpRequestConfig,
     web_fetch_config: &crate::config::WebFetchConfig,

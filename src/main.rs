@@ -1143,10 +1143,7 @@ async fn main() -> Result<()> {
                 #[cfg(feature = "gateway")]
                 println!("  Build:     {}", "✅ gateway-enabled");
                 #[cfg(not(feature = "gateway"))]
-                println!(
-                    "  Build:     {}",
-                    "ℹ️  unavailable in this build (`--features gateway`)"
-                );
+                println!("  Build:     ℹ️  unavailable in this build (`--features gateway`)");
                 for (channel, configured) in config.channels_config.auxiliary_channels() {
                     println!(
                         "  {:9} {}",

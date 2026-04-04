@@ -158,14 +158,14 @@ impl Tool for ShellTool {
         let command = extract_command_argument(args)
             .ok_or_else(|| "Missing 'command' parameter".to_string())?;
         let effective_command = self.security.apply_shell_redirect_policy(&command);
-        let temporary_allowlist = vec![command.clone()];
 
+        // Validate against the static security policy with approved=true
+        // (simulating user approval) but WITHOUT a self-referential temporary
+        // allowlist. This ensures `blocked_non_cli_approval_plan_reason` can
+        // detect commands whose binaries are not in the static allowlist —
+        // those would fail even after user approval.
         self.security
-            .validate_command_execution_with_temporary_allowlist(
-                &command,
-                true,
-                &temporary_allowlist,
-            )?;
+            .validate_command_execution_with_temporary_allowlist(&command, true, &[])?;
         self.runtime
             .build_shell_command(&effective_command, &self.security.workspace_dir)
             .map(|_| ())
@@ -507,8 +507,14 @@ mod tests {
 
     #[test]
     fn shell_approval_precheck_accepts_safe_command_that_needs_plan_approval() {
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Supervised,
+            allowed_commands: vec!["git".into()],
+            workspace_dir: std::env::temp_dir(),
+            ..SecurityPolicy::default()
+        });
         let tool = ShellTool::new(
-            test_security(AutonomyLevel::Supervised),
+            security,
             Arc::new(ApprovalPrecheckRuntime { build_error: None }),
         );
 
@@ -518,10 +524,34 @@ mod tests {
     }
 
     #[test]
-    fn shell_approval_precheck_accepts_high_risk_command_when_approved() {
+    fn shell_approval_precheck_accepts_high_risk_command_in_static_allowlist() {
         // approval_precheck passes approved=true, meaning "would this be allowed
-        // if the user approves?" High-risk commands should pass precheck because
-        // the user's explicit approval overrides the automatic block.
+        // if the user approves?" High-risk commands whose binary IS in the static
+        // allowlist should pass precheck because the user's explicit approval
+        // overrides the risk-level block.
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Supervised,
+            allowed_commands: vec!["rm".into()],
+            workspace_dir: std::env::temp_dir(),
+            ..SecurityPolicy::default()
+        });
+        let tool = ShellTool::new(
+            security,
+            Arc::new(ApprovalPrecheckRuntime { build_error: None }),
+        );
+
+        assert!(tool
+            .approval_precheck(&json!({"command": "rm -rf tmp_shell_precheck_test"}))
+            .is_ok());
+    }
+
+    #[test]
+    fn shell_approval_precheck_rejects_command_not_in_static_allowlist() {
+        // If the command's binary is not in the static allowlist, the precheck
+        // should fail. This allows `blocked_non_cli_approval_plan_reason` to
+        // detect plans that would fail even after user approval (because the
+        // temporary allowlist from the first turn only helps at execution time,
+        // not at the precheck stage).
         let tool = ShellTool::new(
             test_security(AutonomyLevel::Supervised),
             Arc::new(ApprovalPrecheckRuntime { build_error: None }),
@@ -529,7 +559,7 @@ mod tests {
 
         assert!(tool
             .approval_precheck(&json!({"command": "rm -rf tmp_shell_precheck_test"}))
-            .is_ok());
+            .is_err());
     }
 
     #[test]

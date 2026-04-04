@@ -271,7 +271,7 @@ impl ApprovalManager {
     pub fn grant_non_cli_turn_grant(&self, grant: NonCliTurnApprovalGrant) -> u32 {
         let mut grants = self.non_cli_turn_grants.lock();
         grants.push_back(grant);
-        grants.len() as u32
+        u32::try_from(grants.len()).unwrap_or(u32::MAX)
     }
 
     /// Consume one non-CLI "allow all tools/commands for one turn" token.
@@ -289,7 +289,7 @@ impl ApprovalManager {
 
     /// Remaining one-time non-CLI "allow all tools/commands" tokens.
     pub fn non_cli_allow_all_once_remaining(&self) -> u32 {
-        self.non_cli_turn_grants.lock().len() as u32
+        u32::try_from(self.non_cli_turn_grants.lock().len()).unwrap_or(u32::MAX)
     }
 
     /// Snapshot configured non-CLI approval approver entries.

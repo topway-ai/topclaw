@@ -182,6 +182,9 @@ gateway = ["dep:axum", "dep:tower", "dep:tower-http", "dep:http-body-util"]
 
 builtin-preloaded-skills = []
 hardware = ["dep:nusb", "dep:tokio-serial"]
+# Umbrella flag: enable all non-core memory backends at once
+memory-backends = ["memory-qdrant", "memory-lucid", "memory-postgres", "memory-mariadb"]
+# Individual backend flags (kept for fine-grained control)
 memory-qdrant = []
 memory-lucid = []
 memory-postgres = ["dep:postgres", "dep:tokio-postgres-rustls"]
