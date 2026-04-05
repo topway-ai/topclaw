@@ -934,7 +934,6 @@ fn default_model_for_provider(provider: &str) -> String {
         "xai" => "grok-4-1-fast-reasoning".into(),
         "perplexity" => "sonar-pro".into(),
         "fireworks" => "accounts/fireworks/models/llama-v3p3-70b-instruct".into(),
-        "novita" => "minimax/minimax-m2.5".into(),
         "together" => "meta-llama/Llama-3.3-70B-Instruct-Turbo".into(),
         "cohere" => "command-a-03-2025".into(),
         "moonshot" => "kimi-k2.5".into(),
@@ -1143,10 +1142,6 @@ fn curated_models_for_provider(provider_name: &str) -> Vec<(String, String)> {
                 "Mixtral 8x22B".to_string(),
             ),
         ],
-        "novita" => vec![(
-            "minimax/minimax-m2.5".to_string(),
-            "MiniMax M2.5".to_string(),
-        )],
         "together" => vec![
             (
                 "meta-llama/Llama-3.3-70B-Instruct-Turbo".to_string(),
@@ -1568,12 +1563,11 @@ async fn setup_provider(
     loop {
         // ── Tier selection ──
         let tiers = vec![
-        "⭐ Core path + recommended hosted providers (Codex, OpenRouter, Ollama first)",
-        "🌍 Additional hosted providers (Anthropic, OpenAI, Gemini, Venice, DeepSeek, xAI, Perplexity)",
+        "⭐ Recommended (Codex, OpenRouter, Anthropic, OpenAI, Gemini, and more)",
         "⚡ Fast inference (Groq, Fireworks, Together AI, NVIDIA NIM)",
-        "🌐 Gateway / proxy (Vercel AI, Cloudflare AI, Amazon Bedrock)",
-        "🔬 Specialized (Moonshot/Kimi, GLM/Zhipu, MiniMax, Qwen/DashScope, Qianfan, Z.AI, Synthetic, OpenCode Zen, Cohere)",
-        "🏠 Local / private (Ollama, llama.cpp server, vLLM — no API key needed)",
+        "🌐 Gateway / proxy (Vercel AI, Cloudflare AI, Astrai)",
+        "🔬 Specialized (Kimi, Qwen, MiniMax, Moonshot, Hunyuan, Z.AI, Cohere, and more)",
+        "🏠 Local (Ollama, llama.cpp, SGLang, vLLM, Osaurus)",
         "🔧 Custom — bring your own OpenAI-compatible API",
         "← Back — popular providers",
     ];
@@ -1916,7 +1910,6 @@ fn provider_env_var(name: &str) -> &'static str {
         "xai" => "XAI_API_KEY",
         "together" => "TOGETHER_API_KEY",
         "fireworks" | "fireworks-ai" => "FIREWORKS_API_KEY",
-        "novita" => "NOVITA_API_KEY",
         "perplexity" => "PERPLEXITY_API_KEY",
         "cohere" => "COHERE_API_KEY",
         "kimi-code" => "KIMI_CODE_API_KEY",

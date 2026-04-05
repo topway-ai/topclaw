@@ -31,7 +31,6 @@ pub(super) fn models_endpoint_for_provider(provider_name: &str) -> Option<&'stat
             "xai" => Some("https://api.x.ai/v1/models"),
             "together" => Some("https://api.together.xyz/v1/models"),
             "fireworks" => Some("https://api.fireworks.ai/inference/v1/models"),
-            "novita" => Some("https://api.novita.ai/openai/v1/models"),
             "cohere" => Some("https://api.cohere.com/compatibility/v1/models"),
             "moonshot" => Some("https://api.moonshot.ai/v1/models"),
             "zai" => Some("https://api.z.ai/api/coding/paas/v4/models"),
