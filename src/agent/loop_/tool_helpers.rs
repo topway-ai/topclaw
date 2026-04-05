@@ -134,7 +134,7 @@ pub(super) fn build_non_cli_approval_plan_prompt(
         }
     }
 
-    details.push_str("Confirm to run this turn only. It will not persist.");
+    details.push_str("Tap Approve to run this turn only. It will not persist.");
 
     (title, details)
 }

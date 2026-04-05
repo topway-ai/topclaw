@@ -82,7 +82,6 @@ pub(super) fn advanced_provider_choices(tier_idx: usize) -> Vec<(&'static str, &
         1 => vec![
             ("groq", "Groq — ultra-fast LPU inference"),
             ("fireworks", "Fireworks AI — fast open-source inference"),
-            ("novita", "Novita AI — affordable open-source inference"),
             ("together", "Together AI — open-source model hosting"),
             ("nvidia", "NVIDIA NIM — DeepSeek, Llama, & more"),
         ],
@@ -507,7 +506,6 @@ pub(super) async fn prompt_advanced_provider_credentials(
                 "deepseek" => "https://platform.deepseek.com/api_keys",
                 "together" => "https://api.together.xyz/settings/api-keys",
                 "fireworks" => "https://fireworks.ai/account/api-keys",
-                "novita" => "https://novita.ai/settings/key-management",
                 "perplexity" => "https://www.perplexity.ai/settings/api",
                 "xai" => "https://console.x.ai",
                 "cohere" => "https://dashboard.cohere.com/api-keys",

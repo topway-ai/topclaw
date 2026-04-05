@@ -162,6 +162,17 @@ pub(super) async fn process_channel_message_with_options(
         return;
     }
 
+    // React with eyes immediately to acknowledge we received the message,
+    // before any heavy work (config reads, classifier LLM calls, etc.).
+    if let Some(channel) = target_channel.as_ref() {
+        if let Err(e) = channel
+            .add_reaction(&msg.reply_target, &msg.id, "\u{1F440}")
+            .await
+        {
+            tracing::debug!("Failed to add reaction: {e}");
+        }
+    }
+
     let mut canary_enabled_for_turn = false;
     if !msg.content.trim_start().starts_with('/') {
         let semantic_cfg = if let Some(config_path) = runtime_config_path(ctx.as_ref()) {
@@ -301,7 +312,28 @@ pub(super) async fn process_channel_message_with_options(
     } else {
         snapshot_non_cli_excluded_tools(ctx.as_ref())
     };
+
     let skip_pre_tool_turn_routing = options.approved_auto_resume;
+    // Start typing indicator before the classifier LLM calls so the user
+    // sees immediate feedback while we decide the turn intent.
+    let will_run_classifiers =
+        !skip_pre_tool_turn_routing && msg.channel != "cli" && !ctx.tools_registry.is_empty();
+    let early_typing_cancellation = if will_run_classifiers {
+        target_channel.as_ref().map(|_| CancellationToken::new())
+    } else {
+        None
+    };
+    let early_typing_task = match (
+        target_channel.as_ref(),
+        early_typing_cancellation.as_ref(),
+    ) {
+        (Some(channel), Some(token)) => Some(spawn_scoped_typing_task(
+            Arc::clone(channel),
+            msg.reply_target.clone(),
+            token.clone(),
+        )),
+        _ => None,
+    };
     let turn_intent =
         if !skip_pre_tool_turn_routing && msg.channel != "cli" && !ctx.tools_registry.is_empty() {
             try_llm_turn_intent(
@@ -425,6 +457,9 @@ pub(super) async fn process_channel_message_with_options(
                 Some("llm_classifier"),
             )
             .await;
+            if let Some(token) = early_typing_cancellation.as_ref() {
+                token.cancel();
+            }
             return;
         }
 
@@ -448,6 +483,9 @@ pub(super) async fn process_channel_message_with_options(
                 );
             }
             dispatch_capability_recovery(&plan, &msg, target_channel.as_ref(), None).await;
+            if let Some(token) = early_typing_cancellation.as_ref() {
+                token.cancel();
+            }
             return;
         }
     }
@@ -682,14 +720,13 @@ Ask one brief clarifying question that identifies the missing target, artifact, 
         None
     };
 
-    // React with eyes to acknowledge the incoming message
-    if let Some(channel) = target_channel.as_ref() {
-        if let Err(e) = channel
-            .add_reaction(&msg.reply_target, &msg.id, "\u{1F440}")
-            .await
-        {
-            tracing::debug!("Failed to add reaction: {e}");
-        }
+    // Stop the early typing indicator (started before classifiers) and
+    // replace it with the main one that lives until the LLM call finishes.
+    if let Some(token) = early_typing_cancellation.as_ref() {
+        token.cancel();
+    }
+    if let Some(handle) = early_typing_task {
+        let _ = handle.await;
     }
 
     let typing_cancellation = target_channel.as_ref().map(|_| CancellationToken::new());

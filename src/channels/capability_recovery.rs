@@ -59,7 +59,7 @@ fn build_capability_recovery_approval_prompt(
         request_id: request_id.to_string(),
         title: format!("I can finish this, but I need supervised access to `{tool_name}` first."),
         details:
-            "Confirm from this same chat/channel and I’ll resume the blocked request automatically."
+            "Tap Approve from this same chat/channel and I’ll resume the blocked request automatically."
                 .to_string(),
     }
 }

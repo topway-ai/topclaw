@@ -1403,7 +1403,6 @@ pub fn supports_model_catalog_refresh(name: &str) -> bool {
             | "astrai"
             | "venice"
             | "fireworks"
-            | "novita"
             | "cohere"
             | "moonshot"
             | "zai"

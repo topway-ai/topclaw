@@ -155,10 +155,14 @@ fn parse_natural_language_runtime_command(content: &str) -> Option<ChannelRuntim
     }
 
     if let Some(request_id) = extract_runtime_tail_token(&lower, &["confirm "]) {
-        return Some(ChannelRuntimeCommand::ConfirmToolApproval(request_id));
+        if request_id.starts_with("apr-") {
+            return Some(ChannelRuntimeCommand::ConfirmToolApproval(request_id));
+        }
     }
     if let Some(request_id) = extract_runtime_tail_token(trimmed, &["确认授权 "]) {
-        return Some(ChannelRuntimeCommand::ConfirmToolApproval(request_id));
+        if request_id.starts_with("apr-") {
+            return Some(ChannelRuntimeCommand::ConfirmToolApproval(request_id));
+        }
     }
     if matches!(lower.as_str(), "approve" | "allow") || matches!(trimmed, "批准" | "同意" | "允许")
     {
