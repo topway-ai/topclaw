@@ -314,10 +314,11 @@ pub(super) async fn process_channel_message_with_options(
     };
 
     let skip_pre_tool_turn_routing = options.approved_auto_resume;
-    // Start typing indicator before the classifier LLM calls so the user
-    // sees immediate feedback while we decide the turn intent.
     let will_run_classifiers =
         !skip_pre_tool_turn_routing && msg.channel != "cli" && !ctx.tools_registry.is_empty();
+
+    // Start typing indicator before the classifier LLM calls so the user
+    // sees immediate feedback while we decide the turn intent.
     let early_typing_cancellation = if will_run_classifiers {
         target_channel.as_ref().map(|_| CancellationToken::new())
     } else {
@@ -334,6 +335,28 @@ pub(super) async fn process_channel_message_with_options(
         )),
         _ => None,
     };
+
+    // Send an early draft message so the user sees visible text feedback
+    // before the classifier LLM calls (which can take 30-60s).
+    let early_draft_message_id = if will_run_classifiers {
+        if let Some(channel) = target_channel.as_ref() {
+            match channel
+                .send_draft(
+                    &SendMessage::new("Analyzing the request...\n", &msg.reply_target)
+                        .in_thread(msg.thread_ts.clone()),
+                )
+                .await
+            {
+                Ok(id) => id,
+                Err(_) => None,
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let turn_intent =
         if !skip_pre_tool_turn_routing && msg.channel != "cli" && !ctx.tools_registry.is_empty() {
             try_llm_turn_intent(
@@ -460,6 +483,11 @@ pub(super) async fn process_channel_message_with_options(
             if let Some(token) = early_typing_cancellation.as_ref() {
                 token.cancel();
             }
+            if let (Some(channel), Some(ref draft_id)) =
+                (target_channel.as_ref(), &early_draft_message_id)
+            {
+                let _ = channel.cancel_draft(&msg.reply_target, draft_id).await;
+            }
             return;
         }
 
@@ -485,6 +513,11 @@ pub(super) async fn process_channel_message_with_options(
             dispatch_capability_recovery(&plan, &msg, target_channel.as_ref(), None).await;
             if let Some(token) = early_typing_cancellation.as_ref() {
                 token.cancel();
+            }
+            if let (Some(channel), Some(ref draft_id)) =
+                (target_channel.as_ref(), &early_draft_message_id)
+            {
+                let _ = channel.cancel_draft(&msg.reply_target, draft_id).await;
             }
             return;
         }
@@ -720,13 +753,17 @@ Ask one brief clarifying question that identifies the missing target, artifact, 
         None
     };
 
-    // Stop the early typing indicator (started before classifiers) and
-    // replace it with the main one that lives until the LLM call finishes.
+    // Stop the early typing indicator and cancel the early "Analyzing..."
+    // draft message. The main tool loop will produce its own draft updates.
     if let Some(token) = early_typing_cancellation.as_ref() {
         token.cancel();
     }
     if let Some(handle) = early_typing_task {
         let _ = handle.await;
+    }
+    if let (Some(channel), Some(ref draft_id)) = (target_channel.as_ref(), &early_draft_message_id)
+    {
+        let _ = channel.cancel_draft(&msg.reply_target, draft_id).await;
     }
 
     let typing_cancellation = target_channel.as_ref().map(|_| CancellationToken::new());

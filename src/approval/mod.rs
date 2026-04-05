@@ -472,7 +472,15 @@ impl ApprovalManager {
             resume_request,
             approved_shell_commands,
         };
-        pending.insert(request_id, req.clone());
+        pending.insert(request_id.clone(), req.clone());
+        tracing::info!(
+            request_id,
+            tool_name = req.tool_name.as_str(),
+            requested_by = req.requested_by.as_str(),
+            requested_channel = req.requested_channel.as_str(),
+            pending_count = pending.len(),
+            "created pending approval request"
+        );
         self.resolved_non_cli_requests
             .lock()
             .remove(&req.request_id);
@@ -489,9 +497,25 @@ impl ApprovalManager {
         confirmed_reply_target: &str,
     ) -> Result<PendingNonCliApprovalRequest, PendingApprovalError> {
         let mut pending = self.pending_non_cli_requests.lock();
-        prune_expired_pending_requests(&mut pending);
+        let pruned = prune_expired_pending_requests(&mut pending);
+        if pruned > 0 {
+            tracing::info!(
+                pruned,
+                remaining = pending.len(),
+                "pruned expired pending approval requests during confirm"
+            );
+        }
 
         let Some(req) = pending.remove(request_id) else {
+            tracing::warn!(
+                request_id,
+                confirmed_by,
+                confirmed_channel,
+                confirmed_reply_target,
+                pending_count = pending.len(),
+                pending_ids = ?pending.keys().collect::<Vec<_>>(),
+                "approval confirm: request not found in pending map"
+            );
             return Err(PendingApprovalError::NotFound);
         };
 
