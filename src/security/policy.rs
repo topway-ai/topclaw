@@ -436,11 +436,29 @@ fn split_unquoted_segments(command: &str) -> Vec<String> {
 /// We treat any standalone `&` as unsafe in policy validation because it can
 /// chain hidden sub-commands and escape foreground timeout expectations.
 fn contains_unquoted_single_ampersand(command: &str) -> bool {
+    // Track the last unquoted character so we can recognize `>&` / `<&` stream
+    // merge redirects (e.g. `2>&1`, `>&2`). POSIX shells treat those as part of
+    // the redirect, not as a background operator, so they must not be flagged.
+    let mut prev_unquoted: Option<char> = None;
     let mut iter = QuoteAwareChars::new(command.chars());
     while let Some(item) = iter.next() {
-        if item.unquoted && item.ch == '&' && iter.next_if_eq('&').is_none() {
+        if !item.unquoted {
+            continue;
+        }
+        if item.ch == '&' {
+            // `&&` is the logical-AND separator, consumed as a pair.
+            if iter.next_if_eq('&').is_some() {
+                prev_unquoted = Some('&');
+                continue;
+            }
+            // `>&` / `<&` is a stream-merge redirect, not background execution.
+            if matches!(prev_unquoted, Some('>' | '<')) {
+                prev_unquoted = Some('&');
+                continue;
+            }
             return true;
         }
+        prev_unquoted = Some(item.ch);
     }
     false
 }
@@ -2421,6 +2439,33 @@ mod tests {
         );
 
         assert!(p.validate_command_execution(command, false).is_ok());
+    }
+
+    #[test]
+    fn allow_policy_accepts_stream_merge_redirects_in_pipelines() {
+        // Regression: `2>&1` was being flagged as a background `&` even though
+        // shell_redirect_policy=Allow opts into full shell redirect semantics.
+        // This blocked legitimate `git clone ... 2>&1 | tail -5` pipelines.
+        let p = SecurityPolicy {
+            shell_redirect_policy: ShellRedirectPolicy::Allow,
+            allowed_commands: vec!["*".into()],
+            require_approval_for_medium_risk: false,
+            ..default_policy()
+        };
+
+        assert!(p
+            .validate_command_execution(
+                "git clone --depth 1 https://example.com/repo.git 2>&1 | tail -5",
+                false,
+            )
+            .is_ok());
+        assert!(p.validate_command_execution("echo ok >&2", false).is_ok());
+        assert!(p.validate_command_execution("cmd 2>&1 1>&2", false).is_ok());
+
+        // Real background-execution `&` must still be blocked.
+        assert!(p
+            .validate_command_execution("long_task & echo done", false)
+            .is_err());
     }
 
     #[test]

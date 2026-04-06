@@ -4466,7 +4466,7 @@ dependencies = [
 
 [[package]]
 name = "topclaw"
-version = "2026.4.5"
+version = "2026.4.6"
 dependencies = [
  "anyhow",
  "async-trait",

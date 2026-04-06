@@ -1563,14 +1563,14 @@ async fn setup_provider(
     loop {
         // ── Tier selection ──
         let tiers = vec![
-        "⭐ Recommended (Codex, OpenRouter, Anthropic, OpenAI, Gemini, and more)",
-        "⚡ Fast inference (Groq, Fireworks, Together AI, NVIDIA NIM)",
-        "🌐 Gateway / proxy (Vercel AI, Cloudflare AI, Astrai)",
-        "🔬 Specialized (Kimi, Qwen, MiniMax, Moonshot, Hunyuan, Z.AI, Cohere, and more)",
-        "🏠 Local (Ollama, llama.cpp, SGLang, vLLM, Osaurus)",
-        "🔧 Custom — bring your own OpenAI-compatible API",
-        "← Back — popular providers",
-    ];
+            "⭐ Recommended (Codex, OpenRouter, Anthropic, OpenAI, Gemini, and more)",
+            "⚡ Fast inference (Groq, Fireworks, Together AI, NVIDIA NIM)",
+            "🌐 Gateway / proxy (Vercel AI, Cloudflare AI, Astrai)",
+            "🔬 Specialized (Kimi, Qwen, MiniMax, Moonshot, Hunyuan, Z.AI, Cohere, and more)",
+            "🏠 Local (Ollama, llama.cpp, SGLang, vLLM, Osaurus)",
+            "🔧 Custom — bring your own OpenAI-compatible API",
+            "← Back — popular providers",
+        ];
 
         let tier_idx = Select::new()
             .with_prompt("  Select provider category")
