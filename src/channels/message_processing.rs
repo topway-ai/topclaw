@@ -21,8 +21,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::capability_recovery::{
     infer_capability_recovery_plan, should_expose_internal_tool_details,
-    try_llm_capability_recovery_plan, try_llm_turn_intent, CapabilityRecoveryPlan, CapabilityState,
-    ChannelTurnIntent,
+    try_llm_capability_recovery_plan, CapabilityRecoveryPlan, CapabilityState,
 };
 use super::command_handler::handle_runtime_command_if_needed;
 use super::context::*;
@@ -313,6 +312,10 @@ pub(super) async fn process_channel_message_with_options(
     };
 
     let skip_pre_tool_turn_routing = options.approved_auto_resume;
+    // Only the capability-recovery classifier is left; the turn-intent classifier
+    // was removed because (post the tool-registry-suppression fix) its only
+    // effect was adding a prompt hint, while costing a full serial LLM
+    // round-trip (~20–30s) on every non-CLI turn.
     let will_run_classifiers =
         !skip_pre_tool_turn_routing && msg.channel != "cli" && !ctx.tools_registry.is_empty();
 
@@ -353,40 +356,6 @@ pub(super) async fn process_channel_message_with_options(
         None
     };
 
-    let turn_intent =
-        if !skip_pre_tool_turn_routing && msg.channel != "cli" && !ctx.tools_registry.is_empty() {
-            try_llm_turn_intent(
-                active_provider.as_ref(),
-                &msg,
-                route.model.as_str(),
-                runtime_defaults.temperature,
-                ctx.tools_registry.as_ref(),
-                &excluded_tools_snapshot,
-            )
-            .await
-        } else {
-            None
-        };
-    if let Some(plan) = turn_intent.as_ref() {
-        runtime_trace::record_event(
-            "channel_message_turn_intent",
-            Some(msg.channel.as_str()),
-            Some(route.provider.as_str()),
-            Some(route.model.as_str()),
-            None,
-            Some(matches!(plan.intent, ChannelTurnIntent::NeedsTools)),
-            Some(plan.reason.as_str()),
-            serde_json::json!({
-                "sender": msg.sender,
-                "message_id": msg.id,
-                "intent": format!("{:?}", plan.intent),
-            }),
-        );
-    }
-    let suppress_tools_for_turn = matches!(
-        turn_intent.as_ref().map(|plan| plan.intent),
-        Some(ChannelTurnIntent::DirectReply | ChannelTurnIntent::NeedsClarification)
-    );
     if !options.resume_existing_user_turn
         && ctx.auto_save_memory
         && msg.content.chars().count() >= AUTOSAVE_MIN_MESSAGE_CHARS
@@ -442,7 +411,7 @@ pub(super) async fn process_channel_message_with_options(
     let expose_internal_tool_details =
         msg.channel == "cli" || should_expose_internal_tool_details(&msg.content);
 
-    if msg.channel != "cli" && !suppress_tools_for_turn && !skip_pre_tool_turn_routing {
+    if msg.channel != "cli" && !skip_pre_tool_turn_routing {
         if let Some(plan) = try_llm_capability_recovery_plan(
             active_provider.as_ref(),
             ctx.as_ref(),
@@ -519,31 +488,6 @@ pub(super) async fn process_channel_message_with_options(
         }
     }
 
-    // The turn-intent classifier is *advisory*: it adds guidance to the system
-    // prompt (see below) telling the model to prefer a direct reply when it
-    // judges no tool is needed. It must never strip the tools registry — if
-    // the classifier misjudges and the model still emits a tool call, we want
-    // the tool to run rather than return a misleading "Unknown tool" error
-    // that teaches the model to claim the capability doesn't exist.
-    if suppress_tools_for_turn {
-        let turn_intent_reason = turn_intent
-            .as_ref()
-            .map(|plan| plan.reason.as_str())
-            .unwrap_or("turn-intent classifier recommended direct reply for this turn");
-        runtime_trace::record_event(
-            "channel_message_direct_reply_mode",
-            Some(msg.channel.as_str()),
-            Some(route.provider.as_str()),
-            Some(route.model.as_str()),
-            None,
-            Some(true),
-            Some(turn_intent_reason),
-            serde_json::json!({
-                "sender": msg.sender,
-                "message_id": msg.id,
-            }),
-        );
-    }
     let effective_tools_registry: &[Box<dyn crate::tools::Tool>] = ctx.tools_registry.as_ref();
 
     let mut system_prompt = build_channel_system_prompt(
@@ -552,30 +496,6 @@ pub(super) async fn process_channel_message_with_options(
         &msg.reply_target,
         expose_internal_tool_details,
     );
-    match turn_intent.as_ref().map(|plan| plan.intent) {
-        Some(ChannelTurnIntent::DirectReply) => {
-            system_prompt.push_str(
-                "\n\nTurn-intent policy: This turn is best handled as a direct reply from current context. \
-Reply naturally and helpfully without calling tools or requesting approval. \
-Do not generalize this turn-scoped tool pause into a permanent limitation. \
-If the user asks about capabilities, describe the runtime tools as existing but not being executed in this turn. \
-Ask one brief clarifying question only if the user is clearly asking for action but the target remains unclear.",
-            );
-        }
-        Some(ChannelTurnIntent::NeedsClarification) => {
-            system_prompt.push_str(
-                "\n\nTurn-intent policy: The user likely wants action, but this request is underspecified. \
-Do not call tools or request approval in this turn. \
-Do not describe runtime tools as missing or permanently unavailable just because you are not executing them yet. \
-Ask one brief clarifying question that identifies the missing target, artifact, or desired outcome.",
-            );
-        }
-        _ => {}
-    }
-    // Always advertise the real tool visibility — the turn-intent text above
-    // provides advisory "prefer direct reply" guidance, but the authoritative
-    // tool inventory must match what the execution path will actually honor,
-    // otherwise a misclassified turn produces a phantom "Unknown tool" error.
     system_prompt.push_str(&build_runtime_tool_visibility_prompt(
         effective_tools_registry,
         &excluded_tools_snapshot,

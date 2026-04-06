@@ -3163,9 +3163,13 @@ BTC is currently around $65,000 based on latest tool output."#
         .expect("approved shell auto-resume should finish");
 
         assert!(marker_path.exists());
+        // With the turn-intent LLM classifier removed, no chat_with_system
+        // classifier call fires on the first turn (capability recovery takes
+        // the heuristic path here) and the resume turn must not introduce a
+        // new one either.
         assert_eq!(
             provider_impl.classifier_calls.load(Ordering::SeqCst),
-            1,
+            0,
             "approved auto-resume should skip reclassification on the resumed turn"
         );
     }
@@ -5114,189 +5118,6 @@ BTC is currently around $65,000 based on latest tool output."#
         assert!(sent_messages[0].contains("I currently have 2 advertised skills loaded:"));
         assert!(sent_messages[0].contains("`find-skills`"));
         assert!(sent_messages[0].contains("`safe-web-search`"));
-    }
-
-    #[tokio::test]
-    async fn process_channel_message_model_judged_direct_reply_suppresses_tools_for_turn() {
-        let channel_impl = Arc::new(TelegramRecordingChannel::default());
-        let channel: Arc<dyn Channel> = channel_impl.clone();
-
-        let mut channels_by_name = HashMap::new();
-        channels_by_name.insert(channel.name().to_string(), channel);
-
-        let provider_impl = Arc::new(HistoryCaptureProvider {
-            system_response: Some(
-                r#"{"intent":"direct_reply","reason":"exploratory discussion, not an execution request"}"#
-                    .to_string(),
-            ),
-            ..Default::default()
-        });
-        let provider: Arc<dyn Provider> = provider_impl.clone();
-        let mut provider_cache_seed: HashMap<String, Arc<dyn Provider>> = HashMap::new();
-        provider_cache_seed.insert("test-provider".to_string(), Arc::clone(&provider));
-
-        let runtime_ctx = Arc::new(ChannelRuntimeContext {
-            channels_by_name: Arc::new(channels_by_name),
-            provider: Arc::clone(&provider),
-            default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
-            tools_registry: Arc::new(vec![Box::new(NamedTestTool("shell"))]),
-            observer: Arc::new(NoopObserver),
-            system_prompt: Arc::new("test-system-prompt".to_string()),
-            model: Arc::new("test-model".to_string()),
-            temperature: 0.0,
-            auto_save_memory: false,
-            max_tool_iterations: 5,
-            min_relevance_score: 0.0,
-            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
-            route_overrides: Arc::new(Mutex::new(HashMap::new())),
-            api_key: None,
-            api_url: None,
-            reliability: Arc::new(crate::config::ReliabilityConfig::default()),
-            provider_runtime_options: providers::ProviderRuntimeOptions::default(),
-            workspace_dir: Arc::new(std::env::temp_dir()),
-            message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
-            interrupt_on_new_message: false,
-            multimodal: crate::config::MultimodalConfig::default(),
-            hooks: None,
-            non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
-            query_classification: crate::config::QueryClassificationConfig::default(),
-            model_routes: Vec::new(),
-            approval_manager: Arc::new(ApprovalManager::from_config(
-                &crate::config::AutonomyConfig {
-                    always_ask: vec!["shell".to_string()],
-                    ..crate::config::AutonomyConfig::default()
-                },
-            )),
-        });
-
-        Box::pin(process_channel_message(
-            runtime_ctx,
-            traits::ChannelMessage {
-                id: "msg-direct-reply".to_string(),
-                sender: "alice".to_string(),
-                reply_target: "chat-direct-reply".to_string(),
-                content: "I'm trying to make you smarter by changing your codebase.".to_string(),
-                channel: "telegram".to_string(),
-                timestamp: 1,
-                thread_ts: None,
-            },
-            CancellationToken::new(),
-        ))
-        .await;
-
-        let sent_messages = channel_impl.sent_messages.lock().await;
-        assert_eq!(sent_messages.len(), 1);
-        assert!(sent_messages[0].contains("response-1"));
-        assert!(!sent_messages[0].contains("approve-confirm"));
-
-        let calls = provider_impl
-            .calls
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        assert_eq!(calls.len(), 1);
-        let system_prompt = &calls[0][0].1;
-        assert!(system_prompt
-            .contains("Turn-intent policy: This turn is best handled as a direct reply"));
-        // Turn-intent classification is advisory only: the authoritative tool
-        // inventory must still reflect the real runtime, so the model never
-        // sees a misleading "tool disabled" claim that would desync it from
-        // what the execution path actually honors.
-        assert!(!system_prompt.contains("disabled by turn policy"));
-        assert!(!system_prompt.contains("No tool calls are allowed in this turn"));
-        assert!(system_prompt.contains("`shell`"));
-    }
-
-    #[tokio::test]
-    async fn process_channel_message_model_judged_clarification_suppresses_tools_for_turn() {
-        let channel_impl = Arc::new(TelegramRecordingChannel::default());
-        let channel: Arc<dyn Channel> = channel_impl.clone();
-
-        let mut channels_by_name = HashMap::new();
-        channels_by_name.insert(channel.name().to_string(), channel);
-
-        let provider_impl = Arc::new(HistoryCaptureProvider {
-            system_response: Some(
-                r#"{"intent":"needs_clarification","reason":"missing target repo and desired change"}"#
-                    .to_string(),
-            ),
-            ..Default::default()
-        });
-        let provider: Arc<dyn Provider> = provider_impl.clone();
-        let mut provider_cache_seed: HashMap<String, Arc<dyn Provider>> = HashMap::new();
-        provider_cache_seed.insert("test-provider".to_string(), Arc::clone(&provider));
-
-        let runtime_ctx = Arc::new(ChannelRuntimeContext {
-            channels_by_name: Arc::new(channels_by_name),
-            provider: Arc::clone(&provider),
-            default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
-            tools_registry: Arc::new(vec![Box::new(NamedTestTool("shell"))]),
-            observer: Arc::new(NoopObserver),
-            system_prompt: Arc::new("test-system-prompt".to_string()),
-            model: Arc::new("test-model".to_string()),
-            temperature: 0.0,
-            auto_save_memory: false,
-            max_tool_iterations: 5,
-            min_relevance_score: 0.0,
-            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
-            route_overrides: Arc::new(Mutex::new(HashMap::new())),
-            api_key: None,
-            api_url: None,
-            reliability: Arc::new(crate::config::ReliabilityConfig::default()),
-            provider_runtime_options: providers::ProviderRuntimeOptions::default(),
-            workspace_dir: Arc::new(std::env::temp_dir()),
-            message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
-            interrupt_on_new_message: false,
-            multimodal: crate::config::MultimodalConfig::default(),
-            hooks: None,
-            non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
-            query_classification: crate::config::QueryClassificationConfig::default(),
-            model_routes: Vec::new(),
-            approval_manager: Arc::new(ApprovalManager::from_config(
-                &crate::config::AutonomyConfig {
-                    always_ask: vec!["shell".to_string()],
-                    ..crate::config::AutonomyConfig::default()
-                },
-            )),
-        });
-
-        Box::pin(process_channel_message(
-            runtime_ctx,
-            traits::ChannelMessage {
-                id: "msg-needs-clarification".to_string(),
-                sender: "alice".to_string(),
-                reply_target: "chat-needs-clarification".to_string(),
-                content: "Help me update my repo so it is smarter.".to_string(),
-                channel: "telegram".to_string(),
-                timestamp: 1,
-                thread_ts: None,
-            },
-            CancellationToken::new(),
-        ))
-        .await;
-
-        let sent_messages = channel_impl.sent_messages.lock().await;
-        assert_eq!(sent_messages.len(), 1);
-        assert!(sent_messages[0].contains("response-1"));
-        assert!(!sent_messages[0].contains("approve-confirm"));
-
-        let calls = provider_impl
-            .calls
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        assert_eq!(calls.len(), 1);
-        let system_prompt = &calls[0][0].1;
-        assert!(system_prompt
-            .contains("The user likely wants action, but this request is underspecified"));
-        // Advisory-only: turn-intent guidance must coexist with the real tool
-        // inventory so the model can still act if it decides the request is
-        // specified enough to proceed.
-        assert!(!system_prompt.contains("disabled by turn policy"));
-        assert!(!system_prompt.contains("No tool calls are allowed in this turn"));
-        assert!(system_prompt.contains("`shell`"));
     }
 
     #[tokio::test]

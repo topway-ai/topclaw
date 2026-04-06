@@ -64,27 +64,6 @@ fn build_capability_recovery_approval_prompt(
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ChannelTurnIntent {
-    DirectReply,
-    NeedsTools,
-    NeedsClarification,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct ChannelTurnIntentPlan {
-    pub(super) intent: ChannelTurnIntent,
-    pub(super) reason: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct LlmTurnIntentSuggestion {
-    #[serde(default)]
-    intent: Option<String>,
-    #[serde(default)]
-    reason: Option<String>,
-}
-
 #[derive(Debug, Deserialize)]
 struct LlmCapabilityRecoverySuggestion {
     #[serde(default)]
@@ -334,78 +313,6 @@ fn map_tool_to_capability_kind(tool_name: &str) -> Option<CapabilityRecoveryKind
         "file_edit" | "file_write" => Some(CapabilityRecoveryKind::FileWriteAccess),
         _ => None,
     }
-}
-
-fn parse_channel_turn_intent(raw: &str) -> Option<ChannelTurnIntent> {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "direct_reply" => Some(ChannelTurnIntent::DirectReply),
-        "needs_tools" => Some(ChannelTurnIntent::NeedsTools),
-        "needs_clarification" => Some(ChannelTurnIntent::NeedsClarification),
-        _ => None,
-    }
-}
-
-pub(super) async fn try_llm_turn_intent(
-    provider: &dyn Provider,
-    msg: &traits::ChannelMessage,
-    model: &str,
-    temperature: f64,
-    tools_registry: &[Box<dyn Tool>],
-    excluded_tools: &[String],
-) -> Option<ChannelTurnIntentPlan> {
-    let trimmed = msg.content.trim();
-    if trimmed.is_empty() || trimmed.starts_with('/') {
-        return None;
-    }
-
-    let available_tools = if tools_registry.is_empty() {
-        "(none)".to_string()
-    } else {
-        tools_registry
-            .iter()
-            .map(|tool| tool.name().to_string())
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    let prompt = format!(
-        "Classify how this non-CLI user turn should be handled before any tool or approval flow.\n\
-Return JSON only with keys: intent (string), reason (string).\n\
-Allowed intent values: direct_reply, needs_tools, needs_clarification.\n\
-- direct_reply: answer naturally from current context without tools. Use for greetings, meta discussion, capability/model questions, brainstorming, or requests answerable from the current conversation/runtime context.\n\
-- needs_tools: the user explicitly wants you to inspect external material, run commands, edit files, search/browse, or otherwise perform actions that require tool access.\n\
-- needs_clarification: the user likely wants action, but the target repo/file/link/command or desired outcome is still underspecified.\n\
-Do not choose needs_tools just because the topic mentions code, tooling, or a codebase.\n\
-Available runtime tools: {available_tools}\n\
-Excluded runtime tools: {}\n\
-User request:\n{}",
-        if excluded_tools.is_empty() {
-            "(none)".to_string()
-        } else {
-            excluded_tools.join(", ")
-        },
-        msg.content
-    );
-
-    let raw = provider
-        .chat_with_system(
-            Some(
-                "You are a strict turn-intent classifier for non-CLI channel messages. Output valid JSON only. Do not explain.",
-            ),
-            &prompt,
-            model,
-            temperature,
-        )
-        .await
-        .ok()?;
-    let json = extract_json_object(&raw)?;
-    let suggestion: LlmTurnIntentSuggestion = serde_json::from_str(json).ok()?;
-    let intent = parse_channel_turn_intent(suggestion.intent.as_deref()?)?;
-    Some(ChannelTurnIntentPlan {
-        intent,
-        reason: suggestion.reason.unwrap_or_else(|| {
-            "LLM classifier selected the turn-handling mode for this non-CLI message".to_string()
-        }),
-    })
 }
 
 pub(super) async fn try_llm_capability_recovery_plan(
