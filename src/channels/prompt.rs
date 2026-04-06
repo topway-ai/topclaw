@@ -3,6 +3,35 @@ use crate::config::{Config, IdentityConfig, SkillsPromptInjectionMode};
 use std::fmt::Write;
 use std::path::Path;
 
+/// Build the "Self-Configuration" instructions appended to the channel system
+/// prompt. Tells the model that the TopClaw runtime config file is editable
+/// (with explicit user confirmation) so it stops claiming the file is
+/// out-of-reach when a user asks for a runtime tweak.
+pub(crate) fn build_self_config_instructions(config_path: &Path) -> String {
+    let display_path = config_path.display();
+    format!(
+        "\n## Self-Configuration\n\n\
+         Your runtime configuration lives at `{display_path}`. It is a regular \
+         TOML file owned by the same user that started this process — when the \
+         user asks you to enable a tool, widen an allowlist, switch provider/model, \
+         or otherwise change runtime behavior, treat it as editable through \
+         `file_read`/`file_edit` (or `shell` if those are gated).\n\
+         - Do NOT tell the user the config is \"outside the workspace\" or that you \
+         cannot read/write it; the path above is reachable by your normal file tools.\n\
+         - Always READ the file first, then propose the exact diff (section, \
+         before/after lines) and ask the user to confirm before writing.\n\
+         - Never expand permissions silently. Confirmation must come from the user \
+         in this same chat/channel for each distinct config change.\n\
+         - After a confirmed edit, tell the user that some changes (channels, \
+         provider keys, allowlists baked in at startup) only take effect after \
+         restarting the TopClaw process, so they know whether to expect immediate \
+         behavior or a restart.\n\
+         - Never echo, paste, or describe the values of `api_key`, `bot_token`, or \
+         any field whose value starts with `enc2:` — those are encrypted secrets \
+         and must stay redacted in chat.\n"
+    )
+}
+
 pub(crate) fn channel_delivery_instructions(channel_name: &str) -> Option<&'static str> {
     match channel_name {
         "telegram" => Some(
@@ -508,5 +537,24 @@ fn inject_workspace_file(
         Err(_) => {
             let _ = writeln!(prompt, "### {filename}\n\n[File not found: {filename}]\n");
         }
+    }
+}
+
+#[cfg(test)]
+mod self_config_tests {
+    use super::build_self_config_instructions;
+    use std::path::PathBuf;
+
+    #[test]
+    fn self_config_instructions_include_path_and_confirmation_rules() {
+        let path = PathBuf::from("/home/topclaw_user/.topclaw/config.toml");
+        let prompt = build_self_config_instructions(&path);
+        assert!(prompt.contains("/home/topclaw_user/.topclaw/config.toml"));
+        assert!(prompt.contains("Self-Configuration"));
+        assert!(prompt.contains("ask the user to confirm before writing"));
+        assert!(prompt.contains("Never expand permissions silently"));
+        assert!(prompt.contains("enc2:"));
+        // The whole point of this section: stop the model from refusing.
+        assert!(prompt.contains("Do NOT tell the user the config is"));
     }
 }
