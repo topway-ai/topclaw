@@ -17,7 +17,9 @@ use super::context::*;
 use super::dispatch::{run_message_dispatch_loop, spawn_supervised_listener};
 use super::factory::collect_configured_channels;
 use super::helpers::*;
-use super::prompt::{build_channel_tool_descriptions, build_system_prompt_with_mode};
+use super::prompt::{
+    build_channel_tool_descriptions, build_self_config_instructions, build_system_prompt_with_mode,
+};
 use super::runtime_config::{
     config_file_stamp, runtime_config_store, runtime_defaults_from_config, RuntimeConfigState,
 };
@@ -405,6 +407,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
         system_prompt.push_str(&build_tool_instructions_from_specs(&filtered_specs));
     }
     system_prompt.push_str(&build_shell_policy_instructions(&config.autonomy));
+    system_prompt.push_str(&build_self_config_instructions(&config.config_path));
 
     if !skills.is_empty() {
         println!(
