@@ -787,12 +787,6 @@ impl TelegramChannel {
         crate::providers::sanitize_api_error(input)
     }
 
-    fn is_message_not_modified_error(input: &str) -> bool {
-        input
-            .to_ascii_lowercase()
-            .contains("message is not modified")
-    }
-
     fn normalize_identity(value: &str) -> String {
         value.trim().trim_start_matches('@').to_string()
     }
@@ -2946,29 +2940,28 @@ impl Channel for TelegramChannel {
             }
         };
 
-        // If we have attachments, delete the draft and send fresh messages
-        // (Telegram editMessageText can't add attachments)
-        if !attachments.is_empty() {
-            // Delete the draft message
-            if let Some(id) = msg_id {
-                let _ = self
-                    .client
-                    .post(self.api_url("deleteMessage"))
-                    .json(&serde_json::json!({
-                        "chat_id": chat_id,
-                        "message_id": id,
-                    }))
-                    .send()
-                    .await;
-            }
+        // Always delete the draft and send fresh messages so:
+        //  1. the final message timestamp reflects the actual finish time,
+        //  2. the user's device receives a push notification on completion
+        //     (edits don't trigger push notifications in Telegram clients).
+        if let Some(id) = msg_id {
+            let _ = self
+                .client
+                .post(self.api_url("deleteMessage"))
+                .json(&serde_json::json!({
+                    "chat_id": chat_id,
+                    "message_id": id,
+                }))
+                .send()
+                .await;
+        }
 
-            // Send text without markers
+        if !attachments.is_empty() {
             if !text_without_markers.is_empty() {
                 self.send_text_chunks(&text_without_markers, &chat_id, thread_id.as_deref())
                     .await?;
             }
 
-            // Send attachments
             for attachment in &attachments {
                 self.send_attachment(&chat_id, thread_id.as_deref(), attachment)
                     .await?;
@@ -2977,94 +2970,6 @@ impl Channel for TelegramChannel {
             return Ok(());
         }
 
-        // If text exceeds limit, delete draft and send as chunked messages
-        if text.len() > TELEGRAM_MAX_MESSAGE_LENGTH {
-            if let Some(id) = msg_id {
-                let _ = self
-                    .client
-                    .post(self.api_url("deleteMessage"))
-                    .json(&serde_json::json!({
-                        "chat_id": chat_id,
-                        "message_id": id,
-                    }))
-                    .send()
-                    .await;
-            }
-
-            // Fall back to chunked send
-            return self
-                .send_text_chunks(text, &chat_id, thread_id.as_deref())
-                .await;
-        }
-
-        let Some(id) = msg_id else {
-            return self
-                .send_text_chunks(text, &chat_id, thread_id.as_deref())
-                .await;
-        };
-
-        // Try editing with HTML formatting
-        let body = Self::build_edit_message_body(&chat_id, id, text);
-
-        let resp = self
-            .client
-            .post(self.api_url("editMessageText"))
-            .json(&body)
-            .send()
-            .await?;
-
-        if resp.status().is_success() {
-            return Ok(());
-        }
-
-        let html_status = resp.status();
-        let html_err = resp.text().await.unwrap_or_default();
-        if Self::is_message_not_modified_error(&html_err) {
-            return Ok(());
-        }
-
-        // Markdown failed — retry without parse_mode
-        let plain_body = serde_json::json!({
-            "chat_id": chat_id,
-            "message_id": id,
-            "text": Self::strip_supported_raw_html_tags(text),
-        });
-
-        let resp = self
-            .client
-            .post(self.api_url("editMessageText"))
-            .json(&plain_body)
-            .send()
-            .await?;
-
-        if resp.status().is_success() {
-            return Ok(());
-        }
-
-        let plain_status = resp.status();
-        let plain_err = resp.text().await.unwrap_or_default();
-        if Self::is_message_not_modified_error(&plain_err) {
-            return Ok(());
-        }
-
-        // Edit failed entirely — delete the stale draft first so the user
-        // doesn't see both the old draft and the fallback message.
-        tracing::warn!(
-            "Telegram finalize_draft edit failed (html {}: {}; plain {}: {}); deleting draft and falling back to sendMessage",
-            html_status,
-            Self::sanitize_telegram_error(&html_err),
-            plain_status,
-            Self::sanitize_telegram_error(&plain_err),
-        );
-        let _ = self
-            .client
-            .post(self.api_url("deleteMessage"))
-            .json(&serde_json::json!({
-                "chat_id": chat_id,
-                "message_id": id,
-            }))
-            .send()
-            .await;
         self.send_text_chunks(text, &chat_id, thread_id.as_deref())
             .await
     }
@@ -3660,70 +3565,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn finalize_draft_invalid_message_id_falls_back_to_chunk_send() {
-        let ch = TelegramChannel::new("fake-token".into(), vec!["*".into()], false)
-            .with_streaming(StreamMode::Partial, 0);
-        let long_text = "a".repeat(TELEGRAM_MAX_MESSAGE_LENGTH + 64);
-
-        // For oversized text + invalid draft message_id, finalize_draft should
-        // fall back to chunked send instead of returning early.
-        let result = ch.finalize_draft("123", "not-a-number", &long_text).await;
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn finalize_draft_message_not_modified_does_not_send_duplicate() {
+    async fn finalize_draft_deletes_draft_and_sends_fresh_message() {
+        // Finalize should always delete the streamed draft and send a fresh
+        // message so Telegram shows the real finish time and the completion
+        // triggers a push notification (edits don't ping user devices).
         let server = MockServer::start().await;
-        Mock::given(method("POST"))
-            .and(path_regex(r"/botTEST_TOKEN/editMessageText$"))
-            .respond_with(ResponseTemplate::new(400).set_body_json(serde_json::json!({
-                "ok": false,
-                "error_code": 400,
-                "description": "Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message"
-            })))
-            .expect(1)
-            .mount(&server)
-            .await;
-
-        let ch = TelegramChannel::new("TEST_TOKEN".into(), vec!["*".into()], false)
-            .with_streaming(StreamMode::Partial, 0)
-            .with_api_base(server.uri());
-
-        let result = ch.finalize_draft("123", "42", "same reply").await;
-        assert!(
-            result.is_ok(),
-            "not-modified finalize should be treated as success"
-        );
-
-        let requests = server
-            .received_requests()
-            .await
-            .expect("wiremock should expose captured requests");
-        assert_eq!(
-            requests.len(),
-            1,
-            "finalize should stop after the first edit attempt"
-        );
-        assert!(
-            requests[0].url.path().ends_with("/editMessageText"),
-            "unexpected request path: {}",
-            requests[0].url.path()
-        );
-    }
-
-    #[tokio::test]
-    async fn finalize_draft_deletes_stale_draft_before_fallback_send() {
-        let server = MockServer::start().await;
-        Mock::given(method("POST"))
-            .and(path_regex(r"/botTEST_TOKEN/editMessageText$"))
-            .respond_with(ResponseTemplate::new(400).set_body_json(serde_json::json!({
-                "ok": false,
-                "error_code": 400,
-                "description": "Bad Request: chat not found"
-            })))
-            .expect(2)
-            .mount(&server)
-            .await;
         Mock::given(method("POST"))
             .and(path_regex(r"/botTEST_TOKEN/deleteMessage$"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
@@ -3751,8 +3597,58 @@ mod tests {
             .with_streaming(StreamMode::Partial, 0)
             .with_api_base(server.uri());
 
-        let result = ch.finalize_draft("123", "42", "fallback reply").await;
-        assert!(result.is_ok(), "fallback finalize should still succeed");
+        let result = ch.finalize_draft("123", "42", "final reply").await;
+        assert!(result.is_ok(), "finalize should succeed");
+
+        let requests = server
+            .received_requests()
+            .await
+            .expect("wiremock should expose captured requests");
+        assert!(
+            requests
+                .iter()
+                .any(|r| r.url.path().ends_with("/deleteMessage")),
+            "finalize should delete the draft",
+        );
+        assert!(
+            requests
+                .iter()
+                .any(|r| r.url.path().ends_with("/sendMessage")),
+            "finalize should send a fresh message",
+        );
+        assert!(
+            !requests
+                .iter()
+                .any(|r| r.url.path().ends_with("/editMessageText")),
+            "finalize must not use editMessageText — edits don't update timestamps or notify the user",
+        );
+    }
+
+    #[tokio::test]
+    async fn finalize_draft_invalid_message_id_still_sends_fresh_message() {
+        // When the draft message_id is unparseable, finalize should skip the
+        // delete and still send a fresh message.
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path_regex(r"/botTEST_TOKEN/sendMessage$"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "ok": true,
+                "result": {
+                    "message_id": 1,
+                    "chat": {"id": 123},
+                    "text": "ok"
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let ch = TelegramChannel::new("TEST_TOKEN".into(), vec!["*".into()], false)
+            .with_streaming(StreamMode::Partial, 0)
+            .with_api_base(server.uri());
+
+        let result = ch.finalize_draft("123", "not-a-number", "reply").await;
+        assert!(result.is_ok());
     }
 
     #[test]
