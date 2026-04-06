@@ -37,8 +37,7 @@ use super::runtime_config::{
     maybe_apply_runtime_config_update, runtime_config_path, runtime_defaults_snapshot,
 };
 use super::runtime_helpers::{
-    build_runtime_capability_inventory_prompt, build_runtime_tool_visibility_prompt,
-    snapshot_non_cli_excluded_tools,
+    build_runtime_tool_visibility_prompt, snapshot_non_cli_excluded_tools,
 };
 use super::sanitize::sanitize_channel_response;
 use super::traits::{self, SendMessage};
@@ -324,10 +323,7 @@ pub(super) async fn process_channel_message_with_options(
     } else {
         None
     };
-    let early_typing_task = match (
-        target_channel.as_ref(),
-        early_typing_cancellation.as_ref(),
-    ) {
+    let early_typing_task = match (target_channel.as_ref(), early_typing_cancellation.as_ref()) {
         (Some(channel), Some(token)) => Some(spawn_scoped_typing_task(
             Arc::clone(channel),
             msg.reply_target.clone(),
@@ -523,12 +519,17 @@ pub(super) async fn process_channel_message_with_options(
         }
     }
 
-    let empty_tools_registry: &[Box<dyn crate::tools::Tool>] = &[];
-    let effective_tools_registry = if suppress_tools_for_turn {
+    // The turn-intent classifier is *advisory*: it adds guidance to the system
+    // prompt (see below) telling the model to prefer a direct reply when it
+    // judges no tool is needed. It must never strip the tools registry — if
+    // the classifier misjudges and the model still emits a tool call, we want
+    // the tool to run rather than return a misleading "Unknown tool" error
+    // that teaches the model to claim the capability doesn't exist.
+    if suppress_tools_for_turn {
         let turn_intent_reason = turn_intent
             .as_ref()
             .map(|plan| plan.reason.as_str())
-            .unwrap_or("turn-intent classifier suppressed tools for this turn");
+            .unwrap_or("turn-intent classifier recommended direct reply for this turn");
         runtime_trace::record_event(
             "channel_message_direct_reply_mode",
             Some(msg.channel.as_str()),
@@ -542,10 +543,8 @@ pub(super) async fn process_channel_message_with_options(
                 "message_id": msg.id,
             }),
         );
-        empty_tools_registry
-    } else {
-        ctx.tools_registry.as_ref()
-    };
+    }
+    let effective_tools_registry: &[Box<dyn crate::tools::Tool>] = ctx.tools_registry.as_ref();
 
     let mut system_prompt = build_channel_system_prompt(
         ctx.system_prompt.as_str(),
@@ -573,18 +572,15 @@ Ask one brief clarifying question that identifies the missing target, artifact, 
         }
         _ => {}
     }
-    if suppress_tools_for_turn {
-        system_prompt.push_str(&build_runtime_capability_inventory_prompt(
-            ctx.tools_registry.as_ref(),
-            &excluded_tools_snapshot,
-        ));
-    } else {
-        system_prompt.push_str(&build_runtime_tool_visibility_prompt(
-            effective_tools_registry,
-            &excluded_tools_snapshot,
-            active_provider.supports_native_tools(),
-        ));
-    }
+    // Always advertise the real tool visibility — the turn-intent text above
+    // provides advisory "prefer direct reply" guidance, but the authoritative
+    // tool inventory must match what the execution path will actually honor,
+    // otherwise a misclassified turn produces a phantom "Unknown tool" error.
+    system_prompt.push_str(&build_runtime_tool_visibility_prompt(
+        effective_tools_registry,
+        &excluded_tools_snapshot,
+        active_provider.supports_native_tools(),
+    ));
     let canary_guard = crate::security::CanaryGuard::new(canary_enabled_for_turn);
     let (system_prompt, turn_canary_token) = canary_guard.inject_turn_token(&system_prompt);
     if !options.resume_existing_user_turn {

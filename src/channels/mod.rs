@@ -5199,11 +5199,13 @@ BTC is currently around $65,000 based on latest tool output."#
         let system_prompt = &calls[0][0].1;
         assert!(system_prompt
             .contains("Turn-intent policy: This turn is best handled as a direct reply"));
-        assert!(system_prompt.contains("Tool execution in this turn: disabled by turn policy"));
-        assert!(system_prompt.contains("Installed runtime tools available outside this turn (1):"));
-        assert!(system_prompt.contains("No tool calls are allowed in this turn"));
+        // Turn-intent classification is advisory only: the authoritative tool
+        // inventory must still reflect the real runtime, so the model never
+        // sees a misleading "tool disabled" claim that would desync it from
+        // what the execution path actually honors.
+        assert!(!system_prompt.contains("disabled by turn policy"));
+        assert!(!system_prompt.contains("No tool calls are allowed in this turn"));
         assert!(system_prompt.contains("`shell`"));
-        assert!(system_prompt.contains("Do not describe the listed runtime tools as missing"));
     }
 
     #[tokio::test]
@@ -5289,9 +5291,11 @@ BTC is currently around $65,000 based on latest tool output."#
         let system_prompt = &calls[0][0].1;
         assert!(system_prompt
             .contains("The user likely wants action, but this request is underspecified"));
-        assert!(system_prompt.contains("Tool execution in this turn: disabled by turn policy"));
-        assert!(system_prompt.contains("Installed runtime tools available outside this turn (1):"));
-        assert!(system_prompt.contains("No tool calls are allowed in this turn"));
+        // Advisory-only: turn-intent guidance must coexist with the real tool
+        // inventory so the model can still act if it decides the request is
+        // specified enough to proceed.
+        assert!(!system_prompt.contains("disabled by turn policy"));
+        assert!(!system_prompt.contains("No tool calls are allowed in this turn"));
         assert!(system_prompt.contains("`shell`"));
     }
 
@@ -6324,20 +6328,6 @@ BTC is currently around $65,000 based on latest tool output."#
         assert!(prompt.contains("If the user asks what you can do"));
         assert!(prompt.contains("actions that still require approval"));
         assert!(prompt.contains("Self-improvement is not automatic by default"));
-    }
-
-    #[test]
-    fn runtime_capability_inventory_prompt_preserves_hidden_runtime_tools() {
-        let tools: Vec<Box<dyn Tool>> = vec![Box::new(MockPriceTool), Box::new(MockEchoTool)];
-        let prompt = build_runtime_capability_inventory_prompt(&tools, &[]);
-
-        assert!(prompt.contains("Tool execution in this turn: disabled by turn policy"));
-        assert!(prompt.contains("Installed runtime tools available outside this turn (2):"));
-        assert!(prompt.contains("`mock_price`"));
-        assert!(prompt.contains("`mock_echo`"));
-        assert!(prompt.contains("Do not describe the listed runtime tools as missing"));
-        assert!(prompt.contains("No tool calls are allowed in this turn"));
-        assert!(!prompt.contains("Allowed tools: (none)"));
     }
 
     #[test]
