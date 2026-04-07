@@ -1,6 +1,6 @@
 ---
 name: change-summary
-description: Summarize local diffs, recent commits, release deltas, or branch changes when the user asks what changed, what to review, or what shipped. Use this skill for concise developer-facing change explanations grounded in the current repository state.
+description: "Trigger when the user asks what changed, what to review, or what shipped, or wants a diff, commit-range, or release-delta summary. Inspect the actual diff, commit range, or status view (never invent history), group changes by behavior or subsystem, separate user-facing impact from internal cleanup, and flag risky edits, migrations, or missing validation. Cite commit SHAs or file paths. Exclude pure formatting noise unless it affects review. Do not claim tests passed unless you actually verified them. Note uncertainty when a change was not fully validated."
 ---
 
 # Change Summary

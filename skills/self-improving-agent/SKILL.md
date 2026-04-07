@@ -1,6 +1,6 @@
 ---
 name: self-improving-agent
-description: Capture errors, user corrections, missing capabilities, and durable workflow learnings in `.learnings/` so future work can reuse them. Use when a command fails, a user corrects the agent, an integration breaks, a capability is missing, or a recurring better approach is discovered.
+description: "Trigger when a non-trivial command, tool, test, or workflow fails; the user corrects an assumption, fact, or interpretation; an external API/SDK/integration behaves unexpectedly; the user requests a missing capability; or a recurring better approach is worth preserving. Append a structured entry to one of `.learnings/LEARNINGS.md` (durable lessons, corrections, best practices), `.learnings/ERRORS.md` (failures and workarounds), or `.learnings/FEATURE_REQUESTS.md` (missing capabilities) using the `TYPE-YYYYMMDD-NNN` ID format (LRN, ERR, FEAT). Keep entries specific and actionable, link affected files or commands, and update existing entries instead of duplicating recurring patterns. Never store secrets, raw tokens, cookies, private URLs, or unredacted personal data — replace sensitive values with `[REDACTED_TOKEN]` or `[REDACTED_EMAIL]` placeholders. Do not log trivial one-off noise. Read skills/self-improving-agent/SKILL.md for entry templates, routing rules, and the resolution workflow."
 ---
 
 # Self-Improving Agent

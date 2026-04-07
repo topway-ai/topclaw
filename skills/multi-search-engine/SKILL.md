@@ -1,6 +1,6 @@
 ---
 name: "multi-search-engine"
-description: "Multi search engine integration with 18 engines (8 CN + 10 Global). Supports advanced search operators, time filters, site search, privacy engines, and WolframAlpha knowledge queries. No API keys required."
+description: "Trigger only when the user explicitly needs a specific search engine or engine-specific query syntax — for example Baidu, Bing CN, Google, Yandex, WolframAlpha, DuckDuckGo bangs, or operators like site:, filetype:, and tbs=qdr:. Build the engine URL and call web_fetch. Supports 18 engines with no API keys: 8 CN (Baidu, Bing CN, Bing INT, 360, Sogou, WeChat, Toutiao, Jisilu) and 10 global (Google, Google HK, DuckDuckGo, Yahoo, Startpage, Brave, Ecosia, Qwant, Yandex, WolframAlpha). Prefer safe-web-search for normal lookups when a low-risk search tool is available — only reach for this skill when engine-specific behavior is required. Never send secrets, internal hostnames, tokens, or customer data to public engines. Read skills/multi-search-engine/SKILL.md for URL templates, advanced operators, time filters, and DuckDuckGo bangs."
 ---
 
 # Multi Search Engine v2.0.1

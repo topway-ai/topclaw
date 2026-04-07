@@ -1,6 +1,6 @@
 ---
 name: code-explainer
-description: Explain local code, module boundaries, call flow, data flow, and behavior when the user asks what a function, file, test, or subsystem does. Use this skill for developer-facing explanation, onboarding, and architecture walkthroughs based on existing code.
+description: "Trigger when the user asks what a function, file, test, module, or subsystem does, or wants an architecture walkthrough or onboarding tour of existing code. Read the smallest relevant files first, trace entrypoints before helpers, and explain control flow, important types, and side effects with concrete file references. Stay grounded in the current repository state — do not speculate about behavior you have not verified from code. Distinguish confirmed behavior from inference, name relevant config surfaces when behavior depends on them, and mention tests or missing tests when they affect confidence."
 ---
 
 # Code Explainer

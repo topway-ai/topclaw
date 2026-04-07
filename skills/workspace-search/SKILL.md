@@ -1,6 +1,6 @@
 ---
 name: workspace-search
-description: Search the local workspace when the user wants to find code, config, docs, symbols, strings, TODOs, references, or repeated patterns. Use this skill for fast read-only retrieval across files before deeper analysis or edits.
+description: "Trigger when the user wants to find code, config, docs, symbols, strings, TODOs, or repeated patterns inside the current workspace. Run targeted read-only search starting from precise terms — search filenames first when the target sounds structural, search contents when it sounds semantic, then open only the top matches needed for confirmation. Report file paths with brief context. Stay inside allowed roots. Never modify files. Do not dump large excerpts; quote only the relevant lines."
 ---
 
 # Workspace Search

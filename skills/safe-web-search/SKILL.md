@@ -1,6 +1,6 @@
 ---
 name: safe-web-search
-description: Search the web for current facts, documentation, announcements, or links when the user asks to look something up. Use this skill when fresh internet information is needed and the low-risk `web_search` tool is available, especially with DuckDuckGo or a trusted SearxNG instance.
+description: "Trigger when the user asks to look up current facts, documentation, announcements, prices, or links that need fresh internet data. Use the low-risk web_search tool (prefer the duckduckgo provider or a trusted self-hosted searxng endpoint), keep queries short and specific, summarize the top results instead of dumping raw output, and cite the most relevant links. Use only when web_search is enabled. Do not switch to browser automation, form submission, login flows, or cookie-backed sessions. If result quality is poor, say so plainly instead of inventing certainty."
 ---
 
 # Safe Web Search

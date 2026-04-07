@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use directories::UserDirs;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::io::{BufRead, IsTerminal};
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime};
@@ -1019,26 +1019,66 @@ fn load_open_skill_md(path: &Path, load_mode: SkillLoadMode) -> Result<Skill> {
 }
 
 fn extract_description(content: &str) -> String {
+    // If the file opens with a YAML frontmatter block, the description must
+    // come from that block. Do not fall through to the body, or the opening
+    // `---` delimiter would be picked up as the description.
+    if has_frontmatter(content) {
+        return extract_frontmatter_description(content)
+            .unwrap_or_else(|| "No description".to_string());
+    }
     content
         .lines()
         .find(|line| !line.starts_with('#') && !line.trim().is_empty())
-        .unwrap_or("No description")
-        .trim()
-        .to_string()
+        .map(|line| line.trim().to_string())
+        .unwrap_or_else(|| "No description".to_string())
+}
+
+fn has_frontmatter(content: &str) -> bool {
+    content
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .map(|line| line.trim() == "---")
+        .unwrap_or(false)
 }
 
 fn extract_description_from_markdown(path: &Path) -> Result<String> {
-    let file = std::fs::File::open(path)?;
-    let reader = std::io::BufReader::new(file);
-    for line in reader.lines() {
-        let line = line?;
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        return Ok(trimmed.to_string());
+    let content = std::fs::read_to_string(path)?;
+    Ok(extract_description(&content))
+}
+
+/// Parse the `description:` field from a YAML frontmatter block at the top of
+/// a SKILL.md file. Supports plain values and single- or double-quoted values.
+/// Returns `None` if the file does not start with a `---` frontmatter block,
+/// or if the block has no `description:` key.
+fn extract_frontmatter_description(content: &str) -> Option<String> {
+    let mut lines = content.lines();
+    let first = lines.by_ref().find(|line| !line.trim().is_empty())?;
+    if first.trim() != "---" {
+        return None;
     }
-    Ok("No description".to_string())
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed == "---" {
+            return None;
+        }
+        if let Some(rest) = trimmed.strip_prefix("description:") {
+            let value = rest.trim();
+            return Some(strip_yaml_quotes(value).to_string());
+        }
+    }
+    None
+}
+
+fn strip_yaml_quotes(value: &str) -> &str {
+    if value.len() >= 2 {
+        let bytes = value.as_bytes();
+        let first = bytes[0];
+        let last = bytes[value.len() - 1];
+        if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') {
+            return &value[1..value.len() - 1];
+        }
+    }
+    value
 }
 
 fn append_xml_escaped(out: &mut String, text: &str) {
@@ -3266,6 +3306,51 @@ description = "Bare minimum"
             resolve_skill_source_alias("https://example.com/skill.zip", &policy),
             "https://example.com/skill.zip".to_string()
         );
+    }
+
+    #[test]
+    fn extract_description_reads_yaml_frontmatter_field() {
+        let content = "---\nname: workspace-search\ndescription: Search the local workspace for code.\n---\n\n# Workspace Search\n\nBody text.\n";
+        assert_eq!(
+            extract_description(content),
+            "Search the local workspace for code."
+        );
+    }
+
+    #[test]
+    fn extract_description_strips_double_quoted_frontmatter_value() {
+        let content =
+            "---\nname: \"multi-search-engine\"\ndescription: \"Multi engine integration.\"\n---\n";
+        assert_eq!(extract_description(content), "Multi engine integration.");
+    }
+
+    #[test]
+    fn extract_description_strips_single_quoted_frontmatter_value() {
+        let content = "---\nname: foo\ndescription: 'single quoted value'\n---\n";
+        assert_eq!(extract_description(content), "single quoted value");
+    }
+
+    #[test]
+    fn extract_description_falls_back_to_first_body_line_when_no_frontmatter() {
+        let content = "# Heading\n\nFirst body line is the description.\n";
+        assert_eq!(
+            extract_description(content),
+            "First body line is the description."
+        );
+    }
+
+    #[test]
+    fn extract_description_returns_default_when_frontmatter_lacks_description() {
+        let content = "---\nname: incomplete\nversion: 0.1.0\n---\n\n# Body\n";
+        assert_eq!(extract_description(content), "No description");
+    }
+
+    #[test]
+    fn extract_description_does_not_return_frontmatter_delimiter() {
+        // Regression: previously this returned "---" because the extractor
+        // grabbed the first non-empty, non-`#`-prefixed line.
+        let content = "---\nname: workspace-search\ndescription: real description\n---\n";
+        assert_ne!(extract_description(content), "---");
     }
 
     #[test]

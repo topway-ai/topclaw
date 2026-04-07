@@ -1,6 +1,6 @@
 ---
 name: find-skills
-description: Helps users discover and install agent skills when they ask questions like "how do I do X", "find a skill for X", "is there a skill that can...", or express interest in extending capabilities. This skill should be used when the user is looking for functionality that might exist as an installable skill.
+description: "Trigger when the user asks how to do X, says find/is there a skill for X, asks can you do X for a specialized capability, or expresses interest in extending agent capabilities. Search the public skill index at https://skills.sh/ (using web_search if no direct index lookup is available) for the user's domain and task, then present each candidate with its name, what it does, a `topclaw skills install <skills.sh URL>` command, and the index link. Always install through TopClaw's reviewed `topclaw skills install` path so the built-in vetter and domain-trust prompts run — never recommend unattended global installs or third-party package managers. Re-vet after install with `topclaw skills vet <name> --json`. If no relevant skill is found, say so and offer to help directly or suggest using skill-creator. Read skills/find-skills/SKILL.md for the full discovery and presentation workflow."
 ---
 
 # Find Skills

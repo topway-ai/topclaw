@@ -1,6 +1,6 @@
 ---
 name: agent-browser-extension
-description: Enable browser automation as an explicitly reviewed extension when the operator asks for interactive web navigation, page extraction, or DOM-level automation that cannot be handled by the low-risk web search path. Use this skill only when browser automation is already enabled in TopClaw config and the request has passed external security policy.
+description: "Trigger only when the user explicitly needs interactive browser navigation, DOM-level page extraction, or in-page automation that cannot be served by safe-web-search or web_fetch. Before using, verify all of: browser.enabled is true, browser.backend is set to agent_browser, the target host is in browser.allowed_domains, and external policy permits the action. If any check fails, refuse and explain the gate — do not expand allowed domains from inside the session. Keep sessions task-scoped and short-lived. Never use persistent profiles, saved cookies, or shared browser state. Stop immediately if the task would require passwords, MFA, wallet actions, payment flows, or sensitive personal data entry. Always prefer safe-web-search first. Read skills/agent-browser-extension/SKILL.md for the required operator checks, installation workflow, and output expectations."
 ---
 
 # Agent Browser Extension

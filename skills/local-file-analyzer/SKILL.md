@@ -1,6 +1,6 @@
 ---
 name: local-file-analyzer
-description: Read and summarize local files inside the allowed workspace when the user asks to inspect a document, code file, notes folder, transcript, or project artifact. Use this skill for read-only file understanding tasks such as summarizing, extracting key points, comparing text, or answering questions about local content.
+description: "Trigger when the user asks to inspect, summarize, extract from, compare, or answer questions about a local file or document inside the allowed workspace. Open the smallest set of files needed to answer the question, lead with the answer, cite exact file paths, and call out partial coverage or unreadable formats. For very large files, inspect targeted sections before reading more. Stay strictly read-only — do not edit or propose edits unless explicitly asked. Never read secrets, credentials, or runtime config unless external policy explicitly allows it."
 ---
 
 # Local File Analyzer

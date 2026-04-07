@@ -1,6 +1,6 @@
 ---
 name: desktop-computer-use
-description: Enable explicitly reviewed desktop computer-use workflows when the operator wants TopClaw to drive real applications and OS windows through the browser computer_use sidecar on macOS, Windows, or Linux.
+description: "Trigger only when the user explicitly asks TopClaw to drive real desktop applications or OS windows (not just browse the web) on macOS, Windows, or Linux. Before using, verify all of: browser.enabled is true, browser.backend is set to computer_use, a compatible computer-use sidecar is running, browser.computer_use.endpoint points to a trusted local or explicitly approved remote sidecar, and browser.computer_use.window_allowlist is narrow and task-scoped. If any check fails, refuse and explain the gate. For each task: list candidate windows, focus the intended one, capture the screen, plan the smallest reversible step, execute one mouse or keyboard action, then re-capture and verify. Stop immediately on password, MFA, wallet, payment, privileged admin, system-settings, or unbounded file-deletion prompts. Treat app_launch and app_terminate as higher-risk than focus or capture. Prefer safe-web-search, web_fetch, or agent-browser-extension before reaching for OS-level control. Read skills/desktop-computer-use/SKILL.md for the full action surface and operator checks."
 ---
 
 # Desktop Computer Use
