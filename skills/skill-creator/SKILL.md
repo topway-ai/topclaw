@@ -1,6 +1,6 @@
 ---
 name: skill-creator
-description: Guide for creating effective skills. Use when users want to create a new skill, redesign an existing skill, package a skill, validate a skill bundle, or add reusable scripts, references, and assets that make an agent more capable for a recurring task.
+description: "Trigger when the user wants to create, redesign, package, or validate a TopClaw skill bundle, or add reusable scripts, references, or assets to an existing one. Follow the six-step workflow: understand the target task with concrete examples, plan reusable resources, initialize the skeleton with `python skills/skill-creator/scripts/init_skill.py <name> --path skills/`, edit SKILL.md to be lean and imperative (durable procedure only — move detail into references/), then validate with quick_validate.py and package with package_skill.py. Place new skills under the workspace skills/ directory so they appear as self-added in `topclaw skills list`. Do not invent a separate storage location. Read skills/skill-creator/SKILL.md for the full anatomy, frontmatter rules, and references/output-patterns guidance."
 license: Complete terms in LICENSE.txt
 ---
 
