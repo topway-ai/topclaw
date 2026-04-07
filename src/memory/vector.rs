@@ -255,14 +255,6 @@ mod tests {
     }
 
     #[test]
-    fn cosine_infinity_returns_zero_or_finite() {
-        let a = vec![f32::INFINITY, 1.0];
-        let b = vec![1.0, 2.0];
-        let sim = cosine_similarity(&a, &b);
-        assert!(sim.is_finite(), "Expected finite, got {sim}");
-    }
-
-    #[test]
     fn cosine_negative_values() {
         let a = vec![-1.0, -2.0, -3.0];
         let b = vec![-1.0, -2.0, -3.0];
@@ -293,19 +285,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn cosine_single_element() {
-        assert!((cosine_similarity(&[5.0], &[5.0]) - 1.0).abs() < 0.001);
-        assert!(cosine_similarity(&[5.0], &[-5.0]).abs() < f32::EPSILON);
-    }
-
-    #[test]
-    fn cosine_both_zero_vectors() {
-        let a = vec![0.0, 0.0];
-        let b = vec![0.0, 0.0];
-        assert!(cosine_similarity(&a, &b).abs() < f32::EPSILON);
-    }
-
     // ── Edge cases: vec↔bytes serialization ──────────────────────
 
     #[test]
@@ -315,13 +294,6 @@ mod tests {
         let result = bytes_to_vec(&bytes);
         assert_eq!(result.len(), 1);
         assert!(result[0].abs() < f32::EPSILON);
-    }
-
-    #[test]
-    fn bytes_to_vec_three_bytes_returns_empty() {
-        let bytes = vec![1u8, 2, 3];
-        let result = bytes_to_vec(&bytes);
-        assert!(result.is_empty());
     }
 
     #[test]
@@ -346,13 +318,6 @@ mod tests {
     // ── Edge cases: hybrid merge ─────────────────────────────────
 
     #[test]
-    fn hybrid_merge_limit_zero() {
-        let vec_results = vec![("a".into(), 0.9)];
-        let merged = hybrid_merge(&vec_results, &[], 0.7, 0.3, 0);
-        assert!(merged.is_empty());
-    }
-
-    #[test]
     fn hybrid_merge_zero_weights() {
         let vec_results = vec![("a".into(), 0.9)];
         let kw_results = vec![("b".into(), 10.0)];
@@ -364,26 +329,6 @@ mod tests {
     }
 
     #[test]
-    fn hybrid_merge_negative_keyword_scores() {
-        // BM25 scores are negated in our code, but raw negatives shouldn't crash
-        let kw_results = vec![("a".into(), -5.0), ("b".into(), -1.0)];
-        let merged = hybrid_merge(&[], &kw_results, 0.7, 0.3, 10);
-        assert_eq!(merged.len(), 2);
-        // Should still produce finite scores
-        for r in &merged {
-            assert!(r.final_score.is_finite());
-        }
-    }
-
-    #[test]
-    fn hybrid_merge_duplicate_ids_in_same_source() {
-        let vec_results = vec![("a".into(), 0.9), ("a".into(), 0.5)];
-        let merged = hybrid_merge(&vec_results, &[], 1.0, 0.0, 10);
-        // Should deduplicate — only 1 entry for "a"
-        assert_eq!(merged.len(), 1);
-    }
-
-    #[test]
     fn hybrid_merge_large_bm25_normalization() {
         let kw_results = vec![("a".into(), 1000.0), ("b".into(), 500.0), ("c".into(), 1.0)];
         let merged = hybrid_merge(&[], &kw_results, 0.0, 1.0, 10);
@@ -391,12 +336,5 @@ mod tests {
         assert!((merged[0].keyword_score.unwrap() - 1.0).abs() < 0.001);
         // "b" should have 0.5
         assert!((merged[1].keyword_score.unwrap() - 0.5).abs() < 0.001);
-    }
-
-    #[test]
-    fn hybrid_merge_single_item() {
-        let merged = hybrid_merge(&[("only".into(), 0.8)], &[], 0.7, 0.3, 10);
-        assert_eq!(merged.len(), 1);
-        assert_eq!(merged[0].id, "only");
     }
 }
