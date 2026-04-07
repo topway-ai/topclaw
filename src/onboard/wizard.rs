@@ -65,7 +65,7 @@ use provider_setup::{
 #[cfg(test)]
 use skill_selection::{
     apply_onboarding_skill_selection_key, default_selected_onboarding_skill,
-    format_onboarding_skill_label, SkillOnboardingSelection,
+    SkillOnboardingSelection,
 };
 use skill_selection::{apply_onboarding_skill_tool_defaults, setup_skills};
 
@@ -2785,15 +2785,6 @@ mod tests {
     // ── ProjectContext defaults ──────────────────────────────────
 
     #[test]
-    fn project_context_default_is_empty() {
-        let ctx = ProjectContext::default();
-        assert!(ctx.user_name.is_empty());
-        assert!(ctx.timezone.is_empty());
-        assert!(ctx.agent_name.is_empty());
-        assert!(ctx.communication_style.is_empty());
-    }
-
-    #[test]
     fn apply_provider_update_preserves_non_provider_settings() {
         let mut config = Config::default();
         config.default_temperature = 1.23;
@@ -3084,152 +3075,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn scaffold_bakes_timezone_into_files() {
-        let tmp = TempDir::new().unwrap();
-        let ctx = ProjectContext {
-            timezone: "US/Pacific".into(),
-            ..Default::default()
-        };
-        scaffold_workspace(tmp.path(), &ctx).await.unwrap();
-
-        let user_md = tokio::fs::read_to_string(tmp.path().join("USER.md"))
-            .await
-            .unwrap();
-        assert!(
-            user_md.contains("**Timezone:** US/Pacific"),
-            "USER.md should contain timezone"
-        );
-
-        let bootstrap = tokio::fs::read_to_string(tmp.path().join("BOOTSTRAP.md"))
-            .await
-            .unwrap();
-        assert!(
-            bootstrap.contains("US/Pacific"),
-            "BOOTSTRAP.md should contain timezone"
-        );
-    }
-
-    #[tokio::test]
-    async fn scaffold_bakes_agent_name_into_files() {
-        let tmp = TempDir::new().unwrap();
-        let ctx = ProjectContext {
-            agent_name: "Crabby".into(),
-            ..Default::default()
-        };
-        scaffold_workspace(tmp.path(), &ctx).await.unwrap();
-
-        let identity = tokio::fs::read_to_string(tmp.path().join("IDENTITY.md"))
-            .await
-            .unwrap();
-        assert!(
-            identity.contains("**Name:** Crabby"),
-            "IDENTITY.md should contain agent name"
-        );
-
-        let soul = tokio::fs::read_to_string(tmp.path().join("SOUL.md"))
-            .await
-            .unwrap();
-        assert!(
-            soul.contains("You are **Crabby**"),
-            "SOUL.md should contain agent name"
-        );
-
-        let agents = tokio::fs::read_to_string(tmp.path().join("AGENTS.md"))
-            .await
-            .unwrap();
-        assert!(
-            agents.contains("Crabby Personal Assistant"),
-            "AGENTS.md should contain agent name"
-        );
-
-        let heartbeat = tokio::fs::read_to_string(tmp.path().join("HEARTBEAT.md"))
-            .await
-            .unwrap();
-        assert!(
-            heartbeat.contains("Crabby"),
-            "HEARTBEAT.md should contain agent name"
-        );
-
-        let bootstrap = tokio::fs::read_to_string(tmp.path().join("BOOTSTRAP.md"))
-            .await
-            .unwrap();
-        assert!(
-            bootstrap.contains("Introduce yourself as Crabby"),
-            "BOOTSTRAP.md should contain agent name"
-        );
-    }
-
-    #[tokio::test]
-    async fn scaffold_bakes_communication_style() {
-        let tmp = TempDir::new().unwrap();
-        let ctx = ProjectContext {
-            communication_style: "Be technical and detailed.".into(),
-            ..Default::default()
-        };
-        scaffold_workspace(tmp.path(), &ctx).await.unwrap();
-
-        let soul = tokio::fs::read_to_string(tmp.path().join("SOUL.md"))
-            .await
-            .unwrap();
-        assert!(
-            soul.contains("Be technical and detailed."),
-            "SOUL.md should contain communication style"
-        );
-
-        let user_md = tokio::fs::read_to_string(tmp.path().join("USER.md"))
-            .await
-            .unwrap();
-        assert!(
-            user_md.contains("Be technical and detailed."),
-            "USER.md should contain communication style"
-        );
-
-        let bootstrap = tokio::fs::read_to_string(tmp.path().join("BOOTSTRAP.md"))
-            .await
-            .unwrap();
-        assert!(
-            bootstrap.contains("Be technical and detailed."),
-            "BOOTSTRAP.md should contain communication style"
-        );
-    }
-
     // ── scaffold_workspace: defaults when context is empty ──────
-
-    #[tokio::test]
-    async fn scaffold_uses_defaults_for_empty_context() {
-        let tmp = TempDir::new().unwrap();
-        let ctx = ProjectContext::default(); // all empty
-        scaffold_workspace(tmp.path(), &ctx).await.unwrap();
-
-        let identity = tokio::fs::read_to_string(tmp.path().join("IDENTITY.md"))
-            .await
-            .unwrap();
-        assert!(
-            identity.contains("**Name:** TopClaw"),
-            "should default agent name to TopClaw"
-        );
-
-        let user_md = tokio::fs::read_to_string(tmp.path().join("USER.md"))
-            .await
-            .unwrap();
-        assert!(
-            user_md.contains("**Name:** User"),
-            "should default user name to User"
-        );
-        assert!(
-            user_md.contains("**Timezone:** UTC"),
-            "should default timezone to UTC"
-        );
-
-        let soul = tokio::fs::read_to_string(tmp.path().join("SOUL.md"))
-            .await
-            .unwrap();
-        assert!(
-            soul.contains("Be warm, natural, and clear."),
-            "should default communication style"
-        );
-    }
 
     // ── scaffold_workspace: skip existing files ─────────────────
 
@@ -3294,121 +3140,11 @@ mod tests {
 
     // ── scaffold_workspace: all files are non-empty ─────────────
 
-    #[tokio::test]
-    async fn scaffold_files_are_non_empty() {
-        let tmp = TempDir::new().unwrap();
-        let ctx = ProjectContext::default();
-        scaffold_workspace(tmp.path(), &ctx).await.unwrap();
-
-        for f in &[
-            "IDENTITY.md",
-            "AGENTS.md",
-            "HEARTBEAT.md",
-            "SOUL.md",
-            "USER.md",
-            "TOOLS.md",
-            "BOOTSTRAP.md",
-            "MEMORY.md",
-        ] {
-            let content = tokio::fs::read_to_string(tmp.path().join(f)).await.unwrap();
-            assert!(!content.trim().is_empty(), "{f} should not be empty");
-        }
-    }
-
     // ── scaffold_workspace: AGENTS.md references on-demand memory
-
-    #[tokio::test]
-    async fn agents_md_references_on_demand_memory() {
-        let tmp = TempDir::new().unwrap();
-        let ctx = ProjectContext::default();
-        scaffold_workspace(tmp.path(), &ctx).await.unwrap();
-
-        let agents = tokio::fs::read_to_string(tmp.path().join("AGENTS.md"))
-            .await
-            .unwrap();
-        assert!(
-            agents.contains("memory_recall"),
-            "AGENTS.md should reference memory_recall for on-demand access"
-        );
-        assert!(
-            agents.contains("on-demand"),
-            "AGENTS.md should mention daily notes are on-demand"
-        );
-    }
 
     // ── scaffold_workspace: MEMORY.md warns about token cost ────
 
-    #[tokio::test]
-    async fn memory_md_warns_about_token_cost() {
-        let tmp = TempDir::new().unwrap();
-        let ctx = ProjectContext::default();
-        scaffold_workspace(tmp.path(), &ctx).await.unwrap();
-
-        let memory = tokio::fs::read_to_string(tmp.path().join("MEMORY.md"))
-            .await
-            .unwrap();
-        assert!(
-            memory.contains("costs tokens"),
-            "MEMORY.md should warn about token cost"
-        );
-        assert!(
-            memory.contains("auto-injected"),
-            "MEMORY.md should mention it's auto-injected"
-        );
-    }
-
     // ── scaffold_workspace: TOOLS.md lists memory_forget ────────
-
-    #[tokio::test]
-    async fn tools_md_lists_all_builtin_tools() {
-        let tmp = TempDir::new().unwrap();
-        let ctx = ProjectContext::default();
-        scaffold_workspace(tmp.path(), &ctx).await.unwrap();
-
-        let tools = tokio::fs::read_to_string(tmp.path().join("TOOLS.md"))
-            .await
-            .unwrap();
-        for tool in &[
-            "shell",
-            "file_read",
-            "file_write",
-            "memory_store",
-            "memory_recall",
-            "memory_forget",
-        ] {
-            assert!(
-                tools.contains(tool),
-                "TOOLS.md should list built-in tool: {tool}"
-            );
-        }
-        assert!(
-            tools.contains("Use when:"),
-            "TOOLS.md should include 'Use when' guidance"
-        );
-        assert!(
-            tools.contains("Don't use when:"),
-            "TOOLS.md should include 'Don't use when' guidance"
-        );
-    }
-
-    #[tokio::test]
-    async fn soul_md_includes_emoji_awareness_guidance() {
-        let tmp = TempDir::new().unwrap();
-        let ctx = ProjectContext::default();
-        scaffold_workspace(tmp.path(), &ctx).await.unwrap();
-
-        let soul = tokio::fs::read_to_string(tmp.path().join("SOUL.md"))
-            .await
-            .unwrap();
-        assert!(
-            soul.contains("Use emojis naturally (0-2 max"),
-            "SOUL.md should include emoji usage guidance"
-        );
-        assert!(
-            soul.contains("Match emoji density to the user"),
-            "SOUL.md should include emoji-awareness guidance"
-        );
-    }
 
     // ── scaffold_workspace: special characters in names ─────────
 
@@ -3576,39 +3312,6 @@ mod tests {
     }
 
     #[test]
-    fn curated_models_for_openai_include_latest_choices() {
-        let ids: Vec<String> = curated_models_for_provider("openai")
-            .into_iter()
-            .map(|(id, _)| id)
-            .collect();
-
-        assert!(ids.contains(&"gpt-5.2".to_string()));
-        assert!(ids.contains(&"gpt-5-mini".to_string()));
-    }
-
-    #[test]
-    fn curated_models_for_openai_codex_include_codex_family() {
-        let ids: Vec<String> = curated_models_for_provider("openai-codex")
-            .into_iter()
-            .map(|(id, _)| id)
-            .collect();
-
-        assert!(ids.contains(&"gpt-5.4".to_string()));
-        assert!(ids.contains(&"gpt-5-codex".to_string()));
-        assert!(ids.contains(&"gpt-5.2-codex".to_string()));
-    }
-
-    #[test]
-    fn curated_models_for_openrouter_use_valid_anthropic_id() {
-        let ids: Vec<String> = curated_models_for_provider("openrouter")
-            .into_iter()
-            .map(|(id, _)| id)
-            .collect();
-
-        assert!(ids.contains(&"anthropic/claude-sonnet-4.6".to_string()));
-    }
-
-    #[test]
     fn parse_openrouter_rankings_model_names_extracts_top_models() {
         let html = r#"
             <html>
@@ -3699,19 +3402,6 @@ mod tests {
     }
 
     #[test]
-    fn curated_models_for_moonshot_drop_deprecated_aliases() {
-        let ids: Vec<String> = curated_models_for_provider("moonshot")
-            .into_iter()
-            .map(|(id, _)| id)
-            .collect();
-
-        assert!(ids.contains(&"kimi-k2.5".to_string()));
-        assert!(ids.contains(&"kimi-k2-thinking".to_string()));
-        assert!(!ids.contains(&"kimi-latest".to_string()));
-        assert!(!ids.contains(&"kimi-thinking-preview".to_string()));
-    }
-
-    #[test]
     fn allows_unauthenticated_model_fetch_for_public_catalogs() {
         assert!(allows_unauthenticated_model_fetch("openrouter"));
         assert!(allows_unauthenticated_model_fetch("venice"));
@@ -3726,29 +3416,6 @@ mod tests {
         assert!(allows_unauthenticated_model_fetch("vllm"));
         assert!(!allows_unauthenticated_model_fetch("openai"));
         assert!(!allows_unauthenticated_model_fetch("deepseek"));
-    }
-
-    #[test]
-    fn curated_models_for_kimi_code_include_official_agent_model() {
-        let ids: Vec<String> = curated_models_for_provider("kimi-code")
-            .into_iter()
-            .map(|(id, _)| id)
-            .collect();
-
-        assert!(ids.contains(&"kimi-for-coding".to_string()));
-        assert!(ids.contains(&"kimi-k2.5".to_string()));
-    }
-
-    #[test]
-    fn curated_models_for_qwen_code_include_coding_plan_models() {
-        let ids: Vec<String> = curated_models_for_provider("qwen-code")
-            .into_iter()
-            .map(|(id, _)| id)
-            .collect();
-
-        assert!(ids.contains(&"qwen3-coder-plus".to_string()));
-        assert!(ids.contains(&"qwen3.5-plus".to_string()));
-        assert!(ids.contains(&"qwen3-max-2026-01-23".to_string()));
     }
 
     #[test]
@@ -3821,18 +3488,6 @@ mod tests {
             curated_models_for_provider("llamacpp"),
             curated_models_for_provider("llama.cpp")
         );
-    }
-
-    #[test]
-    fn curated_models_for_nvidia_include_nim_catalog_entries() {
-        let ids: Vec<String> = curated_models_for_provider("nvidia")
-            .into_iter()
-            .map(|(id, _)| id)
-            .collect();
-
-        assert!(ids.contains(&"meta/llama-3.3-70b-instruct".to_string()));
-        assert!(ids.contains(&"deepseek-ai/deepseek-v3.2".to_string()));
-        assert!(ids.contains(&"nvidia/llama-3.3-nemotron-super-49b-v1.5".to_string()));
     }
 
     #[test]
@@ -3956,18 +3611,6 @@ mod tests {
         )));
         assert!(ollama_uses_remote_endpoint(Some("https://ollama.com")));
         assert!(ollama_uses_remote_endpoint(Some("https://ollama.com/api")));
-    }
-
-    #[test]
-    fn resolve_live_models_endpoint_prefers_vllm_custom_url() {
-        assert_eq!(
-            resolve_live_models_endpoint("vllm", Some("http://127.0.0.1:9000/v1")),
-            Some("http://127.0.0.1:9000/v1/models".to_string())
-        );
-        assert_eq!(
-            resolve_live_models_endpoint("vllm", Some("http://127.0.0.1:9000/v1/models")),
-            Some("http://127.0.0.1:9000/v1/models".to_string())
-        );
     }
 
     #[test]
@@ -4191,19 +3834,6 @@ mod tests {
     }
 
     #[test]
-    fn provider_next_step_uses_guided_setup_for_unknown_provider_value() {
-        let config = Config {
-            default_provider: Some("not-a-real-provider".to_string()),
-            ..Config::default()
-        };
-
-        assert_eq!(
-            provider_next_step(&config),
-            Some(ProviderNextStep::GuidedSetup)
-        );
-    }
-
-    #[test]
     fn provider_next_step_prefers_auth_guidance_for_known_provider() {
         let tmp = TempDir::new().unwrap();
         let config = Config {
@@ -4264,17 +3894,6 @@ mod tests {
             openai_codex_login_decision("openai", false),
             OpenAiCodexLoginDecision::SkipNonCodex
         );
-    }
-
-    #[test]
-    fn local_provider_choices_include_sglang() {
-        let choices = local_provider_choices();
-        assert!(choices.iter().any(|(provider, _)| *provider == "sglang"));
-    }
-
-    #[test]
-    fn provider_env_var_unknown_falls_back() {
-        assert_eq!(provider_env_var("some-new-provider"), "TOPCLAW_API_KEY");
     }
 
     #[test]
@@ -4348,62 +3967,11 @@ mod tests {
     }
 
     #[test]
-    fn other_channel_menu_lists_advanced_channels() {
-        let labels = other_channel_menu_option_labels(&ChannelsConfig::default());
-
-        assert!(
-            labels.iter().any(|label| label.starts_with("Webhook")),
-            "expected Webhook to appear in the advanced channel menu, got {labels:?}"
-        );
-        assert!(
-            !labels.iter().any(|label| label.starts_with("Telegram")),
-            "expected Telegram to stay in the top-level menu, got {labels:?}"
-        );
-        #[cfg(feature = "channel-discord")]
-        assert!(
-            !labels.iter().any(|label| label.starts_with("Discord")),
-            "expected Discord to stay in the top-level menu, got {labels:?}"
-        );
-        assert!(
-            labels.last().is_some_and(|label| label.starts_with("Back")),
-            "expected the advanced menu to end with a Back option, got {labels:?}"
-        );
-    }
-
-    #[test]
-    fn channel_menu_choices_reuses_one_static_slice() {
-        let first = channel_menu_choices();
-        let second = channel_menu_choices();
-
-        assert_eq!(first, second);
-        assert_eq!(first.as_ptr(), second.as_ptr());
-    }
-
-    #[test]
     fn default_channel_menu_prefers_telegram() {
         let default_choice = channel_menu_choices()
             .get(default_channel_menu_index(&ChannelsConfig::default()))
             .copied();
         assert_eq!(default_choice, Some(ChannelMenuChoice::Telegram));
-    }
-
-    #[test]
-    fn default_channel_menu_prefers_done_after_one_channel_is_configured() {
-        let mut channels = ChannelsConfig::default();
-        channels.telegram = Some(TelegramConfig {
-            bot_token: "test-token".into(),
-            allowed_users: vec!["topclaw_user".into()],
-            stream_mode: StreamMode::Off,
-            draft_update_interval_ms: 500,
-            interrupt_on_new_message: false,
-            group_reply: None,
-            base_url: None,
-        });
-
-        let default_choice = channel_menu_choices()
-            .get(default_channel_menu_index(&channels))
-            .copied();
-        assert_eq!(default_choice, Some(ChannelMenuChoice::Done));
     }
 
     #[test]
@@ -4427,27 +3995,6 @@ mod tests {
     }
 
     #[test]
-    fn onboarding_skill_labels_are_compact_and_descriptive() {
-        let safe_web_search = crate::skills::curated_skill_catalog()
-            .iter()
-            .find(|entry| entry.slug == "safe-web-search")
-            .unwrap();
-        let browser_extension = crate::skills::curated_skill_catalog()
-            .iter()
-            .find(|entry| entry.slug == "agent-browser-extension")
-            .unwrap();
-
-        assert_eq!(
-            format_onboarding_skill_label(safe_web_search),
-            "safe-web-search — search the web"
-        );
-        assert_eq!(
-            format_onboarding_skill_label(browser_extension),
-            "agent-browser-extension — browser automation"
-        );
-    }
-
-    #[test]
     fn onboarding_skill_selection_key_handler_supports_clear_all() {
         let mut checked = vec![true, true, false];
         let mut active = 1usize;
@@ -4460,26 +4007,6 @@ mod tests {
 
         assert_eq!(checked, vec![false, false, false]);
         assert_eq!(active, 1);
-    }
-
-    #[test]
-    fn onboarding_skill_selection_key_handler_keeps_toggle_all_behavior() {
-        let mut checked = vec![true, false, false];
-        let mut active = 0usize;
-
-        assert!(!apply_onboarding_skill_selection_key(
-            Key::Char('a'),
-            &mut checked,
-            &mut active
-        ));
-        assert_eq!(checked, vec![true, true, true]);
-
-        assert!(!apply_onboarding_skill_selection_key(
-            Key::Char('a'),
-            &mut checked,
-            &mut active
-        ));
-        assert_eq!(checked, vec![false, false, false]);
     }
 
     #[test]

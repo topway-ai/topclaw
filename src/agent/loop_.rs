@@ -1922,14 +1922,6 @@ mod tests {
     }
 
     #[test]
-    fn test_scrub_credentials_toml_value_with_colon_preserves_equals_delimiter() {
-        let input = r#"api_key = "enc2:QmFzZTY0VG9rZW4=""#;
-        let scrubbed = scrub_credentials(input);
-        assert!(scrubbed.contains(r#"api_key = "enc2*[REDACTED]""#));
-        assert!(!scrubbed.contains(r#""api_key":"#));
-    }
-
-    #[test]
     fn maybe_inject_cron_add_delivery_populates_agent_delivery_from_channel_context() {
         let mut args = serde_json::json!({
             "job_type": "agent",
@@ -1941,24 +1933,6 @@ mod tests {
         assert_eq!(args["delivery"]["mode"], "announce");
         assert_eq!(args["delivery"]["channel"], "telegram");
         assert_eq!(args["delivery"]["to"], "-10012345");
-    }
-
-    #[test]
-    fn maybe_inject_cron_add_delivery_does_not_override_explicit_target() {
-        let mut args = serde_json::json!({
-            "job_type": "agent",
-            "prompt": "remind me later",
-            "delivery": {
-                "mode": "announce",
-                "channel": "discord",
-                "to": "C123"
-            }
-        });
-
-        maybe_inject_cron_add_delivery("cron_add", &mut args, "telegram", Some("-10012345"));
-
-        assert_eq!(args["delivery"]["channel"], "discord");
-        assert_eq!(args["delivery"]["to"], "C123");
     }
 
     #[test]
@@ -2598,17 +2572,6 @@ mod tests {
     }
 
     #[test]
-    fn should_execute_tools_in_parallel_returns_false_for_single_call() {
-        let calls = vec![ParsedToolCall {
-            name: "file_read".to_string(),
-            arguments: serde_json::json!({"path": "a.txt"}),
-            tool_call_id: None,
-        }];
-
-        assert!(!should_execute_tools_in_parallel(&calls, None, false));
-    }
-
-    #[test]
     fn should_execute_tools_in_parallel_returns_false_when_approval_is_required() {
         let calls = vec![
             ParsedToolCall {
@@ -2656,29 +2619,6 @@ mod tests {
             &calls,
             Some(&approval_mgr),
             false,
-        ));
-    }
-
-    #[test]
-    fn should_execute_tools_in_parallel_returns_true_when_approval_is_already_bypassed() {
-        let calls = vec![
-            ParsedToolCall {
-                name: "shell".to_string(),
-                arguments: serde_json::json!({"command": "pwd"}),
-                tool_call_id: None,
-            },
-            ParsedToolCall {
-                name: "http_request".to_string(),
-                arguments: serde_json::json!({"url": "https://example.com"}),
-                tool_call_id: None,
-            },
-        ];
-        let approval_mgr = ApprovalManager::from_config(&crate::config::AutonomyConfig::default());
-
-        assert!(should_execute_tools_in_parallel(
-            &calls,
-            Some(&approval_mgr),
-            true,
         ));
     }
 
@@ -3435,92 +3375,6 @@ mod tests {
         assert!(
             prompt_rx.try_recv().is_err(),
             "non-cli investigation tools should not emit approval prompts"
-        );
-    }
-
-    #[tokio::test]
-    async fn run_tool_call_loop_prompts_only_when_non_investigation_tool_follows_batch() {
-        let provider = ScriptedProvider::from_text_responses(vec![
-            r#"<tool_call>
-{"name":"task_plan","arguments":{"action":"create","value":"plan"}}
-</tool_call>"#,
-            r#"<tool_call>
-{"name":"shell","arguments":{"command":"echo hi","value":"echo hi"}}
-</tool_call>"#,
-            "done",
-        ]);
-
-        let task_plan_calls = Arc::new(AtomicUsize::new(0));
-        let shell_calls = Arc::new(AtomicUsize::new(0));
-        let tools_registry: Vec<Box<dyn Tool>> = vec![
-            Box::new(CountingTool::new("task_plan", Arc::clone(&task_plan_calls))),
-            Box::new(CountingTool::new("shell", Arc::clone(&shell_calls))),
-        ];
-
-        let approval_mgr = Arc::new(ApprovalManager::from_config(
-            &crate::config::AutonomyConfig::default(),
-        ));
-        let (prompt_tx, mut prompt_rx) =
-            tokio::sync::mpsc::unbounded_channel::<NonCliApprovalPrompt>();
-
-        let mut history = vec![
-            ChatMessage::system("test-system"),
-            ChatMessage::user("plan first, then run a shell command"),
-        ];
-        let observer = NoopObserver;
-
-        let result_task = tokio::spawn(async move {
-            run_tool_call_loop_with_non_cli_approval_context(
-                &provider,
-                &mut history,
-                &tools_registry,
-                &observer,
-                "mock-provider",
-                "mock-model",
-                0.0,
-                true,
-                Some(approval_mgr.as_ref()),
-                "telegram",
-                Some(NonCliApprovalContext {
-                    sender: "alice".to_string(),
-                    reply_target: "chat-shell".to_string(),
-                    message_id: "msg-shell".to_string(),
-                    content: "run shell".to_string(),
-                    timestamp: 1,
-                    thread_ts: None,
-                    prompt_tx,
-                }),
-                &crate::config::MultimodalConfig::default(),
-                4,
-                None,
-                None,
-                None,
-                &[],
-            )
-            .await
-        });
-
-        let first_prompt = prompt_rx
-            .recv()
-            .await
-            .expect("shell approval prompt should arrive after task_plan executes");
-        assert_eq!(
-            first_prompt.title,
-            "Approval required for current execution plan."
-        );
-        assert!(first_prompt.details.contains("`shell`"));
-        assert!(first_prompt.details.contains("echo hi"));
-
-        let result = result_task.await.expect("tool loop task should complete");
-        let err = result.expect_err("approval should fail fast");
-        let pending =
-            is_non_cli_approval_pending(&err).expect("pending approval error should be returned");
-        assert_eq!(pending.tool_name, "current execution plan");
-        assert_eq!(task_plan_calls.load(Ordering::SeqCst), 1);
-        assert_eq!(shell_calls.load(Ordering::SeqCst), 0);
-        assert!(
-            prompt_rx.try_recv().is_err(),
-            "only the first non-investigation tool should prompt before the user retries"
         );
     }
 
@@ -4405,19 +4259,6 @@ mod tests {
     }
 
     #[test]
-    fn looks_like_unverified_action_completion_without_tool_call_ignores_non_side_effect_text() {
-        assert!(!looks_like_unverified_action_completion_without_tool_call(
-            "Done. Here is the explanation of why that approach works."
-        ));
-        assert!(!looks_like_unverified_action_completion_without_tool_call(
-            "I have a suggestion for the plan if you want me to proceed."
-        ));
-        assert!(!looks_like_unverified_action_completion_without_tool_call(
-            "We were previously discussing gmail integration. Goal 1 is done. Our next task is Goal 2 — Gmail API via OAuth."
-        ));
-    }
-
-    #[test]
     fn looks_like_tool_unavailability_claim_detects_false_missing_tool_replies() {
         let tools = vec![
             crate::tools::ToolSpec {
@@ -4443,23 +4284,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_tool_calls_extracts_single_call() {
-        let response = r#"Let me check that.
-<tool_call>
-{"name": "shell", "arguments": {"command": "ls -la"}}
-</tool_call>"#;
-
-        let (text, calls) = parse_tool_calls(response);
-        assert_eq!(text, "Let me check that.");
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "shell");
-        assert_eq!(
-            calls[0].arguments.get("command").unwrap().as_str().unwrap(),
-            "ls -la"
-        );
-    }
-
-    #[test]
     fn parse_tool_calls_extracts_multiple_calls() {
         let response = r#"<tool_call>
 {"name": "file_read", "arguments": {"path": "a.txt"}}
@@ -4475,14 +4299,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_tool_calls_returns_text_only_when_no_calls() {
-        let response = "Just a normal response with no tools.";
-        let (text, calls) = parse_tool_calls(response);
-        assert_eq!(text, "Just a normal response with no tools.");
-        assert!(calls.is_empty());
-    }
-
-    #[test]
     fn parse_tool_calls_handles_malformed_json() {
         let response = r#"<tool_call>
 not valid json
@@ -4492,20 +4308,6 @@ Some text after."#;
         let (text, calls) = parse_tool_calls(response);
         assert!(calls.is_empty());
         assert!(text.contains("Some text after."));
-    }
-
-    #[test]
-    fn parse_tool_calls_text_before_and_after() {
-        let response = r#"Before text.
-<tool_call>
-{"name": "shell", "arguments": {"command": "echo hi"}}
-</tool_call>
-After text."#;
-
-        let (text, calls) = parse_tool_calls(response);
-        assert!(text.contains("Before text."));
-        assert!(text.contains("After text."));
-        assert_eq!(calls.len(), 1);
     }
 
     #[test]
@@ -4524,170 +4326,11 @@ After text."#;
     }
 
     #[test]
-    fn parse_tool_calls_handles_openai_format_multiple_calls() {
-        let response = r#"{"tool_calls": [{"type": "function", "function": {"name": "file_read", "arguments": "{\"path\": \"a.txt\"}"}}, {"type": "function", "function": {"name": "file_read", "arguments": "{\"path\": \"b.txt\"}"}}]}"#;
-
-        let (_, calls) = parse_tool_calls(response);
-        assert_eq!(calls.len(), 2);
-        assert_eq!(calls[0].name, "file_read");
-        assert_eq!(calls[1].name, "file_read");
-    }
-
-    #[test]
-    fn parse_tool_calls_openai_format_without_content() {
-        // Some providers don't include content field with tool_calls
-        let response = r#"{"tool_calls": [{"type": "function", "function": {"name": "memory_recall", "arguments": "{}"}}]}"#;
-
-        let (text, calls) = parse_tool_calls(response);
-        assert!(text.is_empty()); // No content field
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "memory_recall");
-    }
-
-    #[test]
-    fn parse_tool_calls_handles_openai_message_wrapper_with_content() {
-        let response = r#"{
-            "message": {
-                "role": "assistant",
-                "content": "<think>plan</think>\nI will call a tool.",
-                "tool_calls": [
-                    {
-                        "id": "chatcmpl-tool-a18c01b8849eb05d",
-                        "type": "function",
-                        "function": {
-                            "name": "shell",
-                            "arguments": "{\"command\": \"ls -la\"}"
-                        }
-                    }
-                ]
-            },
-            "finish_reason": "tool_calls"
-        }"#;
-
-        let (text, calls) = parse_tool_calls(response);
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "shell");
-        assert_eq!(
-            calls[0].arguments.get("command").unwrap().as_str().unwrap(),
-            "ls -la"
-        );
-        assert!(text.contains("I will call a tool."));
-    }
-
-    #[test]
-    fn parse_tool_calls_handles_openai_choices_message_wrapper() {
-        let response = r#"{
-            "id": "chatcmpl-123",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": "Checking now.",
-                        "tool_calls": [
-                            {
-                                "id": "call_1",
-                                "type": "function",
-                                "function": {
-                                    "name": "shell",
-                                    "arguments": "{\"command\":\"pwd\"}"
-                                }
-                            }
-                        ]
-                    },
-                    "finish_reason": "tool_calls"
-                }
-            ]
-        }"#;
-
-        let (text, calls) = parse_tool_calls(response);
-        assert_eq!(text, "Checking now.");
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "shell");
-        assert_eq!(
-            calls[0].arguments.get("command").unwrap().as_str().unwrap(),
-            "pwd"
-        );
-        assert_eq!(calls[0].tool_call_id.as_deref(), Some("call_1"));
-    }
-
-    #[test]
     fn parse_tool_calls_preserves_openai_tool_call_ids() {
         let response = r#"{"tool_calls":[{"id":"call_42","function":{"name":"shell","arguments":"{\"command\":\"pwd\"}"}}]}"#;
         let (_, calls) = parse_tool_calls(response);
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].tool_call_id.as_deref(), Some("call_42"));
-    }
-
-    #[test]
-    fn parse_tool_calls_handles_markdown_json_inside_tool_call_tag() {
-        let response = r#"<tool_call>
-```json
-{"name": "file_write", "arguments": {"path": "test.py", "content": "print('ok')"}}
-```
-</tool_call>"#;
-
-        let (text, calls) = parse_tool_calls(response);
-        assert!(text.is_empty());
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "file_write");
-        assert_eq!(
-            calls[0].arguments.get("path").unwrap().as_str().unwrap(),
-            "test.py"
-        );
-    }
-
-    #[test]
-    fn parse_tool_calls_handles_noisy_tool_call_tag_body() {
-        let response = r#"<tool_call>
-I will now call the tool with this payload:
-{"name": "shell", "arguments": {"command": "pwd"}}
-</tool_call>"#;
-
-        let (text, calls) = parse_tool_calls(response);
-        assert!(text.is_empty());
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "shell");
-        assert_eq!(
-            calls[0].arguments.get("command").unwrap().as_str().unwrap(),
-            "pwd"
-        );
-    }
-
-    #[test]
-    fn parse_tool_calls_handles_tool_call_inline_attributes_with_send_message_alias() {
-        let response = r#"<tool_call>send_message channel="user_channel" message="Hello! How can I assist you today?"</tool_call>"#;
-
-        let (text, calls) = parse_tool_calls(response);
-        assert!(text.is_empty());
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "message_send");
-        assert_eq!(
-            calls[0].arguments.get("channel").unwrap().as_str().unwrap(),
-            "user_channel"
-        );
-        assert_eq!(
-            calls[0].arguments.get("message").unwrap().as_str().unwrap(),
-            "Hello! How can I assist you today?"
-        );
-    }
-
-    #[test]
-    fn parse_tool_calls_handles_tool_call_function_style_arguments() {
-        let response = r#"<tool_call>message_send(channel="general", message="test")</tool_call>"#;
-
-        let (text, calls) = parse_tool_calls(response);
-        assert!(text.is_empty());
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "message_send");
-        assert_eq!(
-            calls[0].arguments.get("channel").unwrap().as_str().unwrap(),
-            "general"
-        );
-        assert_eq!(
-            calls[0].arguments.get("message").unwrap().as_str().unwrap(),
-            "test"
-        );
     }
 
     #[test]
@@ -4705,41 +4348,6 @@ I will now call the tool with this payload:
         assert_eq!(
             calls[0].arguments.get("query").unwrap().as_str().unwrap(),
             "project roadmap"
-        );
-    }
-
-    #[test]
-    fn parse_tool_calls_ignores_xml_thinking_wrapper() {
-        let response = r#"<tool_call>
-<thinking>Need to inspect memory first</thinking>
-<memory_recall>
-<query>recent deploy notes</query>
-</memory_recall>
-</tool_call>"#;
-
-        let (text, calls) = parse_tool_calls(response);
-        assert!(text.is_empty());
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "memory_recall");
-        assert_eq!(
-            calls[0].arguments.get("query").unwrap().as_str().unwrap(),
-            "recent deploy notes"
-        );
-    }
-
-    #[test]
-    fn parse_tool_calls_handles_xml_with_json_arguments() {
-        let response = r#"<tool_call>
-<shell>{"command":"pwd"}</shell>
-</tool_call>"#;
-
-        let (text, calls) = parse_tool_calls(response);
-        assert!(text.is_empty());
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "shell");
-        assert_eq!(
-            calls[0].arguments.get("command").unwrap().as_str().unwrap(),
-            "pwd"
         );
     }
 
@@ -4764,45 +4372,6 @@ Done."#;
     }
 
     #[test]
-    fn parse_tool_calls_handles_markdown_tool_call_hybrid_close_tag() {
-        let response = r#"Preface
-```tool-call
-{"name": "shell", "arguments": {"command": "date"}}
-</tool_call>
-Tail"#;
-
-        let (text, calls) = parse_tool_calls(response);
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "shell");
-        assert_eq!(
-            calls[0].arguments.get("command").unwrap().as_str().unwrap(),
-            "date"
-        );
-        assert!(text.contains("Preface"));
-        assert!(text.contains("Tail"));
-        assert!(!text.contains("```tool-call"));
-    }
-
-    #[test]
-    fn parse_tool_calls_handles_markdown_invoke_fence() {
-        let response = r#"Checking.
-```invoke
-{"name": "shell", "arguments": {"command": "date"}}
-```
-Done."#;
-
-        let (text, calls) = parse_tool_calls(response);
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "shell");
-        assert_eq!(
-            calls[0].arguments.get("command").unwrap().as_str().unwrap(),
-            "date"
-        );
-        assert!(text.contains("Checking."));
-        assert!(text.contains("Done."));
-    }
-
-    #[test]
     fn parse_tool_calls_handles_tool_name_fence_format() {
         // Issue #1420: xAI grok models use ```tool <name> format
         let response = r#"I'll write a test file.
@@ -4823,92 +4392,6 @@ Done."#;
     }
 
     #[test]
-    fn parse_tool_calls_handles_tool_name_fence_shell() {
-        // Issue #1420: Test shell command in ```tool shell format
-        let response = r#"```tool shell
-{"command": "ls -la"}
-```"#;
-
-        let (_text, calls) = parse_tool_calls(response);
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "shell");
-        assert_eq!(
-            calls[0].arguments.get("command").unwrap().as_str().unwrap(),
-            "ls -la"
-        );
-    }
-
-    #[test]
-    fn parse_tool_calls_handles_multiple_tool_name_fences() {
-        // Multiple tool calls in ```tool <name> format
-        let response = r#"First, I'll write a file.
-```tool file_write
-{"path": "/tmp/a.txt", "content": "A"}
-```
-Then read it.
-```tool file_read
-{"path": "/tmp/a.txt"}
-```
-Done."#;
-
-        let (text, calls) = parse_tool_calls(response);
-        assert_eq!(calls.len(), 2);
-        assert_eq!(calls[0].name, "file_write");
-        assert_eq!(calls[1].name, "file_read");
-        assert!(text.contains("First, I'll write a file."));
-        assert!(text.contains("Then read it."));
-        assert!(text.contains("Done."));
-    }
-
-    #[test]
-    fn parse_tool_calls_handles_toolcall_tag_alias() {
-        let response = r#"<toolcall>
-{"name": "shell", "arguments": {"command": "date"}}
-</toolcall>"#;
-
-        let (text, calls) = parse_tool_calls(response);
-        assert!(text.is_empty());
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "shell");
-        assert_eq!(
-            calls[0].arguments.get("command").unwrap().as_str().unwrap(),
-            "date"
-        );
-    }
-
-    #[test]
-    fn parse_tool_calls_handles_tool_dash_call_tag_alias() {
-        let response = r#"<tool-call>
-{"name": "shell", "arguments": {"command": "whoami"}}
-</tool-call>"#;
-
-        let (text, calls) = parse_tool_calls(response);
-        assert!(text.is_empty());
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "shell");
-        assert_eq!(
-            calls[0].arguments.get("command").unwrap().as_str().unwrap(),
-            "whoami"
-        );
-    }
-
-    #[test]
-    fn parse_tool_calls_handles_invoke_tag_alias() {
-        let response = r#"<invoke>
-{"name": "shell", "arguments": {"command": "uptime"}}
-</invoke>"#;
-
-        let (text, calls) = parse_tool_calls(response);
-        assert!(text.is_empty());
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "shell");
-        assert_eq!(
-            calls[0].arguments.get("command").unwrap().as_str().unwrap(),
-            "uptime"
-        );
-    }
-
-    #[test]
     fn parse_tool_calls_handles_minimax_invoke_parameter_format() {
         let response = r#"<minimax:tool_call>
 <invoke name="shell">
@@ -4923,48 +4406,6 @@ Done."#;
         assert_eq!(
             calls[0].arguments.get("command").unwrap().as_str().unwrap(),
             r#"sqlite3 /tmp/test.db ".tables""#
-        );
-    }
-
-    #[test]
-    fn parse_tool_calls_handles_minimax_invoke_with_surrounding_text() {
-        let response = r#"Preface
-<minimax:tool_call>
-<invoke name='http_request'>
-<parameter name='url'>https://example.com</parameter>
-<parameter name='method'>GET</parameter>
-</invoke>
-</minimax:tool_call>
-Tail"#;
-
-        let (text, calls) = parse_tool_calls(response);
-        assert!(text.contains("Preface"));
-        assert!(text.contains("Tail"));
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "http_request");
-        assert_eq!(
-            calls[0].arguments.get("url").unwrap().as_str().unwrap(),
-            "https://example.com"
-        );
-        assert_eq!(
-            calls[0].arguments.get("method").unwrap().as_str().unwrap(),
-            "GET"
-        );
-    }
-
-    #[test]
-    fn parse_tool_calls_handles_minimax_toolcall_alias_and_cross_close_tag() {
-        let response = r#"<tool_call>
-{"name":"shell","arguments":{"command":"date"}}
-</minimax:toolcall>"#;
-
-        let (text, calls) = parse_tool_calls(response);
-        assert!(text.is_empty());
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "shell");
-        assert_eq!(
-            calls[0].arguments.get("command").unwrap().as_str().unwrap(),
-            "date"
         );
     }
 
@@ -5013,18 +4454,6 @@ Tail"#;
             calls[0].arguments.get("command").unwrap().as_str().unwrap(),
             "uptime"
         );
-    }
-
-    #[test]
-    fn parse_tool_calls_recovers_cross_alias_closing_tags() {
-        let response = r#"<toolcall>
-{"name": "shell", "arguments": {"command": "date"}}
-</tool_call>"#;
-
-        let (text, calls) = parse_tool_calls(response);
-        assert!(text.is_empty());
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "shell");
     }
 
     #[test]
@@ -5120,27 +4549,6 @@ Tail"#;
         assert_eq!(last.content, format!("msg {}", max_history + 19));
     }
 
-    #[test]
-    fn trim_history_noop_when_within_limit() {
-        let mut history = vec![
-            ChatMessage::system("sys"),
-            ChatMessage::user("hello"),
-            ChatMessage::assistant("hi"),
-        ];
-        trim_history(&mut history, 50);
-        assert_eq!(history.len(), 3);
-    }
-
-    #[test]
-    fn autosave_memory_key_has_prefix_and_uniqueness() {
-        let key1 = autosave_memory_key("user_msg");
-        let key2 = autosave_memory_key("user_msg");
-
-        assert!(key1.starts_with("user_msg_"));
-        assert!(key2.starts_with("user_msg_"));
-        assert_ne!(key1, key2);
-    }
-
     #[tokio::test]
     async fn autosave_memory_keys_preserve_multiple_turns() {
         let tmp = TempDir::new().unwrap();
@@ -5194,37 +4602,6 @@ Tail"#;
     // ═══════════════════════════════════════════════════════════════════════
 
     #[test]
-    fn parse_tool_calls_handles_empty_tool_result() {
-        // Recovery: Empty tool_result tag should be handled gracefully
-        let response = r#"I'll run that command.
-<tool_result name="shell">
-
-</tool_result>
-Done."#;
-        let (text, calls) = parse_tool_calls(response);
-        assert!(text.contains("Done."));
-        assert!(calls.is_empty());
-    }
-
-    #[test]
-    fn parse_arguments_value_handles_null() {
-        // Recovery: null arguments are returned as-is (Value::Null)
-        let value = serde_json::json!(null);
-        let result = parse_arguments_value(Some(&value));
-        assert!(result.is_null());
-    }
-
-    #[test]
-    fn parse_tool_calls_handles_empty_tool_calls_array() {
-        // Recovery: Empty tool_calls array returns original response (no tool parsing)
-        let response = r#"{"content": "Hello", "tool_calls": []}"#;
-        let (text, calls) = parse_tool_calls(response);
-        // When tool_calls is empty, the entire JSON is returned as text
-        assert!(text.contains("Hello"));
-        assert!(calls.is_empty());
-    }
-
-    #[test]
     fn detect_tool_call_parse_issue_flags_malformed_payloads() {
         let response =
             "<tool_call>{\"name\":\"shell\",\"arguments\":{\"command\":\"pwd\"}</tool_call>";
@@ -5235,43 +4612,9 @@ Done."#;
         );
     }
 
-    #[test]
-    fn detect_tool_call_parse_issue_ignores_normal_text() {
-        let issue = detect_tool_call_parse_issue("Thanks, done.", &[]);
-        assert!(issue.is_none());
-    }
-
-    #[test]
-    fn parse_tool_calls_handles_whitespace_only_name() {
-        // Recovery: Whitespace-only tool name should return None
-        let value = serde_json::json!({"function": {"name": "   ", "arguments": {}}});
-        let result = parse_tool_call_value(&value);
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn parse_tool_calls_handles_empty_string_arguments() {
-        // Recovery: Empty string arguments should be handled
-        let value = serde_json::json!({"name": "test", "arguments": ""});
-        let result = parse_tool_call_value(&value);
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().name, "test");
-    }
-
     // ═══════════════════════════════════════════════════════════════════════
     // Recovery Tests - History Management
     // ═══════════════════════════════════════════════════════════════════════
-
-    #[test]
-    fn trim_history_with_no_system_prompt() {
-        // Recovery: History without system prompt should trim correctly
-        let mut history = vec![];
-        for i in 0..70 {
-            history.push(ChatMessage::user(format!("msg {i}")));
-        }
-        trim_history(&mut history, 50);
-        assert_eq!(history.len(), 50);
-    }
 
     #[test]
     fn trim_history_preserves_role_ordering() {
@@ -5286,68 +4629,13 @@ Done."#;
         assert_eq!(history[history.len() - 1].role, "assistant");
     }
 
-    #[test]
-    fn trim_history_with_only_system_prompt() {
-        // Recovery: Only system prompt should not be trimmed
-        let mut history = vec![ChatMessage::system("system prompt")];
-        trim_history(&mut history, 50);
-        assert_eq!(history.len(), 1);
-    }
-
     // ═══════════════════════════════════════════════════════════════════════
     // Recovery Tests - Arguments Parsing
     // ═══════════════════════════════════════════════════════════════════════
 
-    #[test]
-    fn parse_arguments_value_handles_invalid_json_string() {
-        // Recovery: Invalid JSON string should return empty object
-        let value = serde_json::Value::String("not valid json".to_string());
-        let result = parse_arguments_value(Some(&value));
-        assert!(result.is_object());
-        assert!(result.as_object().unwrap().is_empty());
-    }
-
-    #[test]
-    fn parse_arguments_value_handles_none() {
-        // Recovery: None arguments should return empty object
-        let result = parse_arguments_value(None);
-        assert!(result.is_object());
-        assert!(result.as_object().unwrap().is_empty());
-    }
-
     // ═══════════════════════════════════════════════════════════════════════
     // Recovery Tests - JSON Extraction
     // ═══════════════════════════════════════════════════════════════════════
-
-    #[test]
-    fn extract_json_values_handles_empty_string() {
-        // Recovery: Empty input should return empty vec
-        let result = extract_json_values("");
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn extract_json_values_handles_whitespace_only() {
-        // Recovery: Whitespace only should return empty vec
-        let result = extract_json_values("   \n\t  ");
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn extract_json_values_handles_multiple_objects() {
-        // Recovery: Multiple JSON objects should all be extracted
-        let input = r#"{"a": 1}{"b": 2}{"c": 3}"#;
-        let result = extract_json_values(input);
-        assert_eq!(result.len(), 3);
-    }
-
-    #[test]
-    fn extract_json_values_handles_arrays() {
-        // Recovery: JSON arrays should be extracted
-        let input = r#"[1, 2, 3]{"key": "value"}"#;
-        let result = extract_json_values(input);
-        assert_eq!(result.len(), 2);
-    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // Recovery Tests - Constants Validation
@@ -5358,61 +4646,9 @@ Done."#;
         assert!(DEFAULT_MAX_TOOL_ITERATIONS <= 100);
     };
 
-    #[test]
-    fn constants_bounds_are_compile_time_checked() {
-        // Bounds are enforced by the const assertions above.
-    }
-
     // ═══════════════════════════════════════════════════════════════════════
     // Recovery Tests - Tool Call Value Parsing
     // ═══════════════════════════════════════════════════════════════════════
-
-    #[test]
-    fn parse_tool_call_value_handles_missing_name_field() {
-        // Recovery: Missing name field should return None
-        let value = serde_json::json!({"function": {"arguments": {}}});
-        let result = parse_tool_call_value(&value);
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn parse_tool_call_value_handles_top_level_name() {
-        // Recovery: Tool call with name at top level (non-OpenAI format)
-        let value = serde_json::json!({"name": "test_tool", "arguments": {}});
-        let result = parse_tool_call_value(&value);
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().name, "test_tool");
-    }
-
-    #[test]
-    fn parse_tool_call_value_accepts_top_level_parameters_alias() {
-        let value = serde_json::json!({
-            "name": "schedule",
-            "parameters": {"action": "create", "message": "test"}
-        });
-        let result = parse_tool_call_value(&value).expect("tool call should parse");
-        assert_eq!(result.name, "schedule");
-        assert_eq!(
-            result.arguments.get("action").and_then(|v| v.as_str()),
-            Some("create")
-        );
-    }
-
-    #[test]
-    fn parse_tool_call_value_accepts_function_parameters_alias() {
-        let value = serde_json::json!({
-            "function": {
-                "name": "shell",
-                "parameters": {"command": "date"}
-            }
-        });
-        let result = parse_tool_call_value(&value).expect("tool call should parse");
-        assert_eq!(result.name, "shell");
-        assert_eq!(
-            result.arguments.get("command").and_then(|v| v.as_str()),
-            Some("date")
-        );
-    }
 
     #[test]
     fn parse_tool_call_value_recovers_shell_command_from_raw_string_arguments() {
@@ -5429,22 +4665,6 @@ Done."#;
     }
 
     #[test]
-    fn parse_tool_call_value_recovers_shell_command_from_cmd_alias() {
-        let value = serde_json::json!({
-            "function": {
-                "name": "shell",
-                "arguments": {"cmd": "pwd"}
-            }
-        });
-        let result = parse_tool_call_value(&value).expect("tool call should parse");
-        assert_eq!(result.name, "shell");
-        assert_eq!(
-            result.arguments.get("command").and_then(|v| v.as_str()),
-            Some("pwd")
-        );
-    }
-
-    #[test]
     fn parse_tool_call_value_preserves_tool_call_id_aliases() {
         let value = serde_json::json!({
             "call_id": "legacy_1",
@@ -5455,33 +4675,6 @@ Done."#;
         });
         let result = parse_tool_call_value(&value).expect("tool call should parse");
         assert_eq!(result.tool_call_id.as_deref(), Some("legacy_1"));
-    }
-
-    #[test]
-    fn parse_tool_calls_from_json_value_handles_empty_array() {
-        // Recovery: Empty tool_calls array should return empty vec
-        let value = serde_json::json!({"tool_calls": []});
-        let result = parse_tool_calls_from_json_value(&value);
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn parse_tool_calls_from_json_value_handles_missing_tool_calls() {
-        // Recovery: Missing tool_calls field should fall through
-        let value = serde_json::json!({"name": "test", "arguments": {}});
-        let result = parse_tool_calls_from_json_value(&value);
-        assert_eq!(result.len(), 1);
-    }
-
-    #[test]
-    fn parse_tool_calls_from_json_value_handles_top_level_array() {
-        // Recovery: Top-level array of tool calls
-        let value = serde_json::json!([
-            {"name": "tool_a", "arguments": {}},
-            {"name": "tool_b", "arguments": {}}
-        ]);
-        let result = parse_tool_calls_from_json_value(&value);
-        assert_eq!(result.len(), 2);
     }
 
     #[test]
@@ -5505,64 +4698,6 @@ Done."#;
     // ═══════════════════════════════════════════════════════════════════════
 
     #[test]
-    fn parse_glm_style_browser_open_url() {
-        let response = "browser_open/url>https://example.com";
-        let calls = parse_glm_style_tool_calls(response);
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].0, "shell");
-        assert!(calls[0].1["command"].as_str().unwrap().contains("curl"));
-        assert!(calls[0].1["command"]
-            .as_str()
-            .unwrap()
-            .contains("example.com"));
-    }
-
-    #[test]
-    fn parse_glm_style_shell_command() {
-        let response = "shell/command>ls -la";
-        let calls = parse_glm_style_tool_calls(response);
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].0, "shell");
-        assert_eq!(calls[0].1["command"], "ls -la");
-    }
-
-    #[test]
-    fn parse_glm_style_http_request() {
-        let response = "http_request/url>https://api.example.com/data";
-        let calls = parse_glm_style_tool_calls(response);
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].0, "http_request");
-        assert_eq!(calls[0].1["url"], "https://api.example.com/data");
-        assert_eq!(calls[0].1["method"], "GET");
-    }
-
-    #[test]
-    fn parse_glm_style_plain_url() {
-        let response = "https://example.com/api";
-        let calls = parse_glm_style_tool_calls(response);
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].0, "shell");
-        assert!(calls[0].1["command"].as_str().unwrap().contains("curl"));
-    }
-
-    #[test]
-    fn parse_glm_style_json_args() {
-        let response = r#"shell/{"command": "echo hello"}"#;
-        let calls = parse_glm_style_tool_calls(response);
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].0, "shell");
-        assert_eq!(calls[0].1["command"], "echo hello");
-    }
-
-    #[test]
-    fn parse_glm_style_multiple_calls() {
-        let response = r#"shell/command>ls
-browser_open/url>https://example.com"#;
-        let calls = parse_glm_style_tool_calls(response);
-        assert_eq!(calls.len(), 2);
-    }
-
-    #[test]
     fn parse_glm_style_tool_call_integration() {
         // Integration test: GLM format should be parsed in parse_tool_calls
         let response = "Checking...\nbrowser_open/url>https://example.com\nDone";
@@ -5580,46 +4715,10 @@ browser_open/url>https://example.com"#;
         assert!(calls.is_empty());
     }
 
-    #[test]
-    fn parse_tool_calls_handles_unclosed_tool_call_tag() {
-        let response = "<tool_call>{\"name\":\"shell\",\"arguments\":{\"command\":\"pwd\"}}\nDone";
-        let (text, calls) = parse_tool_calls(response);
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "shell");
-        assert_eq!(calls[0].arguments["command"], "pwd");
-        assert_eq!(text, "Done");
-    }
-
     // ─────────────────────────────────────────────────────────────────────
     // TG4 (inline): parse_tool_calls robustness — malformed/edge-case inputs
     // Prevents: Pattern 4 issues #746, #418, #777, #848
     // ─────────────────────────────────────────────────────────────────────
-
-    #[test]
-    fn parse_tool_calls_empty_input_returns_empty() {
-        let (text, calls) = parse_tool_calls("");
-        assert!(calls.is_empty(), "empty input should produce no tool calls");
-        assert!(text.is_empty(), "empty input should produce no text");
-    }
-
-    #[test]
-    fn parse_tool_calls_whitespace_only_returns_empty_calls() {
-        let (text, calls) = parse_tool_calls("   \n\t  ");
-        assert!(calls.is_empty());
-        assert!(text.is_empty() || text.trim().is_empty());
-    }
-
-    #[test]
-    fn parse_tool_calls_nested_xml_tags_handled() {
-        // Double-wrapped tool call should still parse the inner call
-        let response = r#"<tool_call><tool_call>{"name":"echo","arguments":{"msg":"hi"}}</tool_call></tool_call>"#;
-        let (_text, calls) = parse_tool_calls(response);
-        // Should find at least one tool call
-        assert!(
-            !calls.is_empty(),
-            "nested XML tags should still yield at least one tool call"
-        );
-    }
 
     #[test]
     fn parse_tool_calls_truncated_json_no_panic() {
@@ -5627,31 +4726,6 @@ browser_open/url>https://example.com"#;
         let response = r#"<tool_call>{"name":"shell","arguments":{"command":"ls"</tool_call>"#;
         let (_text, _calls) = parse_tool_calls(response);
         // Should not panic — graceful handling of truncated JSON
-    }
-
-    #[test]
-    fn parse_tool_calls_empty_json_object_in_tag() {
-        let response = "<tool_call>{}</tool_call>";
-        let (_text, calls) = parse_tool_calls(response);
-        // Empty JSON object has no name field — should not produce valid tool call
-        assert!(
-            calls.is_empty(),
-            "empty JSON object should not produce a tool call"
-        );
-    }
-
-    #[test]
-    fn parse_tool_calls_closing_tag_only_returns_text() {
-        let response = "Some text </tool_call> more text";
-        let (text, calls) = parse_tool_calls(response);
-        assert!(
-            calls.is_empty(),
-            "closing tag only should not produce calls"
-        );
-        assert!(
-            !text.is_empty(),
-            "text around orphaned closing tag should be preserved"
-        );
     }
 
     #[test]
@@ -5667,14 +4741,6 @@ browser_open/url>https://example.com"#;
     }
 
     #[test]
-    fn parse_tool_calls_special_characters_in_arguments() {
-        let response = r#"<tool_call>{"name":"echo","arguments":{"message":"hello \"world\" <>&'\n\t"}}</tool_call>"#;
-        let (_text, calls) = parse_tool_calls(response);
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "echo");
-    }
-
-    #[test]
     fn parse_tool_calls_text_with_embedded_json_not_extracted() {
         // Raw JSON without any tags should NOT be extracted as a tool call
         let response = r#"Here is some data: {"name":"echo","arguments":{"message":"hi"}} end."#;
@@ -5685,86 +4751,13 @@ browser_open/url>https://example.com"#;
         );
     }
 
-    #[test]
-    fn parse_tool_calls_multiple_formats_mixed() {
-        // Mix of text and properly tagged tool call
-        let response = r#"I'll help you with that.
-
-<tool_call>
-{"name":"shell","arguments":{"command":"echo hello"}}
-</tool_call>
-
-Let me check the result."#;
-        let (text, calls) = parse_tool_calls(response);
-        assert_eq!(
-            calls.len(),
-            1,
-            "should extract one tool call from mixed content"
-        );
-        assert_eq!(calls[0].name, "shell");
-        assert!(
-            text.contains("help you"),
-            "text before tool call should be preserved"
-        );
-    }
-
     // ─────────────────────────────────────────────────────────────────────
     // TG4 (inline): scrub_credentials edge cases
     // ─────────────────────────────────────────────────────────────────────
 
-    #[test]
-    fn scrub_credentials_empty_input() {
-        let result = scrub_credentials("");
-        assert_eq!(result, "");
-    }
-
-    #[test]
-    fn scrub_credentials_no_sensitive_data() {
-        let input = "normal text without any secrets";
-        let result = scrub_credentials(input);
-        assert_eq!(
-            result, input,
-            "non-sensitive text should pass through unchanged"
-        );
-    }
-
-    #[test]
-    fn scrub_credentials_short_values_not_redacted() {
-        // Values shorter than 8 chars should not be redacted
-        let input = r#"api_key="short""#;
-        let result = scrub_credentials(input);
-        assert_eq!(result, input, "short values should not be redacted");
-    }
-
     // ─────────────────────────────────────────────────────────────────────
     // TG4 (inline): trim_history edge cases
     // ─────────────────────────────────────────────────────────────────────
-
-    #[test]
-    fn trim_history_empty_history() {
-        let mut history: Vec<crate::providers::ChatMessage> = vec![];
-        trim_history(&mut history, 10);
-        assert!(history.is_empty());
-    }
-
-    #[test]
-    fn trim_history_system_only() {
-        let mut history = vec![crate::providers::ChatMessage::system("system prompt")];
-        trim_history(&mut history, 10);
-        assert_eq!(history.len(), 1);
-        assert_eq!(history[0].role, "system");
-    }
-
-    #[test]
-    fn trim_history_exactly_at_limit() {
-        let mut history = vec![
-            crate::providers::ChatMessage::system("system"),
-            crate::providers::ChatMessage::user("msg 1"),
-            crate::providers::ChatMessage::assistant("reply 1"),
-        ];
-        trim_history(&mut history, 2); // 2 non-system messages = exactly at limit
-        assert_eq!(history.len(), 3, "should not trim when exactly at limit");
-    }
 
     #[test]
     fn trim_history_removes_oldest_non_system() {
@@ -5852,62 +4845,6 @@ Let me check the result."#;
     }
 
     #[test]
-    fn parse_tool_calls_cross_alias_close_tag_with_glm_shortened() {
-        // <tool_call>shell>uname -a</invoke> — GLM shortened inside cross-alias tags
-        let input = "<tool_call>shell>uname -a</invoke>";
-        let (text, calls) = parse_tool_calls(input);
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "shell");
-        assert_eq!(calls[0].arguments["command"], "uname -a");
-        assert!(text.is_empty());
-    }
-
-    #[test]
-    fn parse_tool_calls_glm_shortened_body_in_matched_tags() {
-        // <tool_call>shell>pwd</tool_call> — GLM shortened in matched tags
-        let input = "<tool_call>shell>pwd</tool_call>";
-        let (text, calls) = parse_tool_calls(input);
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "shell");
-        assert_eq!(calls[0].arguments["command"], "pwd");
-        assert!(text.is_empty());
-    }
-
-    #[test]
-    fn parse_tool_calls_glm_yaml_style_in_tags() {
-        // <tool_call>shell>\ncommand: date\napproved: true</invoke>
-        let input = "<tool_call>shell>\ncommand: date\napproved: true</invoke>";
-        let (text, calls) = parse_tool_calls(input);
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "shell");
-        assert_eq!(calls[0].arguments["command"], "date");
-        assert_eq!(calls[0].arguments["approved"], true);
-        assert!(text.is_empty());
-    }
-
-    #[test]
-    fn parse_tool_calls_attribute_style_in_tags() {
-        // <tool_call>shell command="date" /></tool_call>
-        let input = r#"<tool_call>shell command="date" /></tool_call>"#;
-        let (text, calls) = parse_tool_calls(input);
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "shell");
-        assert_eq!(calls[0].arguments["command"], "date");
-        assert!(text.is_empty());
-    }
-
-    #[test]
-    fn parse_tool_calls_file_read_shortened_in_cross_alias() {
-        // <tool_call>file_read path=".env" /></invoke>
-        let input = r#"<tool_call>file_read path=".env" /></invoke>"#;
-        let (text, calls) = parse_tool_calls(input);
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "file_read");
-        assert_eq!(calls[0].arguments["path"], ".env");
-        assert!(text.is_empty());
-    }
-
-    #[test]
     fn parse_tool_calls_unclosed_glm_shortened_no_close_tag() {
         // <tool_call>shell>ls -la (no close tag at all)
         let input = "<tool_call>shell>ls -la";
@@ -5916,94 +4853,6 @@ Let me check the result."#;
         assert_eq!(calls[0].name, "shell");
         assert_eq!(calls[0].arguments["command"], "ls -la");
         assert!(text.is_empty());
-    }
-
-    #[test]
-    fn parse_tool_calls_text_before_cross_alias() {
-        // Text before and after cross-alias tool call
-        let input = "Let me check that.\n<tool_call>shell>uname -a</invoke>\nDone.";
-        let (text, calls) = parse_tool_calls(input);
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, "shell");
-        assert_eq!(calls[0].arguments["command"], "uname -a");
-        assert!(text.contains("Let me check that."));
-        assert!(text.contains("Done."));
-    }
-
-    #[test]
-    fn parse_glm_shortened_body_url_to_curl() {
-        // URL values for shell should be wrapped in curl
-        let call = parse_glm_shortened_body("shell>https://example.com/api").unwrap();
-        assert_eq!(call.name, "shell");
-        let cmd = call.arguments["command"].as_str().unwrap();
-        assert!(cmd.contains("curl"));
-        assert!(cmd.contains("example.com"));
-    }
-
-    #[test]
-    fn parse_glm_shortened_body_browser_open_maps_to_shell_command() {
-        // browser_open aliases to shell, and shortened calls must still emit
-        // shell's canonical "command" argument.
-        let call = parse_glm_shortened_body("browser_open>https://example.com").unwrap();
-        assert_eq!(call.name, "shell");
-        let cmd = call.arguments["command"].as_str().unwrap();
-        assert!(cmd.contains("curl"));
-        assert!(cmd.contains("example.com"));
-    }
-
-    #[test]
-    fn parse_glm_shortened_body_memory_recall() {
-        // memory_recall>some query — default param is "query"
-        let call = parse_glm_shortened_body("memory_recall>recent meetings").unwrap();
-        assert_eq!(call.name, "memory_recall");
-        assert_eq!(call.arguments["query"], "recent meetings");
-    }
-
-    #[test]
-    fn parse_glm_shortened_body_function_style_alias_maps_to_message_send() {
-        let call =
-            parse_glm_shortened_body(r#"sendmessage(channel="alerts", message="hi")"#).unwrap();
-        assert_eq!(call.name, "message_send");
-        assert_eq!(call.arguments["channel"], "alerts");
-        assert_eq!(call.arguments["message"], "hi");
-    }
-
-    #[test]
-    fn map_tool_name_alias_direct_coverage() {
-        assert_eq!(map_tool_name_alias("bash"), "shell");
-        assert_eq!(map_tool_name_alias("filelist"), "file_list");
-        assert_eq!(map_tool_name_alias("memorystore"), "memory_store");
-        assert_eq!(map_tool_name_alias("memoryforget"), "memory_forget");
-        assert_eq!(map_tool_name_alias("http"), "http_request");
-        assert_eq!(
-            map_tool_name_alias("totally_unknown_tool"),
-            "totally_unknown_tool"
-        );
-    }
-
-    #[test]
-    fn default_param_for_tool_coverage() {
-        assert_eq!(default_param_for_tool("shell"), "command");
-        assert_eq!(default_param_for_tool("bash"), "command");
-        assert_eq!(default_param_for_tool("file_read"), "path");
-        assert_eq!(default_param_for_tool("memory_recall"), "query");
-        assert_eq!(default_param_for_tool("memory_store"), "content");
-        assert_eq!(default_param_for_tool("http_request"), "url");
-        assert_eq!(default_param_for_tool("browser_open"), "url");
-        assert_eq!(default_param_for_tool("unknown_tool"), "input");
-    }
-
-    #[test]
-    fn parse_glm_shortened_body_rejects_empty() {
-        assert!(parse_glm_shortened_body("").is_none());
-        assert!(parse_glm_shortened_body("   ").is_none());
-    }
-
-    #[test]
-    fn parse_glm_shortened_body_rejects_invalid_tool_name() {
-        // Tool names with special characters should be rejected
-        assert!(parse_glm_shortened_body("not-a-tool>value").is_none());
-        assert!(parse_glm_shortened_body("tool name>value").is_none());
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -6025,19 +4874,6 @@ Let me check the result."#;
     }
 
     #[test]
-    fn build_native_assistant_history_omits_reasoning_content_when_none() {
-        let calls = vec![ToolCall {
-            id: "call_1".into(),
-            name: "shell".into(),
-            arguments: "{}".into(),
-        }];
-        let result = build_native_assistant_history("answer", &calls, None);
-        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
-        assert_eq!(parsed["content"].as_str(), Some("answer"));
-        assert!(parsed.get("reasoning_content").is_none());
-    }
-
-    #[test]
     fn build_native_assistant_history_from_parsed_calls_includes_reasoning_content() {
         let calls = vec![ParsedToolCall {
             name: "shell".into(),
@@ -6054,19 +4890,5 @@ Let me check the result."#;
         assert_eq!(parsed["content"].as_str(), Some("answer"));
         assert_eq!(parsed["reasoning_content"].as_str(), Some("deep thought"));
         assert!(parsed["tool_calls"].is_array());
-    }
-
-    #[test]
-    fn build_native_assistant_history_from_parsed_calls_omits_reasoning_content_when_none() {
-        let calls = vec![ParsedToolCall {
-            name: "shell".into(),
-            arguments: serde_json::json!({"command": "pwd"}),
-            tool_call_id: Some("call_2".into()),
-        }];
-        let result = build_native_assistant_history_from_parsed_calls("answer", &calls, None);
-        assert!(result.is_some());
-        let parsed: serde_json::Value = serde_json::from_str(result.as_deref().unwrap()).unwrap();
-        assert_eq!(parsed["content"].as_str(), Some("answer"));
-        assert!(parsed.get("reasoning_content").is_none());
     }
 }

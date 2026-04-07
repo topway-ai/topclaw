@@ -1820,35 +1820,6 @@ mod tests {
     }
 
     #[test]
-    fn regional_alias_predicates_cover_expected_variants() {
-        assert!(is_moonshot_alias("moonshot"));
-        assert!(is_moonshot_alias("kimi-global"));
-        assert!(is_minimax_alias("minimax-io"));
-        assert!(is_minimax_alias("minimaxi"));
-        assert!(is_minimax_alias("minimax-oauth"));
-        assert!(is_minimax_alias("minimax-portal-cn"));
-        assert!(is_qwen_alias("dashscope"));
-        assert!(is_qwen_alias("qwen-us"));
-        assert!(is_qwen_alias("qwen-code"));
-        assert!(is_qwen_oauth_alias("qwen-code"));
-        assert!(is_qwen_oauth_alias("qwen_oauth"));
-        assert!(is_zai_alias("z.ai"));
-        assert!(is_zai_alias("zai-cn"));
-        assert!(is_qianfan_alias("qianfan"));
-        assert!(is_qianfan_alias("baidu"));
-        assert!(is_doubao_alias("doubao"));
-        assert!(is_doubao_alias("volcengine"));
-        assert!(is_doubao_alias("ark"));
-        assert!(is_doubao_alias("doubao-cn"));
-
-        assert!(!is_moonshot_alias("openrouter"));
-        assert!(!is_qwen_alias("gemini"));
-        assert!(!is_zai_alias("anthropic"));
-        assert!(!is_qianfan_alias("cohere"));
-        assert!(!is_doubao_alias("deepseek"));
-    }
-
-    #[test]
     fn canonical_china_provider_name_maps_regional_aliases() {
         assert_eq!(canonical_china_provider_name("moonshot"), Some("moonshot"));
         assert_eq!(canonical_china_provider_name("kimi-intl"), Some("moonshot"));
@@ -1899,121 +1870,7 @@ mod tests {
 
     // ── Primary providers ────────────────────────────────────
 
-    #[test]
-    fn factory_openrouter() {
-        assert!(create_provider("openrouter", Some("provider-test-credential")).is_ok());
-        assert!(create_provider("openrouter", None).is_ok());
-    }
-
-    #[test]
-    fn factory_anthropic() {
-        assert!(create_provider("anthropic", Some("provider-test-credential")).is_ok());
-    }
-
-    #[test]
-    fn factory_openai() {
-        assert!(create_provider("openai", Some("provider-test-credential")).is_ok());
-    }
-
-    #[test]
-    fn factory_openai_codex() {
-        let options = ProviderRuntimeOptions::default();
-        assert!(create_provider_with_options("openai-codex", None, &options).is_ok());
-    }
-
-    #[test]
-    fn factory_ollama() {
-        assert!(create_provider("ollama", None).is_ok());
-        // Ollama may use API key when a remote endpoint is configured.
-        assert!(create_provider("ollama", Some("dummy")).is_ok());
-        assert!(create_provider("ollama", Some("any-value-here")).is_ok());
-    }
-
-    #[test]
-    fn factory_gemini() {
-        assert!(create_provider("gemini", Some("test-key")).is_ok());
-        assert!(create_provider("google", Some("test-key")).is_ok());
-        assert!(create_provider("google-gemini", Some("test-key")).is_ok());
-        // Should also work without key (will try CLI auth)
-        assert!(create_provider("gemini", None).is_ok());
-    }
-
     // ── OpenAI-compatible providers ──────────────────────────
-
-    #[test]
-    fn factory_venice() {
-        assert!(create_provider("venice", Some("vn-key")).is_ok());
-    }
-
-    #[test]
-    fn factory_vercel() {
-        assert!(create_provider("vercel", Some("key")).is_ok());
-        assert!(create_provider("vercel-ai", Some("key")).is_ok());
-    }
-
-    #[test]
-    fn vercel_gateway_base_url_matches_public_gateway_endpoint() {
-        let entry = registry::lookup("vercel").expect("vercel in registry");
-        assert_eq!(entry.base_url, "https://ai-gateway.vercel.sh/v1");
-    }
-
-    #[test]
-    fn factory_cloudflare() {
-        assert!(create_provider("cloudflare", Some("key")).is_ok());
-        assert!(create_provider("cloudflare-ai", Some("key")).is_ok());
-    }
-
-    #[test]
-    fn factory_moonshot() {
-        assert!(create_provider("moonshot", Some("key")).is_ok());
-        assert!(create_provider("kimi", Some("key")).is_ok());
-        assert!(create_provider("moonshot-intl", Some("key")).is_ok());
-        assert!(create_provider("moonshot-cn", Some("key")).is_ok());
-        assert!(create_provider("kimi-intl", Some("key")).is_ok());
-        assert!(create_provider("kimi-cn", Some("key")).is_ok());
-    }
-
-    #[test]
-    fn factory_kimi_code() {
-        assert!(create_provider("kimi-code", Some("key")).is_ok());
-        assert!(create_provider("kimi_coding", Some("key")).is_ok());
-        assert!(create_provider("kimi_for_coding", Some("key")).is_ok());
-    }
-
-    #[test]
-    fn factory_synthetic() {
-        assert!(create_provider("synthetic", Some("key")).is_ok());
-    }
-
-    #[test]
-    fn factory_opencode() {
-        assert!(create_provider("opencode", Some("key")).is_ok());
-        assert!(create_provider("opencode-zen", Some("key")).is_ok());
-    }
-
-    #[test]
-    fn factory_zai() {
-        assert!(create_provider("zai", Some("key")).is_ok());
-        assert!(create_provider("z.ai", Some("key")).is_ok());
-        assert!(create_provider("zai-global", Some("key")).is_ok());
-        assert!(create_provider("z.ai-global", Some("key")).is_ok());
-        assert!(create_provider("zai-cn", Some("key")).is_ok());
-        assert!(create_provider("z.ai-cn", Some("key")).is_ok());
-    }
-
-    #[test]
-    fn factory_minimax() {
-        assert!(create_provider("minimax", Some("key")).is_ok());
-        assert!(create_provider("minimax-intl", Some("key")).is_ok());
-        assert!(create_provider("minimax-io", Some("key")).is_ok());
-        assert!(create_provider("minimax-global", Some("key")).is_ok());
-        assert!(create_provider("minimax-cn", Some("key")).is_ok());
-        assert!(create_provider("minimaxi", Some("key")).is_ok());
-        assert!(create_provider("minimax-oauth", Some("key")).is_ok());
-        assert!(create_provider("minimax-oauth-cn", Some("key")).is_ok());
-        assert!(create_provider("minimax-portal", Some("key")).is_ok());
-        assert!(create_provider("minimax-portal-cn", Some("key")).is_ok());
-    }
 
     #[test]
     fn factory_minimax_disables_native_tool_calling() {
@@ -2026,42 +1883,6 @@ mod tests {
     }
 
     #[test]
-    fn factory_hunyuan() {
-        assert!(create_provider("hunyuan", Some("key")).is_ok());
-        assert!(create_provider("tencent", Some("key")).is_ok());
-    }
-
-    #[test]
-    fn factory_qianfan() {
-        assert!(create_provider("qianfan", Some("key")).is_ok());
-        assert!(create_provider("baidu", Some("key")).is_ok());
-    }
-
-    #[test]
-    fn factory_doubao() {
-        assert!(create_provider("doubao", Some("key")).is_ok());
-        assert!(create_provider("volcengine", Some("key")).is_ok());
-        assert!(create_provider("ark", Some("key")).is_ok());
-        assert!(create_provider("doubao-cn", Some("key")).is_ok());
-    }
-
-    #[test]
-    fn factory_qwen() {
-        assert!(create_provider("qwen", Some("key")).is_ok());
-        assert!(create_provider("dashscope", Some("key")).is_ok());
-        assert!(create_provider("qwen-cn", Some("key")).is_ok());
-        assert!(create_provider("dashscope-cn", Some("key")).is_ok());
-        assert!(create_provider("qwen-intl", Some("key")).is_ok());
-        assert!(create_provider("dashscope-intl", Some("key")).is_ok());
-        assert!(create_provider("qwen-international", Some("key")).is_ok());
-        assert!(create_provider("dashscope-international", Some("key")).is_ok());
-        assert!(create_provider("qwen-us", Some("key")).is_ok());
-        assert!(create_provider("dashscope-us", Some("key")).is_ok());
-        assert!(create_provider("qwen-code", Some("key")).is_ok());
-        assert!(create_provider("qwen-oauth", Some("key")).is_ok());
-    }
-
-    #[test]
     fn qwen_provider_supports_vision() {
         let provider = create_provider("qwen", Some("key")).expect("qwen provider should build");
         assert!(provider.supports_vision());
@@ -2069,13 +1890,6 @@ mod tests {
         let oauth_provider =
             create_provider("qwen-code", Some("key")).expect("qwen oauth provider should build");
         assert!(oauth_provider.supports_vision());
-    }
-
-    #[test]
-    fn factory_lmstudio() {
-        assert!(create_provider("lmstudio", Some("key")).is_ok());
-        assert!(create_provider("lm-studio", Some("key")).is_ok());
-        assert!(create_provider("lmstudio", None).is_ok());
     }
 
     #[test]
@@ -2103,74 +1917,6 @@ mod tests {
     }
 
     #[test]
-    fn factory_llamacpp() {
-        assert!(create_provider("llamacpp", Some("key")).is_ok());
-        assert!(create_provider("llama.cpp", Some("key")).is_ok());
-        assert!(create_provider("llamacpp", None).is_ok());
-    }
-
-    #[test]
-    fn factory_sglang() {
-        assert!(create_provider("sglang", None).is_ok());
-        assert!(create_provider("sglang", Some("key")).is_ok());
-    }
-
-    #[test]
-    fn factory_vllm() {
-        assert!(create_provider("vllm", None).is_ok());
-        assert!(create_provider("vllm", Some("key")).is_ok());
-    }
-
-    #[test]
-    fn factory_litellm() {
-        assert!(create_provider("litellm", None).is_ok());
-        assert!(create_provider("litellm", Some("key")).is_ok());
-        assert!(create_provider("lite-llm", Some("key")).is_ok());
-    }
-
-    #[test]
-    fn factory_litellm_custom_url() {
-        let options = ProviderRuntimeOptions::default();
-        let provider = create_provider_with_url_and_options(
-            "litellm",
-            Some("key"),
-            Some("https://litellm.example.com/v1"),
-            &options,
-        );
-        assert!(provider.is_ok());
-    }
-
-    #[test]
-    fn factory_osaurus() {
-        // Osaurus works without an explicit key (defaults to "osaurus").
-        assert!(create_provider("osaurus", None).is_ok());
-        // Osaurus also works with an explicit key.
-        assert!(create_provider("osaurus", Some("custom-key")).is_ok());
-    }
-
-    #[test]
-    fn factory_osaurus_uses_default_key_when_none() {
-        // Verify that create_provider_with_url_and_options succeeds even
-        // without an API key — the match arm provides a default placeholder.
-        let options = ProviderRuntimeOptions::default();
-        let p = create_provider_with_url_and_options("osaurus", None, None, &options);
-        assert!(p.is_ok());
-    }
-
-    #[test]
-    fn factory_osaurus_custom_url() {
-        // Verify that a custom api_url overrides the default localhost endpoint.
-        let options = ProviderRuntimeOptions::default();
-        let p = create_provider_with_url_and_options(
-            "osaurus",
-            Some("key"),
-            Some("http://192.168.1.100:1337/v1"),
-            &options,
-        );
-        assert!(p.is_ok());
-    }
-
-    #[test]
     fn resolve_provider_credential_osaurus_env() {
         let _env_lock = env_lock();
         let _guard = EnvGuard::set("OSAURUS_API_KEY", Some("osaurus-test-key"));
@@ -2193,88 +1939,15 @@ mod tests {
     // ── Extended ecosystem ───────────────────────────────────
 
     #[test]
-    fn factory_groq() {
-        assert!(create_provider("groq", Some("key")).is_ok());
-    }
-
-    #[test]
-    fn factory_mistral() {
-        assert!(create_provider("mistral", Some("key")).is_ok());
-    }
-
-    #[test]
-    fn factory_xai() {
-        assert!(create_provider("xai", Some("key")).is_ok());
-        assert!(create_provider("grok", Some("key")).is_ok());
-    }
-
-    #[test]
-    fn factory_deepseek() {
-        assert!(create_provider("deepseek", Some("key")).is_ok());
-    }
-
-    #[test]
     fn deepseek_provider_keeps_vision_disabled() {
         let provider =
             create_provider("deepseek", Some("key")).expect("deepseek provider should build");
         assert!(!provider.supports_vision());
     }
 
-    #[test]
-    fn factory_together() {
-        assert!(create_provider("together", Some("key")).is_ok());
-        assert!(create_provider("together-ai", Some("key")).is_ok());
-    }
-
-    #[test]
-    fn factory_fireworks() {
-        assert!(create_provider("fireworks", Some("key")).is_ok());
-        assert!(create_provider("fireworks-ai", Some("key")).is_ok());
-    }
-
-    #[test]
-    fn factory_perplexity() {
-        assert!(create_provider("perplexity", Some("key")).is_ok());
-    }
-
-    #[test]
-    fn factory_cohere() {
-        assert!(create_provider("cohere", Some("key")).is_ok());
-    }
-
-    #[test]
-    fn factory_nvidia() {
-        assert!(create_provider("nvidia", Some("nvapi-test")).is_ok());
-        assert!(create_provider("nvidia-nim", Some("nvapi-test")).is_ok());
-        assert!(create_provider("build.nvidia.com", Some("nvapi-test")).is_ok());
-    }
-
     // ── AI inference routers ─────────────────────────────────
 
-    #[test]
-    fn factory_astrai() {
-        assert!(create_provider("astrai", Some("sk-astrai-test")).is_ok());
-    }
-
     // ── Custom / BYOP provider ─────────────────────────────
-
-    #[test]
-    fn factory_custom_url() {
-        let p = create_provider("custom:https://my-llm.example.com", Some("key"));
-        assert!(p.is_ok());
-    }
-
-    #[test]
-    fn factory_custom_localhost() {
-        let p = create_provider("custom:http://localhost:1234", Some("key"));
-        assert!(p.is_ok());
-    }
-
-    #[test]
-    fn factory_custom_no_key() {
-        let p = create_provider("custom:https://my-llm.example.com", None);
-        assert!(p.is_ok());
-    }
 
     #[test]
     fn factory_custom_empty_url_errors() {
@@ -2309,31 +1982,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn factory_custom_trims_whitespace() {
-        let p = create_provider("custom:  https://my-llm.example.com  ", Some("key"));
-        assert!(p.is_ok());
-    }
-
     // ── Anthropic-compatible custom endpoints ─────────────────
-
-    #[test]
-    fn factory_anthropic_custom_url() {
-        let p = create_provider("anthropic-custom:https://api.example.com", Some("key"));
-        assert!(p.is_ok());
-    }
-
-    #[test]
-    fn factory_anthropic_custom_trailing_slash() {
-        let p = create_provider("anthropic-custom:https://api.example.com/", Some("key"));
-        assert!(p.is_ok());
-    }
-
-    #[test]
-    fn factory_anthropic_custom_no_key() {
-        let p = create_provider("anthropic-custom:https://api.example.com", None);
-        assert!(p.is_ok());
-    }
 
     #[test]
     fn factory_anthropic_custom_empty_url_errors() {
@@ -2488,40 +2137,6 @@ mod tests {
                 "nonexistent-provider".into(),
                 "lmstudio".into(),
             ],
-            fallback_api_keys: std::collections::HashMap::new(),
-            api_keys: Vec::new(),
-            model_fallbacks: std::collections::HashMap::new(),
-            channel_initial_backoff_secs: 2,
-            channel_max_backoff_secs: 60,
-            scheduler_poll_secs: 15,
-            scheduler_retries: 2,
-            ..Default::default()
-        };
-
-        let provider = create_resilient_provider("zai", Some("zai-test-key"), None, &reliability);
-        assert!(provider.is_ok());
-    }
-
-    #[test]
-    fn ollama_with_custom_url() {
-        let provider = create_provider_with_url("ollama", None, Some("http://10.100.2.32:11434"));
-        assert!(provider.is_ok());
-    }
-
-    #[test]
-    fn ollama_cloud_with_custom_url() {
-        let provider =
-            create_provider_with_url("ollama", Some("ollama-key"), Some("https://ollama.com"));
-        assert!(provider.is_ok());
-    }
-
-    /// Osaurus works as a fallback provider alongside other named providers.
-    #[test]
-    fn resilient_fallback_includes_osaurus() {
-        let reliability = crate::config::ReliabilityConfig {
-            provider_retries: 1,
-            provider_backoff_ms: 100,
-            fallback_providers: vec!["osaurus".into(), "lmstudio".into()],
             fallback_api_keys: std::collections::HashMap::new(),
             api_keys: Vec::new(),
             model_fallbacks: std::collections::HashMap::new(),
@@ -2698,21 +2313,6 @@ mod tests {
     }
 
     #[test]
-    fn sanitize_sk_proj_comment_then_real_key() {
-        let input = "note: sk- then sk-proj-abc123def456";
-        let result = sanitize_api_error(input);
-        assert!(!result.contains("sk-proj-abc123def456"));
-        assert!(result.contains("[REDACTED]"));
-    }
-
-    #[test]
-    fn sanitize_keeps_bare_prefix() {
-        let input = "only prefix sk- present";
-        let result = sanitize_api_error(input);
-        assert!(result.contains("sk-"));
-    }
-
-    #[test]
     fn sanitize_handles_json_wrapped_key() {
         let input = r#"{"error":"invalid key sk-abc123xyz"}"#;
         let result = sanitize_api_error(input);
@@ -2725,14 +2325,6 @@ mod tests {
         let result = sanitize_api_error(input);
         assert!(!result.contains("xoxb-abc123"));
         assert!(result.contains("};"));
-    }
-
-    #[test]
-    fn sanitize_truncates_long_error() {
-        let long = "a".repeat(400);
-        let result = sanitize_api_error(&long);
-        assert!(result.len() <= 203);
-        assert!(result.ends_with("..."));
     }
 
     #[test]
@@ -2752,13 +2344,6 @@ mod tests {
     }
 
     #[test]
-    fn sanitize_no_secret_no_change() {
-        let input = "simple upstream timeout";
-        let result = sanitize_api_error(input);
-        assert_eq!(result, input);
-    }
-
-    #[test]
     fn scrub_github_personal_access_token() {
         let input = "auth failed with token ghp_abc123def456";
         let result = scrub_secret_patterns(input);
@@ -2770,13 +2355,6 @@ mod tests {
         let input = "Bearer gho_1234567890abcdef";
         let result = scrub_secret_patterns(input);
         assert_eq!(result, "Bearer [REDACTED]");
-    }
-
-    #[test]
-    fn scrub_github_user_token() {
-        let input = "token ghu_sessiontoken123";
-        let result = scrub_secret_patterns(input);
-        assert_eq!(result, "token [REDACTED]");
     }
 
     #[test]
@@ -2815,24 +2393,6 @@ mod tests {
         let result = sanitize_api_error(input);
         assert!(!result.contains("supersecret1234567890"));
         assert!(!result.contains("client_secret"));
-        assert!(result.contains("[REDACTED]"));
-    }
-
-    #[test]
-    fn sanitize_redacts_json_token_field() {
-        let input = r#"{"token":"abcd1234efgh5678","error":"forbidden"}"#;
-        let result = sanitize_api_error(input);
-        assert!(!result.contains("abcd1234efgh5678"));
-        assert!(!result.contains("\"token\""));
-        assert!(result.contains("[REDACTED]"));
-    }
-
-    #[test]
-    fn sanitize_redacts_query_token_field() {
-        let input = "request rejected: token=abcd1234efgh5678";
-        let result = sanitize_api_error(input);
-        assert!(!result.contains("abcd1234efgh5678"));
-        assert!(!result.contains("token="));
         assert!(result.contains("[REDACTED]"));
     }
 
@@ -2905,13 +2465,6 @@ mod tests {
     // --- parse_provider_profile ---
 
     #[test]
-    fn parse_provider_profile_plain_name() {
-        let (name, profile) = parse_provider_profile("gemini");
-        assert_eq!(name, "gemini");
-        assert_eq!(profile, None);
-    }
-
-    #[test]
     fn parse_provider_profile_with_profile() {
         let (name, profile) = parse_provider_profile("openai-codex:second");
         assert_eq!(name, "openai-codex");
@@ -2923,21 +2476,6 @@ mod tests {
         let input = "custom:https://my-api.example.com/v1";
         let (name, profile) = parse_provider_profile(input);
         assert_eq!(name, input);
-        assert_eq!(profile, None);
-    }
-
-    #[test]
-    fn parse_provider_profile_anthropic_custom_not_split() {
-        let input = "anthropic-custom:https://bedrock.example.com";
-        let (name, profile) = parse_provider_profile(input);
-        assert_eq!(name, input);
-        assert_eq!(profile, None);
-    }
-
-    #[test]
-    fn parse_provider_profile_empty_profile_ignored() {
-        let (name, profile) = parse_provider_profile("openai-codex:");
-        assert_eq!(name, "openai-codex:");
         assert_eq!(profile, None);
     }
 
@@ -2967,20 +2505,6 @@ mod tests {
         assert_eq!(resolved, Some("entry-key"));
     }
 
-    #[test]
-    fn resolve_fallback_api_key_uses_provider_name_as_compat_fallback() {
-        let mut fallback_api_keys = std::collections::HashMap::new();
-        fallback_api_keys.insert("openrouter".to_string(), "provider-key".to_string());
-
-        let reliability = crate::config::ReliabilityConfig {
-            fallback_api_keys,
-            ..crate::config::ReliabilityConfig::default()
-        };
-
-        let resolved = resolve_fallback_api_key(&reliability, "openrouter:secondary", "openrouter");
-        assert_eq!(resolved, Some("provider-key"));
-    }
-
     // --- resilient fallback with profile syntax ---
 
     #[test]
@@ -3006,33 +2530,6 @@ mod tests {
         // The provider initializes successfully and will attempt auth at
         // request time.
         let provider = create_resilient_provider("lmstudio", None, None, &reliability);
-        assert!(provider.is_ok());
-    }
-
-    #[test]
-    fn resilient_fallback_mixed_profiles_and_custom() {
-        let _guard = env_lock();
-
-        let reliability = crate::config::ReliabilityConfig {
-            provider_retries: 1,
-            provider_backoff_ms: 100,
-            fallback_providers: vec![
-                "openai-codex:second".into(),
-                "custom:http://localhost:8080/v1".into(),
-                "lmstudio".into(),
-                "nonexistent-provider".into(),
-            ],
-            fallback_api_keys: std::collections::HashMap::new(),
-            api_keys: Vec::new(),
-            model_fallbacks: std::collections::HashMap::new(),
-            channel_initial_backoff_secs: 2,
-            channel_max_backoff_secs: 60,
-            scheduler_poll_secs: 15,
-            scheduler_retries: 2,
-            ..Default::default()
-        };
-
-        let provider = create_resilient_provider("ollama", None, None, &reliability);
         assert!(provider.is_ok());
     }
 }

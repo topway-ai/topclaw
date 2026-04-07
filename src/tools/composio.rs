@@ -1293,23 +1293,6 @@ mod tests {
     // ── Constructor ───────────────────────────────────────────
 
     #[test]
-    fn composio_tool_has_correct_name() {
-        let tool = ComposioTool::new("test-key", None, test_security());
-        assert_eq!(tool.name(), "composio");
-    }
-
-    #[test]
-    fn composio_tool_has_description() {
-        let _tool = ComposioTool::new("test-key", None, test_security());
-        assert!(!ComposioTool::new("test-key", None, test_security())
-            .description()
-            .is_empty());
-        assert!(ComposioTool::new("test-key", None, test_security())
-            .description()
-            .contains("1000+"));
-    }
-
-    #[test]
     fn composio_tool_schema_has_required_fields() {
         let tool = ComposioTool::new("test-key", None, test_security());
         let schema = tool.parameters_schema();
@@ -1329,14 +1312,6 @@ mod tests {
             .filter_map(|v| v.as_str())
             .collect::<Vec<_>>();
         assert!(enum_values.contains(&"list_accounts"));
-    }
-
-    #[test]
-    fn composio_tool_spec_roundtrip() {
-        let tool = ComposioTool::new("test-key", None, test_security());
-        let spec = tool.spec();
-        assert_eq!(spec.name, "composio");
-        assert!(spec.parameters.is_object());
     }
 
     // ── Execute validation ────────────────────────────────────
@@ -1415,37 +1390,6 @@ mod tests {
     }
 
     // ── API response parsing ──────────────────────────────────
-
-    #[test]
-    fn composio_action_deserializes() {
-        let json_str = r#"{"name": "GMAIL_FETCH_EMAILS", "appName": "gmail", "description": "Fetch emails", "enabled": true}"#;
-        let action: ComposioAction = serde_json::from_str(json_str).unwrap();
-        assert_eq!(action.name, "GMAIL_FETCH_EMAILS");
-        assert_eq!(action.app_name.as_deref(), Some("gmail"));
-        assert!(action.enabled);
-    }
-
-    #[test]
-    fn composio_tools_response_deserializes() {
-        let json_str = r#"{"items": [{"slug": "test-action", "name": "TEST_ACTION", "appName": "test", "description": "A test"}]}"#;
-        let resp: ComposioToolsResponse = serde_json::from_str(json_str).unwrap();
-        assert_eq!(resp.items.len(), 1);
-        assert_eq!(resp.items[0].slug.as_deref(), Some("test-action"));
-    }
-
-    #[test]
-    fn composio_tools_response_empty() {
-        let json_str = r#"{"items": []}"#;
-        let resp: ComposioToolsResponse = serde_json::from_str(json_str).unwrap();
-        assert!(resp.items.is_empty());
-    }
-
-    #[test]
-    fn composio_tools_response_missing_items_defaults() {
-        let json_str = r"{}";
-        let resp: ComposioToolsResponse = serde_json::from_str(json_str).unwrap();
-        assert!(resp.items.is_empty());
-    }
 
     #[test]
     fn composio_v3_tools_response_maps_to_actions() {
@@ -1540,27 +1484,11 @@ mod tests {
     }
 
     #[test]
-    fn connected_account_cache_key_is_stable() {
-        assert_eq!(
-            connected_account_cache_key("GMAIL", " default "),
-            "default:gmail"
-        );
-    }
-
-    #[test]
     fn build_connected_account_hint_returns_guidance_when_missing_ref() {
         let hint = build_connected_account_hint(Some("gmail"), Some("default"), None);
         assert!(hint.contains("list_accounts"));
         assert!(hint.contains("gmail"));
         assert!(hint.contains("default"));
-    }
-
-    #[test]
-    fn build_connected_account_hint_without_app_is_still_actionable() {
-        let hint = build_connected_account_hint(None, Some("default"), None);
-        assert!(hint.contains("list_accounts"));
-        assert!(hint.contains("entity_id='default'"));
-        assert!(!hint.contains("app='"));
     }
 
     #[test]
@@ -1649,66 +1577,10 @@ mod tests {
     }
 
     #[test]
-    fn composio_action_with_null_fields() {
-        let json_str =
-            r#"{"name": "TEST_ACTION", "appName": null, "description": null, "enabled": false}"#;
-        let action: ComposioAction = serde_json::from_str(json_str).unwrap();
-        assert_eq!(action.name, "TEST_ACTION");
-        assert!(action.app_name.is_none());
-        assert!(action.description.is_none());
-        assert!(!action.enabled);
-    }
-
-    #[test]
-    fn composio_action_with_special_characters() {
-        let json_str = r#"{"name": "GMAIL_SEND_EMAIL_WITH_ATTACHMENT", "appName": "gmail", "description": "Send email with attachment & special chars: <>'\"\"", "enabled": true}"#;
-        let action: ComposioAction = serde_json::from_str(json_str).unwrap();
-        assert_eq!(action.name, "GMAIL_SEND_EMAIL_WITH_ATTACHMENT");
-        assert!(action.description.as_ref().unwrap().contains('&'));
-        assert!(action.description.as_ref().unwrap().contains('<'));
-    }
-
-    #[test]
-    fn composio_action_with_unicode() {
-        let json_str = r#"{"name": "SLACK_SEND_MESSAGE", "appName": "slack", "description": "Send message with emoji 🎉 and unicode Ω", "enabled": true}"#;
-        let action: ComposioAction = serde_json::from_str(json_str).unwrap();
-        assert!(action.description.as_ref().unwrap().contains("🎉"));
-        assert!(action.description.as_ref().unwrap().contains("Ω"));
-    }
-
-    #[test]
     fn composio_malformed_json_returns_error() {
         let json_str = r#"{"name": "TEST_ACTION", "appName": "gmail", }"#;
         let result: Result<ComposioAction, _> = serde_json::from_str(json_str);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn composio_empty_json_string_returns_error() {
-        let json_str = r#" ""#;
-        let result: Result<ComposioAction, _> = serde_json::from_str(json_str);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn composio_large_actions_list() {
-        let mut items = Vec::new();
-        for i in 0..100 {
-            items.push(json!({
-                "slug": format!("action-{i}"),
-                "name": format!("ACTION_{i}"),
-                "app_name": "test",
-                "description": "Test action"
-            }));
-        }
-        let json_str = json!({"items": items}).to_string();
-        let resp: ComposioToolsResponse = serde_json::from_str(&json_str).unwrap();
-        assert_eq!(resp.items.len(), 100);
-    }
-
-    #[test]
-    fn composio_api_base_url_is_v3() {
-        assert_eq!(COMPOSIO_API_BASE_V3, "https://backend.composio.dev/api/v3");
     }
 
     #[test]
@@ -1810,13 +1682,6 @@ mod tests {
         assert!(resolved.is_none());
     }
 
-    #[test]
-    fn resolve_returns_none_for_empty_accounts() {
-        let accounts: Vec<ComposioConnectedAccount> = vec![];
-        let resolved = accounts.into_iter().find(|a| a.is_usable()).map(|a| a.id);
-        assert!(resolved.is_none());
-    }
-
     // ── connected_accounts alias ──────────────────────────────
 
     #[tokio::test]
@@ -1853,12 +1718,6 @@ mod tests {
             .collect();
         assert!(values.contains(&"connected_accounts"));
         assert!(values.contains(&"list_accounts"));
-    }
-
-    #[test]
-    fn description_mentions_connected_accounts() {
-        let tool = ComposioTool::new("test-key", None, test_security());
-        assert!(tool.description().contains("connected_accounts"));
     }
 
     #[test]

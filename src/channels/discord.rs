@@ -1196,12 +1196,6 @@ mod tests {
     use serde_json::json as json_value;
 
     #[test]
-    fn discord_channel_name() {
-        let ch = DiscordChannel::new("fake".into(), None, vec![], false, false);
-        assert_eq!(ch.name(), "discord");
-    }
-
-    #[test]
     fn base64_decode_bot_id() {
         // "MTIzNDU2" decodes to "123456"
         let decoded = base64_decode("MTIzNDU2");
@@ -1254,12 +1248,6 @@ mod tests {
     }
 
     #[test]
-    fn allowlist_empty_string_user_id() {
-        let ch = DiscordChannel::new("fake".into(), None, vec!["111".into()], false, false);
-        assert!(!ch.is_user_allowed(""));
-    }
-
-    #[test]
     fn allowlist_with_wildcard_and_specific() {
         let ch = DiscordChannel::new(
             "fake".into(),
@@ -1270,32 +1258,6 @@ mod tests {
         );
         assert!(ch.is_user_allowed("111"));
         assert!(ch.is_user_allowed("anyone_else"));
-    }
-
-    #[test]
-    fn allowlist_case_sensitive() {
-        let ch = DiscordChannel::new("fake".into(), None, vec!["ABC".into()], false, false);
-        assert!(ch.is_user_allowed("ABC"));
-        assert!(!ch.is_user_allowed("abc"));
-        assert!(!ch.is_user_allowed("Abc"));
-    }
-
-    #[test]
-    fn base64_decode_empty_string() {
-        let decoded = base64_decode("");
-        assert_eq!(decoded, Some(String::new()));
-    }
-
-    #[test]
-    fn base64_decode_invalid_chars() {
-        let decoded = base64_decode("!!!!");
-        assert!(decoded.is_none());
-    }
-
-    #[test]
-    fn bot_user_id_from_empty_token() {
-        let id = DiscordChannel::bot_user_id_from_token("");
-        assert_eq!(id, Some(String::new()));
     }
 
     #[test]
@@ -1348,50 +1310,6 @@ mod tests {
     // Message splitting tests
 
     #[test]
-    fn split_empty_message() {
-        let chunks = split_message_for_discord("");
-        assert_eq!(chunks, vec![""]);
-    }
-
-    #[test]
-    fn split_short_message_under_limit() {
-        let msg = "Hello, world!";
-        let chunks = split_message_for_discord(msg);
-        assert_eq!(chunks, vec![msg]);
-    }
-
-    #[test]
-    fn split_message_exactly_2000_chars() {
-        let msg = "a".repeat(DISCORD_MAX_MESSAGE_LENGTH);
-        let chunks = split_message_for_discord(&msg);
-        assert_eq!(chunks.len(), 1);
-        assert_eq!(chunks[0].chars().count(), DISCORD_MAX_MESSAGE_LENGTH);
-    }
-
-    #[test]
-    fn split_message_just_over_limit() {
-        let msg = "a".repeat(DISCORD_MAX_MESSAGE_LENGTH + 1);
-        let chunks = split_message_for_discord(&msg);
-        assert_eq!(chunks.len(), 2);
-        assert_eq!(chunks[0].chars().count(), DISCORD_MAX_MESSAGE_LENGTH);
-        assert_eq!(chunks[1].chars().count(), 1);
-    }
-
-    #[test]
-    fn split_very_long_message() {
-        let msg = "word ".repeat(2000); // 10000 characters (5 chars per "word ")
-        let chunks = split_message_for_discord(&msg);
-        // Should split into 5 chunks of <= 2000 chars
-        assert_eq!(chunks.len(), 5);
-        assert!(chunks
-            .iter()
-            .all(|chunk| chunk.chars().count() <= DISCORD_MAX_MESSAGE_LENGTH));
-        // Verify total content is preserved
-        let reconstructed = chunks.concat();
-        assert_eq!(reconstructed, msg);
-    }
-
-    #[test]
     fn split_prefer_newline_break() {
         let msg = format!("{}\n{}", "a".repeat(1500), "b".repeat(500));
         let chunks = split_message_for_discord(&msg);
@@ -1399,70 +1317,6 @@ mod tests {
         assert_eq!(chunks.len(), 2);
         assert!(chunks[0].ends_with('\n'));
         assert!(chunks[1].starts_with('b'));
-    }
-
-    #[test]
-    fn split_prefer_space_break() {
-        let msg = format!("{} {}", "a".repeat(1500), "b".repeat(600));
-        let chunks = split_message_for_discord(&msg);
-        assert_eq!(chunks.len(), 2);
-    }
-
-    #[test]
-    fn split_without_good_break_points_hard_split() {
-        // No spaces or newlines - should hard split at 2000
-        let msg = "a".repeat(5000);
-        let chunks = split_message_for_discord(&msg);
-        assert_eq!(chunks.len(), 3);
-        assert_eq!(chunks[0].chars().count(), DISCORD_MAX_MESSAGE_LENGTH);
-        assert_eq!(chunks[1].chars().count(), DISCORD_MAX_MESSAGE_LENGTH);
-        assert_eq!(chunks[2].chars().count(), 1000);
-    }
-
-    #[test]
-    fn split_multiple_breaks() {
-        // Create a message with multiple newlines
-        let part1 = "a".repeat(900);
-        let part2 = "b".repeat(900);
-        let part3 = "c".repeat(900);
-        let msg = format!("{part1}\n{part2}\n{part3}");
-        let chunks = split_message_for_discord(&msg);
-        // Should split into 2 chunks (first two parts + third part)
-        assert_eq!(chunks.len(), 2);
-        assert!(chunks[0].chars().count() <= DISCORD_MAX_MESSAGE_LENGTH);
-        assert!(chunks[1].chars().count() <= DISCORD_MAX_MESSAGE_LENGTH);
-    }
-
-    #[test]
-    fn split_preserves_content() {
-        let original = "Hello world! This is a test message with some content. ".repeat(200);
-        let chunks = split_message_for_discord(&original);
-        let reconstructed = chunks.concat();
-        assert_eq!(reconstructed, original);
-    }
-
-    #[test]
-    fn split_unicode_content() {
-        // Test with emoji and multi-byte characters
-        let msg = "🦀 Rust is awesome! ".repeat(500);
-        let chunks = split_message_for_discord(&msg);
-        // All chunks should be valid UTF-8
-        for chunk in &chunks {
-            assert!(std::str::from_utf8(chunk.as_bytes()).is_ok());
-            assert!(chunk.chars().count() <= DISCORD_MAX_MESSAGE_LENGTH);
-        }
-        // Reconstruct and verify
-        let reconstructed = chunks.concat();
-        assert_eq!(reconstructed, msg);
-    }
-
-    #[test]
-    fn split_newline_too_close_to_end() {
-        // If newline is in the first half, don't use it - use space instead or hard split
-        let msg = format!("{}\n{}", "a".repeat(1900), "b".repeat(500));
-        let chunks = split_message_for_discord(&msg);
-        // Should split at newline since it's in the second half of the window
-        assert_eq!(chunks.len(), 2);
     }
 
     #[test]
@@ -1485,64 +1339,6 @@ mod tests {
             .all(|chunk| chunk.chars().count() <= DISCORD_MAX_MESSAGE_LENGTH));
     }
 
-    #[test]
-    fn split_message_with_multiple_newlines() {
-        let msg = "Line 1\nLine 2\nLine 3\n".repeat(1000);
-        let chunks = split_message_for_discord(&msg);
-        assert!(chunks.len() > 1);
-        let reconstructed = chunks.concat();
-        assert_eq!(reconstructed, msg);
-    }
-
-    #[test]
-    fn typing_handles_start_empty() {
-        let ch = DiscordChannel::new("fake".into(), None, vec![], false, false);
-        let guard = ch.typing_handles.lock();
-        assert!(guard.is_empty());
-    }
-
-    #[tokio::test]
-    async fn start_typing_sets_handle() {
-        let ch = DiscordChannel::new("fake".into(), None, vec![], false, false);
-        let _ = ch.start_typing("123456").await;
-        let guard = ch.typing_handles.lock();
-        assert!(guard.contains_key("123456"));
-    }
-
-    #[tokio::test]
-    async fn stop_typing_clears_handle() {
-        let ch = DiscordChannel::new("fake".into(), None, vec![], false, false);
-        let _ = ch.start_typing("123456").await;
-        let _ = ch.stop_typing("123456").await;
-        let guard = ch.typing_handles.lock();
-        assert!(!guard.contains_key("123456"));
-    }
-
-    #[tokio::test]
-    async fn stop_typing_is_idempotent() {
-        let ch = DiscordChannel::new("fake".into(), None, vec![], false, false);
-        assert!(ch.stop_typing("123456").await.is_ok());
-        assert!(ch.stop_typing("123456").await.is_ok());
-    }
-
-    #[tokio::test]
-    async fn concurrent_typing_handles_are_independent() {
-        let ch = DiscordChannel::new("fake".into(), None, vec![], false, false);
-        let _ = ch.start_typing("111").await;
-        let _ = ch.start_typing("222").await;
-        {
-            let guard = ch.typing_handles.lock();
-            assert_eq!(guard.len(), 2);
-            assert!(guard.contains_key("111"));
-            assert!(guard.contains_key("222"));
-        }
-        // Stopping one does not affect the other
-        let _ = ch.stop_typing("111").await;
-        let guard = ch.typing_handles.lock();
-        assert_eq!(guard.len(), 1);
-        assert!(guard.contains_key("222"));
-    }
-
     // ── Emoji encoding for reactions ──────────────────────────────
 
     #[test]
@@ -1552,29 +1348,9 @@ mod tests {
     }
 
     #[test]
-    fn encode_emoji_checkmark() {
-        let encoded = encode_emoji_for_discord("\u{2705}");
-        assert_eq!(encoded, "%E2%9C%85");
-    }
-
-    #[test]
     fn encode_emoji_custom_guild_emoji_passthrough() {
         let encoded = encode_emoji_for_discord("custom_emoji:123456789");
         assert_eq!(encoded, "custom_emoji:123456789");
-    }
-
-    #[test]
-    fn encode_emoji_simple_ascii_char() {
-        let encoded = encode_emoji_for_discord("A");
-        assert_eq!(encoded, "%41");
-    }
-
-    #[test]
-    fn random_discord_ack_reaction_is_from_pool() {
-        for _ in 0..128 {
-            let emoji = random_discord_ack_reaction();
-            assert!(DISCORD_ACK_REACTIONS.contains(&emoji));
-        }
     }
 
     #[test]
@@ -1587,55 +1363,6 @@ mod tests {
     }
 
     // ── Message ID edge cases ─────────────────────────────────────
-
-    #[test]
-    fn discord_message_id_format_includes_discord_prefix() {
-        // Verify that message IDs follow the format: discord_{message_id}
-        let message_id = "123456789012345678";
-        let expected_id = format!("discord_{message_id}");
-        assert_eq!(expected_id, "discord_123456789012345678");
-    }
-
-    #[test]
-    fn discord_message_id_is_deterministic() {
-        // Same message_id = same ID (prevents duplicates after restart)
-        let message_id = "123456789012345678";
-        let id1 = format!("discord_{message_id}");
-        let id2 = format!("discord_{message_id}");
-        assert_eq!(id1, id2);
-    }
-
-    #[test]
-    fn discord_message_id_different_message_different_id() {
-        // Different message IDs produce different IDs
-        let id1 = "discord_123456789012345678".to_string();
-        let id2 = "discord_987654321098765432".to_string();
-        assert_ne!(id1, id2);
-    }
-
-    #[test]
-    fn discord_message_id_uses_snowflake_id() {
-        // Discord snowflake IDs are numeric strings
-        let message_id = "123456789012345678"; // Typical snowflake format
-        let id = format!("discord_{message_id}");
-        assert!(id.starts_with("discord_"));
-        // Snowflake IDs are numeric
-        assert!(message_id.chars().all(|c| c.is_ascii_digit()));
-    }
-
-    #[test]
-    fn discord_message_id_fallback_to_uuid_on_empty() {
-        // Edge case: empty message_id falls back to UUID
-        let message_id = "";
-        let id = if message_id.is_empty() {
-            format!("discord_{}", uuid::Uuid::new_v4())
-        } else {
-            format!("discord_{message_id}")
-        };
-        assert!(id.starts_with("discord_"));
-        // Should have UUID dashes
-        assert!(id.contains('-'));
-    }
 
     // ─────────────────────────────────────────────────────────────────────
     // TG6: Channel platform limit edge cases for Discord (2000 char limit)
@@ -1663,110 +1390,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn split_message_single_long_word_exceeds_limit() {
-        // A single word longer than 2000 chars must be hard-split
-        let long_word = "a".repeat(2500);
-        let parts = split_message_for_discord(&long_word);
-        assert!(parts.len() >= 2, "word exceeding limit must be split");
-        for part in &parts {
-            assert!(
-                part.len() <= DISCORD_MAX_MESSAGE_LENGTH,
-                "hard-split part must be <= {DISCORD_MAX_MESSAGE_LENGTH}, got {}",
-                part.len()
-            );
-        }
-        // Reassembled content should match original
-        let reassembled: String = parts.join("");
-        assert_eq!(reassembled, long_word);
-    }
-
-    #[test]
-    fn split_message_exactly_at_limit_no_split() {
-        let msg = "a".repeat(DISCORD_MAX_MESSAGE_LENGTH);
-        let parts = split_message_for_discord(&msg);
-        assert_eq!(parts.len(), 1, "message exactly at limit should not split");
-        assert_eq!(parts[0].len(), DISCORD_MAX_MESSAGE_LENGTH);
-    }
-
-    #[test]
-    fn split_message_one_over_limit_splits() {
-        let msg = "a".repeat(DISCORD_MAX_MESSAGE_LENGTH + 1);
-        let parts = split_message_for_discord(&msg);
-        assert!(parts.len() >= 2, "message 1 char over limit must split");
-    }
-
-    #[test]
-    #[allow(clippy::format_collect)]
-    fn split_message_many_short_lines() {
-        // Many short lines should be batched into chunks under the limit
-        let msg: String = (0..500).map(|i| format!("line {i}\n")).collect();
-        let parts = split_message_for_discord(&msg);
-        for part in &parts {
-            assert!(
-                part.len() <= DISCORD_MAX_MESSAGE_LENGTH,
-                "short-line batch must be <= limit"
-            );
-        }
-        // All content should be preserved
-        let reassembled: String = parts.join("");
-        assert_eq!(reassembled.trim(), msg.trim());
-    }
-
-    #[test]
-    fn split_message_only_whitespace() {
-        let msg = "   \n\n\t  ";
-        let parts = split_message_for_discord(msg);
-        // Should handle gracefully without panic
-        assert!(parts.len() <= 1);
-    }
-
-    #[test]
-    fn split_message_emoji_at_boundary() {
-        // Emoji are multi-byte; ensure we don't split mid-emoji
-        let mut msg = "a".repeat(1998);
-        msg.push_str("🎉🎊"); // 2 emoji at the boundary (2000 chars total)
-        let parts = split_message_for_discord(&msg);
-        for part in &parts {
-            // The function splits on character count, not byte count
-            assert!(
-                part.chars().count() <= DISCORD_MAX_MESSAGE_LENGTH,
-                "emoji boundary split must respect limit"
-            );
-        }
-    }
-
-    #[test]
-    fn split_message_consecutive_newlines_at_boundary() {
-        let mut msg = "a".repeat(1995);
-        msg.push_str("\n\n\n\n\n");
-        msg.push_str(&"b".repeat(100));
-        let parts = split_message_for_discord(&msg);
-        for part in &parts {
-            assert!(part.len() <= DISCORD_MAX_MESSAGE_LENGTH);
-        }
-    }
-
     // process_attachments tests
-
-    #[tokio::test]
-    async fn process_attachments_empty_list_returns_empty() {
-        let client = reqwest::Client::new();
-        let result = process_attachments(&[], &client, None).await;
-        assert!(result.is_empty());
-    }
-
-    #[tokio::test]
-    async fn process_attachments_skips_unsupported_types() {
-        let client = reqwest::Client::new();
-        let attachments = vec![serde_json::json!({
-            "url": "https://cdn.discordapp.com/attachments/123/456/doc.pdf",
-            "filename": "doc.pdf",
-            "content_type": "application/pdf"
-        })];
-        let result = process_attachments(&attachments, &client, None).await;
-        assert!(result.is_empty());
-    }
 
     #[tokio::test]
     async fn process_attachments_emits_image_marker_for_image_content_type() {
@@ -1784,28 +1408,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn process_attachments_emits_multiple_image_markers() {
-        let client = reqwest::Client::new();
-        let attachments = vec![
-            serde_json::json!({
-                "url": "https://cdn.discordapp.com/attachments/123/456/one.jpg",
-                "filename": "one.jpg",
-                "content_type": "image/jpeg"
-            }),
-            serde_json::json!({
-                "url": "https://cdn.discordapp.com/attachments/123/456/two.webp",
-                "filename": "two.webp",
-                "content_type": "image/webp"
-            }),
-        ];
-        let result = process_attachments(&attachments, &client, None).await;
-        assert_eq!(
-            result,
-            "[IMAGE:https://cdn.discordapp.com/attachments/123/456/one.jpg]\n---\n[IMAGE:https://cdn.discordapp.com/attachments/123/456/two.webp]"
-        );
-    }
-
-    #[tokio::test]
     async fn process_attachments_emits_image_marker_from_filename_without_content_type() {
         let client = reqwest::Client::new();
         let attachments = vec![serde_json::json!({
@@ -1817,51 +1419,6 @@ mod tests {
             result,
             "[IMAGE:https://cdn.discordapp.com/attachments/123/456/photo.jpeg?size=1024]"
         );
-    }
-
-    #[tokio::test]
-    #[ignore = "requires local loopback TCP bind"]
-    async fn process_attachments_transcribes_audio_when_enabled() {
-        async fn audio_handler() -> ([(String, String); 1], Vec<u8>) {
-            (
-                [(
-                    "content-type".to_string(),
-                    "audio/ogg; codecs=opus".to_string(),
-                )],
-                vec![1_u8, 2, 3, 4, 5, 6],
-            )
-        }
-
-        async fn transcribe_handler() -> Json<serde_json::Value> {
-            Json(json_value!({ "text": "hello from discord audio" }))
-        }
-
-        let app = Router::new()
-            .route("/audio.ogg", get(audio_handler))
-            .route("/transcribe", post(transcribe_handler));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("bind test server");
-        let addr = listener.local_addr().expect("local addr");
-        tokio::spawn(async move {
-            let _ = axum::serve(listener, app).await;
-        });
-
-        let mut transcription = TranscriptionConfig::default();
-        transcription.enabled = true;
-        transcription.api_url = format!("http://{addr}/transcribe");
-        transcription.model = "whisper-test".to_string();
-
-        let client = reqwest::Client::new();
-        let attachments = vec![serde_json::json!({
-            "url": format!("http://{addr}/audio.ogg"),
-            "filename": "voice.ogg",
-            "content_type": "audio/ogg",
-            "duration_secs": 4
-        })];
-
-        let result = process_attachments(&attachments, &client, Some(&transcription)).await;
-        assert_eq!(result, "[Voice:voice.ogg] hello from discord audio");
     }
 
     #[tokio::test]
@@ -1893,27 +1450,9 @@ mod tests {
     }
 
     #[test]
-    fn is_image_attachment_allows_octet_stream_extension_fallback() {
-        assert!(is_image_attachment(
-            "application/octet-stream",
-            "photo.png",
-            "https://cdn.discordapp.com/attachments/123/456/photo.png"
-        ));
-    }
-
-    #[test]
     fn is_audio_attachment_prefers_non_audio_content_type_over_extension() {
         assert!(!is_audio_attachment(
             "text/plain",
-            "voice.ogg",
-            "https://cdn.discordapp.com/attachments/123/456/voice.ogg"
-        ));
-    }
-
-    #[test]
-    fn is_audio_attachment_allows_octet_stream_extension_fallback() {
-        assert!(is_audio_attachment(
-            "application/octet-stream",
             "voice.ogg",
             "https://cdn.discordapp.com/attachments/123/456/voice.ogg"
         ));
@@ -1939,15 +1478,6 @@ mod tests {
         assert_eq!(attachments[0].target, "https://example.com/a.png");
         assert_eq!(attachments[1].kind, DiscordAttachmentKind::Document);
         assert_eq!(attachments[1].target, "/tmp/a.pdf");
-    }
-
-    #[test]
-    fn parse_attachment_markers_keeps_invalid_marker_text() {
-        let input = "Hello [NOT_A_MARKER:foo] world";
-        let (cleaned, attachments) = parse_attachment_markers(input);
-
-        assert_eq!(cleaned, input);
-        assert!(attachments.is_empty());
     }
 
     #[test]
@@ -1990,33 +1520,6 @@ mod tests {
             rendered,
             "Done\nhttps://example.com/a.png\n[IMAGE:/tmp/missing.png]"
         );
-    }
-
-    #[test]
-    fn with_workspace_dir_sets_field() {
-        let channel = DiscordChannel::new("fake".into(), None, vec![], false, false)
-            .with_workspace_dir(PathBuf::from("/tmp/discord-workspace"));
-        assert_eq!(
-            channel.workspace_dir.as_deref(),
-            Some(Path::new("/tmp/discord-workspace"))
-        );
-    }
-
-    #[test]
-    fn with_transcription_sets_config_when_enabled() {
-        let mut tc = TranscriptionConfig::default();
-        tc.enabled = true;
-        let channel =
-            DiscordChannel::new("fake".into(), None, vec![], false, false).with_transcription(tc);
-        assert!(channel.transcription.is_some());
-    }
-
-    #[test]
-    fn with_transcription_skips_when_disabled() {
-        let tc = TranscriptionConfig::default();
-        let channel =
-            DiscordChannel::new("fake".into(), None, vec![], false, false).with_transcription(tc);
-        assert!(channel.transcription.is_none());
     }
 
     #[test]

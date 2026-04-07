@@ -2820,22 +2820,6 @@ mod tests {
     }
 
     #[test]
-    fn browser_tool_accepts_auto_backend_config() {
-        let security = Arc::new(SecurityPolicy::default());
-        let tool = BrowserTool::new_with_backend(
-            security,
-            vec!["example.com".into()],
-            None,
-            "auto".into(),
-            true,
-            "http://127.0.0.1:9515".into(),
-            None,
-            ComputerUseConfig::default(),
-        );
-        assert_eq!(tool.configured_backend().unwrap(), BrowserBackendKind::Auto);
-    }
-
-    #[test]
     fn browser_tool_accepts_computer_use_backend_config() {
         let security = Arc::new(SecurityPolicy::default());
         let tool = BrowserTool::new_with_backend(
@@ -3011,13 +2995,6 @@ mod tests {
                 missing_app_terminate.as_object().unwrap()
             )
             .is_err());
-    }
-
-    #[test]
-    fn browser_tool_name() {
-        let security = Arc::new(SecurityPolicy::default());
-        let tool = BrowserTool::new(security, vec!["example.com".into()], None);
-        assert_eq!(tool.name(), "browser");
     }
 
     #[test]

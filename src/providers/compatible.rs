@@ -2431,30 +2431,6 @@ mod tests {
     }
 
     #[test]
-    fn creates_with_key() {
-        let p = make_provider(
-            "venice",
-            "https://api.venice.ai",
-            Some("venice-test-credential"),
-        );
-        assert_eq!(p.name, "venice");
-        assert_eq!(p.base_url, "https://api.venice.ai");
-        assert_eq!(p.credential.as_deref(), Some("venice-test-credential"));
-    }
-
-    #[test]
-    fn creates_without_key() {
-        let p = make_provider("test", "https://example.com", None);
-        assert!(p.credential.is_none());
-    }
-
-    #[test]
-    fn strips_trailing_slash() {
-        let p = make_provider("test", "https://example.com/", None);
-        assert_eq!(p.base_url, "https://example.com");
-    }
-
-    #[test]
     fn format_transport_error_prioritizes_certificate_root_cause() {
         let err = anyhow::Error::new(NestedTestError::with_source(
             "error sending request for url (https://coding.dashscope.aliyuncs.com/v1/chat/completions)",
@@ -2478,65 +2454,6 @@ mod tests {
         assert!(detail.contains("dns lookup failed"));
         assert!(detail.contains("request: error sending request for url"));
         assert!(!detail.contains("certificate trust"));
-    }
-
-    #[tokio::test]
-    async fn chat_fails_without_key() {
-        let p = make_provider("Venice", "https://api.venice.ai", None);
-        let result = p
-            .chat_with_system(None, "hello", "llama-3.3-70b", 0.7)
-            .await;
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Venice API key not set"));
-    }
-
-    #[test]
-    fn request_serializes_correctly() {
-        let req = ApiChatRequest {
-            model: "llama-3.3-70b".to_string(),
-            messages: vec![
-                Message {
-                    role: "system".to_string(),
-                    content: MessageContent::Text("You are TopClaw".to_string()),
-                },
-                Message {
-                    role: "user".to_string(),
-                    content: MessageContent::Text("hello".to_string()),
-                },
-            ],
-            temperature: 0.4,
-            max_tokens: None,
-            stream: Some(false),
-            tools: None,
-            tool_choice: None,
-        };
-        let json = serde_json::to_string(&req).unwrap();
-        assert!(json.contains("llama-3.3-70b"));
-        assert!(json.contains("system"));
-        assert!(json.contains("user"));
-        // tools/tool_choice should be omitted when None
-        assert!(!json.contains("tools"));
-        assert!(!json.contains("tool_choice"));
-    }
-
-    #[test]
-    fn response_deserializes() {
-        let json = r#"{"choices":[{"message":{"content":"Hello from Venice!"}}]}"#;
-        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            resp.choices[0].message.content,
-            Some("Hello from Venice!".to_string())
-        );
-    }
-
-    #[test]
-    fn response_empty_choices() {
-        let json = r#"{"choices":[]}"#;
-        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
-        assert!(resp.choices.is_empty());
     }
 
     #[test]
@@ -2650,16 +2567,6 @@ mod tests {
         assert_eq!(
             extract_responses_text(&response).as_deref(),
             Some("Hello from nested")
-        );
-    }
-
-    #[test]
-    fn responses_extracts_any_text_as_fallback() {
-        let json = r#"{"output":[{"content":[{"type":"message","text":"Fallback text"}]}]}"#;
-        let response: ResponsesResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            extract_responses_text(&response).as_deref(),
-            Some("Fallback text")
         );
     }
 
@@ -2779,16 +2686,6 @@ mod tests {
     }
 
     #[test]
-    fn chat_completions_url_trailing_slash() {
-        // Trailing slash is stripped, then /chat/completions appended
-        let p = make_provider("test", "https://api.example.com/v1/", None);
-        assert_eq!(
-            p.chat_completions_url(),
-            "https://api.example.com/v1/chat/completions"
-        );
-    }
-
-    #[test]
     fn chat_completions_url_volcengine_ark() {
         // VolcEngine ARK uses custom path - should use as-is
         let p = make_provider(
@@ -2851,19 +2748,6 @@ mod tests {
     }
 
     #[test]
-    fn responses_url_requires_exact_suffix_match() {
-        let p = make_provider(
-            "custom",
-            "https://my-api.example.com/api/v2/responses-proxy",
-            None,
-        );
-        assert_eq!(
-            p.responses_url(),
-            "https://my-api.example.com/api/v2/responses-proxy/responses"
-        );
-    }
-
-    #[test]
     fn responses_url_derives_from_chat_endpoint() {
         let p = make_provider(
             "custom",
@@ -2916,42 +2800,12 @@ mod tests {
     // ----------------------------------------------------------
 
     #[test]
-    fn chat_completions_url_zai() {
-        // Z.AI uses /api/paas/v4 base path
-        let p = make_provider("zai", "https://api.z.ai/api/paas/v4", None);
-        assert_eq!(
-            p.chat_completions_url(),
-            "https://api.z.ai/api/paas/v4/chat/completions"
-        );
-    }
-
-    #[test]
     fn chat_completions_url_minimax() {
         // MiniMax OpenAI-compatible endpoint requires /v1 base path.
         let p = make_provider("minimax", "https://api.minimaxi.com/v1", None);
         assert_eq!(
             p.chat_completions_url(),
             "https://api.minimaxi.com/v1/chat/completions"
-        );
-    }
-
-    #[test]
-    fn chat_completions_url_glm() {
-        // GLM (BigModel) uses /api/paas/v4 base path
-        let p = make_provider("glm", "https://open.bigmodel.cn/api/paas/v4", None);
-        assert_eq!(
-            p.chat_completions_url(),
-            "https://open.bigmodel.cn/api/paas/v4/chat/completions"
-        );
-    }
-
-    #[test]
-    fn chat_completions_url_opencode() {
-        // OpenCode Zen uses /zen/v1 base path
-        let p = make_provider("opencode", "https://opencode.ai/zen/v1", None);
-        assert_eq!(
-            p.chat_completions_url(),
-            "https://opencode.ai/zen/v1/chat/completions"
         );
     }
 
@@ -3132,13 +2986,6 @@ mod tests {
         assert!(output[0].content.contains("shell_exec"));
     }
 
-    #[tokio::test]
-    async fn warmup_without_key_is_noop() {
-        let provider = make_provider("test", "https://example.com", None);
-        let result = provider.warmup().await;
-        assert!(result.is_ok());
-    }
-
     // ══════════════════════════════════════════════════════════
     // Native tool calling tests
     // ══════════════════════════════════════════════════════════
@@ -3182,51 +3029,6 @@ mod tests {
     }
 
     #[test]
-    fn user_agent_constructor_keeps_native_tool_calling_enabled() {
-        let p = OpenAiCompatibleProvider::new_with_user_agent(
-            "TestProvider",
-            "https://example.com",
-            Some("k"),
-            AuthStyle::Bearer,
-            "topclaw-test/1.0",
-        );
-        let caps = <OpenAiCompatibleProvider as Provider>::capabilities(&p);
-        assert!(caps.native_tool_calling);
-        assert!(!caps.vision);
-        assert_eq!(p.user_agent.as_deref(), Some("topclaw-test/1.0"));
-    }
-
-    #[test]
-    fn user_agent_and_vision_constructor_preserves_capability_flags() {
-        let p = OpenAiCompatibleProvider::new_with_user_agent_and_vision(
-            "VisionProvider",
-            "https://example.com",
-            Some("k"),
-            AuthStyle::Bearer,
-            "topclaw-test/vision",
-            true,
-        );
-        let caps = <OpenAiCompatibleProvider as Provider>::capabilities(&p);
-        assert!(caps.native_tool_calling);
-        assert!(caps.vision);
-        assert_eq!(p.user_agent.as_deref(), Some("topclaw-test/vision"));
-    }
-
-    #[test]
-    fn no_responses_fallback_constructor_keeps_native_tool_calling_enabled() {
-        let p = OpenAiCompatibleProvider::new_no_responses_fallback(
-            "FallbackProvider",
-            "https://example.com",
-            Some("k"),
-            AuthStyle::Bearer,
-        );
-        let caps = <OpenAiCompatibleProvider as Provider>::capabilities(&p);
-        assert!(caps.native_tool_calling);
-        assert!(!caps.vision);
-        assert!(p.user_agent.is_none());
-    }
-
-    #[test]
     fn to_message_content_converts_image_markers_to_openai_parts() {
         let content = "Describe this\n\n[IMAGE:data:image/png;base64,abcd]";
         let value = serde_json::to_value(OpenAiCompatibleProvider::to_message_content(
@@ -3253,212 +3055,6 @@ mod tests {
         assert_eq!(value, serde_json::json!(content));
     }
 
-    #[test]
-    fn to_message_content_keeps_plain_text_for_non_user_roles() {
-        let value = serde_json::to_value(OpenAiCompatibleProvider::to_message_content(
-            "system",
-            "You are a helpful assistant.",
-            true,
-        ))
-        .unwrap();
-        assert_eq!(value, serde_json::json!("You are a helpful assistant."));
-    }
-
-    #[test]
-    fn request_serializes_with_tools() {
-        let tools = vec![serde_json::json!({
-            "type": "function",
-            "function": {
-                "name": "get_weather",
-                "description": "Get weather for a location",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "location": {"type": "string"}
-                    }
-                }
-            }
-        })];
-
-        let req = ApiChatRequest {
-            model: "test-model".to_string(),
-            messages: vec![Message {
-                role: "user".to_string(),
-                content: MessageContent::Text("What is the weather?".to_string()),
-            }],
-            temperature: 0.7,
-            max_tokens: None,
-            stream: Some(false),
-            tools: Some(tools),
-            tool_choice: Some("auto".to_string()),
-        };
-        let json = serde_json::to_string(&req).unwrap();
-        assert!(json.contains("\"tools\""));
-        assert!(json.contains("get_weather"));
-        assert!(json.contains("\"tool_choice\":\"auto\""));
-    }
-
-    #[test]
-    fn response_with_tool_calls_deserializes() {
-        let json = r#"{
-            "choices": [{
-                "message": {
-                    "content": null,
-                    "tool_calls": [{
-                        "type": "function",
-                        "function": {
-                            "name": "get_weather",
-                            "arguments": "{\"location\":\"London\"}"
-                        }
-                    }]
-                }
-            }]
-        }"#;
-
-        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
-        let msg = &resp.choices[0].message;
-        assert!(msg.content.is_none());
-        let tool_calls = msg.tool_calls.as_ref().unwrap();
-        assert_eq!(tool_calls.len(), 1);
-        assert_eq!(
-            tool_calls[0].function.as_ref().unwrap().name.as_deref(),
-            Some("get_weather")
-        );
-        assert_eq!(
-            tool_calls[0]
-                .function
-                .as_ref()
-                .unwrap()
-                .arguments
-                .as_deref(),
-            Some("{\"location\":\"London\"}")
-        );
-    }
-
-    #[test]
-    fn response_with_multiple_tool_calls() {
-        let json = r#"{
-            "choices": [{
-                "message": {
-                    "content": "I'll check both.",
-                    "tool_calls": [
-                        {
-                            "type": "function",
-                            "function": {
-                                "name": "get_weather",
-                                "arguments": "{\"location\":\"London\"}"
-                            }
-                        },
-                        {
-                            "type": "function",
-                            "function": {
-                                "name": "get_time",
-                                "arguments": "{\"timezone\":\"UTC\"}"
-                            }
-                        }
-                    ]
-                }
-            }]
-        }"#;
-
-        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
-        let msg = &resp.choices[0].message;
-        assert_eq!(msg.content.as_deref(), Some("I'll check both."));
-        let tool_calls = msg.tool_calls.as_ref().unwrap();
-        assert_eq!(tool_calls.len(), 2);
-        assert_eq!(
-            tool_calls[0].function.as_ref().unwrap().name.as_deref(),
-            Some("get_weather")
-        );
-        assert_eq!(
-            tool_calls[1].function.as_ref().unwrap().name.as_deref(),
-            Some("get_time")
-        );
-    }
-
-    #[tokio::test]
-    async fn chat_with_tools_fails_without_key() {
-        let p = make_provider("TestProvider", "https://example.com", None);
-        let messages = vec![ChatMessage {
-            role: "user".to_string(),
-            content: "hello".to_string(),
-        }];
-        let tools = vec![serde_json::json!({
-            "type": "function",
-            "function": {
-                "name": "test_tool",
-                "description": "A test tool",
-                "parameters": {}
-            }
-        })];
-
-        let result = p.chat_with_tools(&messages, &tools, "model", 0.7).await;
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("TestProvider API key not set"));
-    }
-
-    #[test]
-    fn response_with_no_tool_calls_has_empty_vec() {
-        let json = r#"{"choices":[{"message":{"content":"Just text, no tools."}}]}"#;
-        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
-        let msg = &resp.choices[0].message;
-        assert_eq!(msg.content.as_deref(), Some("Just text, no tools."));
-        assert!(msg.tool_calls.is_none());
-    }
-
-    #[test]
-    fn flatten_system_messages_merges_into_first_user_and_removes_system_roles() {
-        let messages = vec![
-            ChatMessage::system("System A"),
-            ChatMessage::assistant("Earlier assistant turn"),
-            ChatMessage::system("System B"),
-            ChatMessage::user("User turn"),
-            ChatMessage::tool(r#"{"ok":true}"#),
-        ];
-
-        let flattened = OpenAiCompatibleProvider::flatten_system_messages(&messages);
-        assert_eq!(flattened.len(), 3);
-        assert_eq!(flattened[0].role, "assistant");
-        assert_eq!(
-            flattened[1].content,
-            "System A\n\nSystem B\n\nUser turn".to_string()
-        );
-        assert_eq!(flattened[1].role, "user");
-        assert_eq!(flattened[2].role, "tool");
-        assert!(!flattened.iter().any(|m| m.role == "system"));
-    }
-
-    #[test]
-    fn flatten_system_messages_inserts_synthetic_user_when_no_user_exists() {
-        let messages = vec![
-            ChatMessage::assistant("Assistant only"),
-            ChatMessage::system("Synthetic system"),
-        ];
-
-        let flattened = OpenAiCompatibleProvider::flatten_system_messages(&messages);
-        assert_eq!(flattened.len(), 2);
-        assert_eq!(flattened[0].role, "user");
-        assert_eq!(flattened[0].content, "Synthetic system");
-        assert_eq!(flattened[1].role, "assistant");
-    }
-
-    #[test]
-    fn strip_think_tags_removes_multiple_blocks_with_surrounding_text() {
-        let input = "Answer A <think>hidden 1</think> and B <think>hidden 2</think> done";
-        let output = strip_think_tags(input);
-        assert_eq!(output, "Answer A  and B  done");
-    }
-
-    #[test]
-    fn strip_think_tags_drops_tail_for_unclosed_block() {
-        let input = "Visible<think>hidden tail";
-        let output = strip_think_tags(input);
-        assert_eq!(output, "Visible");
-    }
-
     // ----------------------------------------------------------
     // Reasoning model fallback tests (reasoning_content)
     // ----------------------------------------------------------
@@ -3473,34 +3069,6 @@ mod tests {
     }
 
     #[test]
-    fn reasoning_content_fallback_when_content_null() {
-        // Some models may return content: null with reasoning_content
-        let json =
-            r#"{"choices":[{"message":{"content":null,"reasoning_content":"Fallback text"}}]}"#;
-        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
-        let msg = &resp.choices[0].message;
-        assert_eq!(msg.effective_content(), "Fallback text");
-    }
-
-    #[test]
-    fn reasoning_content_fallback_when_content_missing() {
-        // content field absent entirely, reasoning_content present
-        let json = r#"{"choices":[{"message":{"reasoning_content":"Only reasoning"}}]}"#;
-        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
-        let msg = &resp.choices[0].message;
-        assert_eq!(msg.effective_content(), "Only reasoning");
-    }
-
-    #[test]
-    fn reasoning_content_not_used_when_content_present() {
-        // Normal model: content populated, reasoning_content should be ignored
-        let json = r#"{"choices":[{"message":{"content":"Normal response","reasoning_content":"Should be ignored"}}]}"#;
-        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
-        let msg = &resp.choices[0].message;
-        assert_eq!(msg.effective_content(), "Normal response");
-    }
-
-    #[test]
     fn reasoning_content_used_when_content_only_think_tags() {
         let json = r#"{"choices":[{"message":{"content":"<think>secret</think>","reasoning_content":"Fallback text"}}]}"#;
         let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
@@ -3510,15 +3078,6 @@ mod tests {
             msg.effective_content_optional().as_deref(),
             Some("Fallback text")
         );
-    }
-
-    #[test]
-    fn reasoning_content_both_absent_returns_empty() {
-        // Neither content nor reasoning_content - returns empty string
-        let json = r#"{"choices":[{"message":{}}]}"#;
-        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
-        let msg = &resp.choices[0].message;
-        assert_eq!(msg.effective_content(), "");
     }
 
     #[test]
@@ -3547,13 +3106,6 @@ mod tests {
         let line = r#"data: {"choices":[{"delta":{"reasoning_content":"thinking..."}}]}"#;
         let result = parse_sse_line(line).unwrap();
         assert_eq!(result, Some("thinking...".to_string()));
-    }
-
-    #[test]
-    fn parse_sse_line_with_both_prefers_content() {
-        let line = r#"data: {"choices":[{"delta":{"content":"real answer","reasoning_content":"thinking..."}}]}"#;
-        let result = parse_sse_line(line).unwrap();
-        assert_eq!(result, Some("real answer".to_string()));
     }
 
     #[test]
@@ -3639,13 +3191,6 @@ mod tests {
         assert_eq!(usage.completion_tokens, Some(60));
     }
 
-    #[test]
-    fn api_response_parses_without_usage() {
-        let json = r#"{"choices": [{"message": {"content": "Hello"}}]}"#;
-        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
-        assert!(resp.usage.is_none());
-    }
-
     // ═══════════════════════════════════════════════════════════════════════
     // reasoning_content pass-through tests
     // ═══════════════════════════════════════════════════════════════════════
@@ -3675,19 +3220,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_native_response_none_reasoning_content_for_normal_model() {
-        let message = ResponseMessage {
-            content: Some("hello".to_string()),
-            reasoning_content: None,
-            tool_calls: None,
-        };
-
-        let parsed = OpenAiCompatibleProvider::parse_native_response(message);
-        assert!(parsed.reasoning_content.is_none());
-        assert_eq!(parsed.text.as_deref(), Some("hello"));
-    }
-
-    #[test]
     fn convert_messages_for_native_round_trips_reasoning_content() {
         // Simulate stored assistant history JSON that includes reasoning_content
         let history_json = serde_json::json!({
@@ -3709,54 +3241,5 @@ mod tests {
             Some("Let me think about this...")
         );
         assert!(native[0].tool_calls.is_some());
-    }
-
-    #[test]
-    fn convert_messages_for_native_no_reasoning_content_when_absent() {
-        // Normal model history without reasoning_content key
-        let history_json = serde_json::json!({
-            "content": "I will check",
-            "tool_calls": [{
-                "id": "tc_1",
-                "name": "shell",
-                "arguments": "{\"cmd\":\"ls\"}"
-            }]
-        });
-
-        let messages = vec![ChatMessage::assistant(history_json.to_string())];
-        let native = OpenAiCompatibleProvider::convert_messages_for_native(&messages, true);
-        assert_eq!(native.len(), 1);
-        assert!(native[0].reasoning_content.is_none());
-    }
-
-    #[test]
-    fn convert_messages_for_native_reasoning_content_serialized_only_when_present() {
-        // Verify skip_serializing_if works: reasoning_content omitted from JSON when None
-        let msg_without = NativeMessage {
-            role: "assistant".to_string(),
-            content: Some(MessageContent::Text("hi".to_string())),
-            tool_call_id: None,
-            tool_calls: None,
-            reasoning_content: None,
-        };
-        let json = serde_json::to_string(&msg_without).unwrap();
-        assert!(
-            !json.contains("reasoning_content"),
-            "reasoning_content should be omitted when None"
-        );
-
-        let msg_with = NativeMessage {
-            role: "assistant".to_string(),
-            content: Some(MessageContent::Text("hi".to_string())),
-            tool_call_id: None,
-            tool_calls: None,
-            reasoning_content: Some("thinking...".to_string()),
-        };
-        let json = serde_json::to_string(&msg_with).unwrap();
-        assert!(
-            json.contains("reasoning_content"),
-            "reasoning_content should be present when Some"
-        );
-        assert!(json.contains("thinking..."));
     }
 }

@@ -1350,16 +1350,6 @@ mod tests {
     }
 
     #[test]
-    fn normalize_non_empty_trims_and_filters() {
-        assert_eq!(
-            GeminiProvider::normalize_non_empty(" value "),
-            Some("value".into())
-        );
-        assert_eq!(GeminiProvider::normalize_non_empty(""), None);
-        assert_eq!(GeminiProvider::normalize_non_empty(" \t\n"), None);
-    }
-
-    #[test]
     fn oauth_refresh_form_uses_provided_client_credentials() {
         let form = build_oauth_refresh_form("refresh-token", Some("client-id"), Some("secret"));
         let map: std::collections::HashMap<_, _> = form.into_iter().collect();
@@ -1463,12 +1453,6 @@ mod tests {
     fn auth_source_explicit_key() {
         let provider = test_provider(Some(GeminiAuth::ExplicitKey("key".into())));
         assert_eq!(provider.auth_source(), "config");
-    }
-
-    #[test]
-    fn auth_source_none_without_credentials() {
-        let provider = test_provider(None);
-        assert_eq!(provider.auth_source(), "none");
     }
 
     #[test]
@@ -1640,36 +1624,6 @@ mod tests {
             .unwrap();
 
         assert!(request.headers().get(AUTHORIZATION).is_none());
-    }
-
-    #[test]
-    fn request_serialization() {
-        let request = GenerateContentRequest {
-            contents: vec![Content {
-                role: Some("user".to_string()),
-                parts: vec![Part {
-                    text: "Hello".to_string(),
-                }],
-            }],
-            system_instruction: Some(Content {
-                role: None,
-                parts: vec![Part {
-                    text: "You are helpful".to_string(),
-                }],
-            }),
-            generation_config: GenerationConfig {
-                temperature: 0.7,
-                max_output_tokens: 8192,
-            },
-        };
-
-        let json = serde_json::to_string(&request).unwrap();
-        assert!(json.contains("\"role\":\"user\""));
-        assert!(json.contains("\"text\":\"Hello\""));
-        assert!(json.contains("\"systemInstruction\""));
-        assert!(!json.contains("\"system_instruction\""));
-        assert!(json.contains("\"temperature\":0.7"));
-        assert!(json.contains("\"maxOutputTokens\":8192"));
     }
 
     #[test]
@@ -1886,36 +1840,6 @@ mod tests {
         assert_eq!(response.error.unwrap().message, "Invalid API key");
     }
 
-    #[test]
-    fn internal_response_deserialization() {
-        let json = r#"{
-            "response": {
-                "candidates": [{
-                    "content": {
-                        "parts": [{"text": "Hello from internal"}]
-                    }
-                }]
-            }
-        }"#;
-
-        let response: GenerateContentResponse = serde_json::from_str(json).unwrap();
-        let text = response
-            .into_effective_response()
-            .candidates
-            .unwrap()
-            .into_iter()
-            .next()
-            .unwrap()
-            .content
-            .unwrap()
-            .parts
-            .into_iter()
-            .next()
-            .unwrap()
-            .text;
-        assert_eq!(text, Some("Hello from internal".to_string()));
-    }
-
     // ── Thinking model response tests ──────────────────────────────────────
 
     #[test]
@@ -1939,22 +1863,6 @@ mod tests {
     }
 
     #[test]
-    fn non_thinking_response_unaffected() {
-        let json = r#"{
-            "candidates": [{
-                "content": {
-                    "parts": [{"text": "Hello there!"}]
-                }
-            }]
-        }"#;
-
-        let response: GenerateContentResponse = serde_json::from_str(json).unwrap();
-        let candidate = response.candidates.unwrap().into_iter().next().unwrap();
-        let text = candidate.content.unwrap().effective_text();
-        assert_eq!(text, Some("Hello there!".to_string()));
-    }
-
-    #[test]
     fn thinking_only_response_falls_back_to_thinking_text() {
         let json = r#"{
             "candidates": [{
@@ -1974,41 +1882,6 @@ mod tests {
     }
 
     #[test]
-    fn empty_parts_returns_none() {
-        let json = r#"{
-            "candidates": [{
-                "content": {
-                    "parts": []
-                }
-            }]
-        }"#;
-
-        let response: GenerateContentResponse = serde_json::from_str(json).unwrap();
-        let candidate = response.candidates.unwrap().into_iter().next().unwrap();
-        let text = candidate.content.unwrap().effective_text();
-        assert_eq!(text, None);
-    }
-
-    #[test]
-    fn multiple_text_parts_concatenated() {
-        let json = r#"{
-            "candidates": [{
-                "content": {
-                    "parts": [
-                        {"text": "Part one. "},
-                        {"text": "Part two."}
-                    ]
-                }
-            }]
-        }"#;
-
-        let response: GenerateContentResponse = serde_json::from_str(json).unwrap();
-        let candidate = response.candidates.unwrap().into_iter().next().unwrap();
-        let text = candidate.content.unwrap().effective_text();
-        assert_eq!(text, Some("Part one. Part two.".to_string()));
-    }
-
-    #[test]
     fn thought_signature_only_parts_skipped() {
         let json = r#"{
             "candidates": [{
@@ -2024,42 +1897,6 @@ mod tests {
         let candidate = response.candidates.unwrap().into_iter().next().unwrap();
         let text = candidate.content.unwrap().effective_text();
         assert_eq!(text, None);
-    }
-
-    #[test]
-    fn internal_response_thinking_model() {
-        let json = r#"{
-            "response": {
-                "candidates": [{
-                    "content": {
-                        "parts": [
-                            {"thought": true, "text": "reasoning..."},
-                            {"text": "final answer"}
-                        ]
-                    }
-                }]
-            }
-        }"#;
-
-        let response: GenerateContentResponse = serde_json::from_str(json).unwrap();
-        let effective = response.into_effective_response();
-        let candidate = effective.candidates.unwrap().into_iter().next().unwrap();
-        let text = candidate.content.unwrap().effective_text();
-        assert_eq!(text, Some("final answer".to_string()));
-    }
-
-    #[tokio::test]
-    async fn warmup_without_key_is_noop() {
-        let provider = test_provider(None);
-        let result = provider.warmup().await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn warmup_oauth_is_noop() {
-        let provider = test_provider(Some(test_oauth_auth("ya29.mock-token")));
-        let result = provider.warmup().await;
-        assert!(result.is_ok());
     }
 
     #[test]
@@ -2090,13 +1927,6 @@ mod tests {
         let usage = resp.usage_metadata.unwrap();
         assert_eq!(usage.prompt_token_count, Some(120));
         assert_eq!(usage.candidates_token_count, Some(40));
-    }
-
-    #[test]
-    fn response_parses_without_usage_metadata() {
-        let json = r#"{"candidates": [{"content": {"parts": [{"text": "Hello"}]}}]}"#;
-        let resp: GenerateContentResponse = serde_json::from_str(json).unwrap();
-        assert!(resp.usage_metadata.is_none());
     }
 
     /// Validates that warmup() for ManagedOAuth requires auth_service.

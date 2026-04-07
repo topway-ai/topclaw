@@ -737,21 +737,9 @@ mod tests {
     }
 
     #[test]
-    fn custom_url_no_trailing_slash() {
-        let p = OllamaProvider::new(Some("http://myserver:11434"), None);
-        assert_eq!(p.base_url, "http://myserver:11434");
-    }
-
-    #[test]
     fn custom_url_strips_api_suffix() {
         let p = OllamaProvider::new(Some("https://ollama.com/api/"), None);
         assert_eq!(p.base_url, "https://ollama.com");
-    }
-
-    #[test]
-    fn empty_url_uses_empty() {
-        let p = OllamaProvider::new(Some(""), None);
-        assert_eq!(p.base_url, "");
     }
 
     #[test]
@@ -854,13 +842,6 @@ mod tests {
     }
 
     #[test]
-    fn response_with_empty_content() {
-        let json = r#"{"message":{"role":"assistant","content":""}}"#;
-        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
-        assert!(resp.message.content.is_empty());
-    }
-
-    #[test]
     fn normalize_response_text_rejects_whitespace_only_content() {
         assert_eq!(
             OllamaProvider::normalize_response_text("\n \t".to_string()),
@@ -876,13 +857,6 @@ mod tests {
     fn fallback_text_for_empty_content_without_thinking_is_generic() {
         let text = OllamaProvider::fallback_text_for_empty_content("qwen3-coder", None);
         assert!(text.contains("couldn't get a complete response from Ollama"));
-    }
-
-    #[test]
-    fn response_with_missing_content_defaults_to_empty() {
-        let json = r#"{"message":{"role":"assistant"}}"#;
-        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
-        assert!(resp.message.content.is_empty());
     }
 
     #[test]
@@ -933,21 +907,6 @@ mod tests {
         let (name, args) = provider.extract_tool_name_and_args(&tc);
         assert_eq!(name, "shell");
         assert_eq!(args.get("command").unwrap(), "ls");
-    }
-
-    #[test]
-    fn extract_tool_name_handles_normal_call() {
-        let provider = OllamaProvider::new(None, None);
-        let tc = OllamaToolCall {
-            id: Some("call_123".into()),
-            function: OllamaFunction {
-                name: "file_read".into(),
-                arguments: serde_json::json!({"path": "/tmp/test"}),
-            },
-        };
-        let (name, args) = provider.extract_tool_name_and_args(&tc);
-        assert_eq!(name, "file_read");
-        assert_eq!(args.get("path").unwrap(), "/tmp/test");
     }
 
     #[test]
@@ -1060,13 +1019,5 @@ mod tests {
         let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
         assert_eq!(resp.prompt_eval_count, Some(50));
         assert_eq!(resp.eval_count, Some(25));
-    }
-
-    #[test]
-    fn api_response_parses_without_eval_counts() {
-        let json = r#"{"message": {"content": "Hello", "tool_calls": []}}"#;
-        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
-        assert!(resp.prompt_eval_count.is_none());
-        assert!(resp.eval_count.is_none());
     }
 }

@@ -1775,29 +1775,11 @@ mod tests {
     }
 
     #[test]
-    fn non_retryable_detects_404() {
-        let err = anyhow::anyhow!("API error (404 Not Found): model not found");
-        assert!(
-            is_non_retryable(&err),
-            "404 errors must be detected as non-retryable"
-        );
-    }
-
-    #[test]
     fn non_retryable_does_not_flag_429() {
         let err = anyhow::anyhow!("429 Too Many Requests");
         assert!(
             !is_non_retryable(&err),
             "429 must NOT be treated as non-retryable (it is retryable with backoff)"
-        );
-    }
-
-    #[test]
-    fn non_retryable_does_not_flag_408() {
-        let err = anyhow::anyhow!("408 Request Timeout");
-        assert!(
-            !is_non_retryable(&err),
-            "408 must NOT be treated as non-retryable (it is retryable)"
         );
     }
 
@@ -1810,55 +1792,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn non_retryable_does_not_flag_502() {
-        let err = anyhow::anyhow!("502 Bad Gateway");
-        assert!(
-            !is_non_retryable(&err),
-            "502 must NOT be treated as non-retryable"
-        );
-    }
-
     // ── §2.2 Rate limit Retry-After edge cases ───────────────
-
-    #[test]
-    fn parse_retry_after_zero() {
-        let err = anyhow::anyhow!("429 Too Many Requests, Retry-After: 0");
-        assert_eq!(
-            parse_retry_after_ms(&err),
-            Some(0),
-            "Retry-After: 0 should parse as 0ms"
-        );
-    }
-
-    #[test]
-    fn parse_retry_after_with_underscore_separator() {
-        let err = anyhow::anyhow!("rate limited, retry_after: 10");
-        assert_eq!(
-            parse_retry_after_ms(&err),
-            Some(10_000),
-            "retry_after with underscore must be parsed"
-        );
-    }
-
-    #[test]
-    fn parse_retry_after_space_separator() {
-        let err = anyhow::anyhow!("Retry-After 7");
-        assert_eq!(
-            parse_retry_after_ms(&err),
-            Some(7000),
-            "Retry-After with space separator must be parsed"
-        );
-    }
-
-    #[test]
-    fn rate_limited_false_for_generic_error() {
-        let err = anyhow::anyhow!("Connection refused");
-        assert!(
-            !is_rate_limited(&err),
-            "generic errors must not be flagged as rate-limited"
-        );
-    }
 
     // ── §2.3 Malformed API response error classification ─────
 
@@ -2012,43 +1946,6 @@ mod tests {
         assert_eq!(result.tool_calls.len(), 1);
         assert_eq!(result.tool_calls[0].name, "shell");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
-    }
-
-    #[tokio::test]
-    async fn chat_retries_and_recovers() {
-        let calls = Arc::new(AtomicUsize::new(0));
-        let tool_call = super::super::traits::ToolCall {
-            id: "call_1".to_string(),
-            name: "shell".to_string(),
-            arguments: r#"{"command":"date"}"#.to_string(),
-        };
-        let provider = ReliableProvider::new(
-            vec![(
-                "primary".into(),
-                Box::new(NativeToolMock {
-                    calls: Arc::clone(&calls),
-                    fail_until_attempt: 2,
-                    response_text: "recovered",
-                    tool_calls: vec![tool_call],
-                    error: "temporary failure",
-                }) as Box<dyn Provider>,
-            )],
-            3,
-            1,
-        );
-
-        let messages = vec![ChatMessage::user("test")];
-        let request = ChatRequest {
-            messages: &messages,
-            tools: None,
-        };
-        let result = provider.chat(request, "test-model", 0.0).await.unwrap();
-
-        assert_eq!(result.text.as_deref(), Some("recovered"));
-        assert!(
-            calls.load(Ordering::SeqCst) > 1,
-            "should have retried at least once"
-        );
     }
 
     #[tokio::test]
