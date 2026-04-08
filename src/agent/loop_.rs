@@ -4612,6 +4612,57 @@ Done."#;
         );
     }
 
+    #[test]
+    fn detect_tool_call_parse_issue_does_not_flag_walkthrough_with_inline_substring() {
+        let response = "Here is how the agent loop works. The parser checks if a \
+                        response contains a markdown fence like ```tool file_read \
+                        and treats it as a deferred tool call. The relevant code \
+                        lives in src/agent/loop_/parsing.rs.";
+        let issue = detect_tool_call_parse_issue(response, &[]);
+        assert!(
+            issue.is_none(),
+            "explanatory prose mentioning ```tool ` inline must not be flagged: {issue:?}",
+        );
+    }
+
+    #[test]
+    fn detect_tool_call_parse_issue_does_not_flag_inline_tool_markers_in_prose() {
+        let response = "The parser checks for literal markers like <tool_call> and \
+                        the JSON key \"tool_calls\" when diagnosing malformed output. \
+                        Documentation may also show examples like ` ```tool shell ` \
+                        inline without actually invoking a tool.";
+        let issue = detect_tool_call_parse_issue(response, &[]);
+        assert!(
+            issue.is_none(),
+            "inline prose mentioning payload markers must not be flagged: {issue:?}",
+        );
+    }
+
+    #[test]
+    fn detect_tool_call_parse_issue_does_not_flag_fence_with_non_tool_token() {
+        let response = "Example fence with language tag:\n```tooling\nsome content\n```";
+        assert!(detect_tool_call_parse_issue(response, &[]).is_none());
+
+        let response2 = "```tools\nlist of things\n```";
+        assert!(detect_tool_call_parse_issue(response2, &[]).is_none());
+    }
+
+    #[test]
+    fn detect_tool_call_parse_issue_flags_line_anchored_tool_fence() {
+        let response = "I will read the file now.\n```tool file_read\npath: src/main.rs\n```";
+        let issue = detect_tool_call_parse_issue(response, &[]);
+        assert!(
+            issue.is_some(),
+            "line-anchored ```tool <name> fence must still be flagged"
+        );
+    }
+
+    #[test]
+    fn detect_tool_call_parse_issue_flags_tool_call_lang_fence() {
+        let response = "```tool_call\n{\"name\":\"shell\"}\n```";
+        assert!(detect_tool_call_parse_issue(response, &[]).is_some());
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // Recovery Tests - History Management
     // ═══════════════════════════════════════════════════════════════════════

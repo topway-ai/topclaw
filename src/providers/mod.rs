@@ -638,7 +638,7 @@ fn token_end(input: &str, from: usize) -> usize {
 /// Redacts tokens with prefixes like `sk-`, `xoxb-`, `xoxp-`, `ghp_`, `gho_`,
 /// `ghu_`, `github_pat_`, `AIza`, and `AKIA`.
 pub fn scrub_secret_patterns(input: &str) -> String {
-    const PREFIXES: [(&str, usize); 26] = [
+    const PREFIXES: [(&str, usize); 27] = [
         ("sk-", 1),
         ("xoxb-", 1),
         ("xoxp-", 1),
@@ -665,6 +665,7 @@ pub fn scrub_secret_patterns(input: &str) -> String {
         ("app_secret=", 8),
         ("Bearer ", 16),
         ("bearer ", 16),
+        ("https://api.telegram.org/bot", 8),
     ];
 
     let mut scrubbed = input.to_string();
@@ -2410,6 +2411,15 @@ mod tests {
         let input = "Unauthorized — provide Authorization: Bearer token";
         let result = sanitize_api_error(input);
         assert_eq!(result, input);
+    }
+
+    #[test]
+    fn sanitize_redacts_telegram_bot_token_in_api_url() {
+        let input =
+            "Telegram poll error: error sending request for url (https://api.telegram.org/bot123456:ABCdefGhijkLmnoPQRstuVWxyz/getUpdates)";
+        let result = sanitize_api_error(input);
+        assert!(!result.contains("bot123456:ABCdefGhijkLmnoPQRstuVWxyz"));
+        assert!(result.contains("[REDACTED]/getUpdates"));
     }
 
     #[test]

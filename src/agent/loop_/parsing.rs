@@ -1568,26 +1568,59 @@ pub(super) fn detect_tool_call_parse_issue(
         return None;
     }
 
-    let looks_like_tool_payload = trimmed.contains("<tool_call")
-        || trimmed.contains("<toolcall")
-        || trimmed.contains("<tool-call")
-        || trimmed.contains("```tool_call")
-        || trimmed.contains("```toolcall")
-        || trimmed.contains("```tool-call")
-        || trimmed.contains("```tool file_")
-        || trimmed.contains("```tool shell")
-        || trimmed.contains("```tool web_")
-        || trimmed.contains("```tool memory_")
-        || trimmed.contains("```tool ") // Generic ```tool <name> pattern
-        || trimmed.contains("\"tool_calls\"")
-        || trimmed.contains("TOOL_CALL")
-        || trimmed.contains("<FunctionCall>");
+    // Signals must be anchored to the start of a line or to the start of a
+    // JSON-shaped response so explanatory prose that mentions tool-call syntax
+    // inline does not trip the guardrail.
+    let tag_signal = trimmed.lines().any(line_starts_tool_payload_tag);
+    let fence_signal = trimmed.lines().any(line_starts_tool_fence);
+    let json_signal = trimmed.starts_with('{') && trimmed.contains("\"tool_calls\"");
 
-    if looks_like_tool_payload {
+    if tag_signal || fence_signal || json_signal {
         Some("response resembled a tool-call payload but no valid tool call could be parsed".into())
     } else {
         None
     }
+}
+
+fn line_starts_tool_payload_tag(line: &str) -> bool {
+    let line = line.trim_start();
+    line.starts_with("<tool_call")
+        || line.starts_with("<toolcall")
+        || line.starts_with("<tool-call")
+        || line.starts_with("<FunctionCall>")
+        || line.starts_with("TOOL_CALL")
+}
+
+/// Returns true when `line` looks like the opening of a markdown fenced code
+/// block whose language tag is the literal `tool_call`/`toolcall`/`tool-call`
+/// marker, or `tool <name>` where the next token resembles a runtime tool name.
+fn line_starts_tool_fence(line: &str) -> bool {
+    let line = line.trim_start();
+    if !line.starts_with("```") {
+        return false;
+    }
+    let after_fence = &line[3..];
+
+    if after_fence.starts_with("tool_call")
+        || after_fence.starts_with("toolcall")
+        || after_fence.starts_with("tool-call")
+    {
+        return true;
+    }
+
+    let Some(rest) = after_fence.strip_prefix("tool ") else {
+        return false;
+    };
+    let next_token = rest
+        .split(|c: char| c.is_whitespace())
+        .next()
+        .unwrap_or("");
+    if next_token.is_empty() {
+        return false;
+    }
+    next_token
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 pub(super) fn parse_structured_tool_calls(tool_calls: &[ToolCall]) -> Vec<ParsedToolCall> {
