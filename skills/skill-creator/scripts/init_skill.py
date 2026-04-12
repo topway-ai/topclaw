@@ -88,7 +88,10 @@ def init_skill(skill_name, path):
         assets_dir.mkdir(exist_ok=True)
         example_script = scripts_dir / "example.py"
         example_script.write_text(EXAMPLE_SCRIPT.format(skill_name=skill_name))
-        example_script.chmod(0o755)
+        # Do NOT chmod +x scaffold scripts: the skill loader's executable-file
+        # guard blocks any skill directory containing executables.  Users opt in
+        # by replacing the scaffold with real code and setting the exec bit
+        # themselves after review.
         (references_dir / "reference.md").write_text(
             EXAMPLE_REFERENCE.format(skill_title=skill_title)
         )
