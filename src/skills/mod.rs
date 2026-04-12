@@ -1134,7 +1134,22 @@ fn skill_prompt_guard() -> &'static crate::security::PromptGuard {
     })
 }
 
+/// Returns true when the skill slug matches a curated (repo-shipped, maintainer-reviewed)
+/// entry. Curated skills are trusted and bypass the prompt guard for descriptions
+/// and instructions — the guard exists to screen untrusted external skills.
+fn is_curated_skill(name: &str) -> bool {
+    CURATED_SKILL_CATALOG
+        .iter()
+        .any(|entry| entry.slug == name)
+}
+
 fn screened_skill_description(skill: &Skill) -> String {
+    // Curated skills are code-reviewed; their descriptions legitimately contain
+    // backtick-quoted CLI examples and semicolons that trip the prompt guard.
+    if is_curated_skill(&skill.name) {
+        return skill.description.clone();
+    }
+
     match skill_prompt_guard().scan(&skill.description) {
         crate::security::GuardResult::Safe => skill.description.clone(),
         crate::security::GuardResult::Suspicious(patterns, score) => {
@@ -1160,6 +1175,11 @@ fn screened_skill_description(skill: &Skill) -> String {
 }
 
 fn screened_skill_instructions(skill: &Skill) -> (Vec<String>, bool) {
+    // Curated skills bypass the prompt guard (same rationale as descriptions).
+    if is_curated_skill(&skill.name) {
+        return (skill.prompts.clone(), false);
+    }
+
     let mut safe = Vec::new();
     let mut blocked_any = false;
 

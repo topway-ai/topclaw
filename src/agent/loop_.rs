@@ -3805,7 +3805,7 @@ mod tests {
     async fn run_tool_call_loop_errors_when_completion_claim_repeats_without_tool_call() {
         let provider = ScriptedProvider::from_text_responses(vec![
             "Done — I've created the `names` folder in the current working directory.",
-            "Finished successfully. The folder and file are now created in workspace.",
+            "I've successfully written the files into the workspace directory.",
         ]);
 
         let invocations = Arc::new(AtomicUsize::new(0));

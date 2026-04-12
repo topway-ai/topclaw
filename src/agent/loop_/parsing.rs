@@ -1601,6 +1601,7 @@ fn line_starts_tool_fence(line: &str) -> bool {
     }
     let after_fence = &line[3..];
 
+    // Direct tool-call language tags.
     if after_fence.starts_with("tool_call")
         || after_fence.starts_with("toolcall")
         || after_fence.starts_with("tool-call")
@@ -1608,6 +1609,9 @@ fn line_starts_tool_fence(line: &str) -> bool {
         return true;
     }
 
+    // `tool <name>` form: must have a space after `tool` and a plausible
+    // identifier-shaped token afterwards. Reject anything that doesn't look
+    // like an actual tool invocation.
     let Some(rest) = after_fence.strip_prefix("tool ") else {
         return false;
     };
