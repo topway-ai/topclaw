@@ -1568,27 +1568,26 @@ pub(super) fn detect_tool_call_parse_issue(
         return None;
     }
 
-    // Signals must be anchored to the start of a line or to the start of a
-    // JSON-shaped response so explanatory prose that mentions tool-call syntax
-    // inline does not trip the guardrail.
-    let tag_signal = trimmed.lines().any(line_starts_tool_payload_tag);
-    let fence_signal = trimmed.lines().any(line_starts_tool_fence);
-    let json_signal = trimmed.starts_with('{') && trimmed.contains("\"tool_calls\"");
+    // Tag-based and JSON-key signals are precise enough to keep as substring checks.
+    let tag_signal = trimmed.contains("<tool_call")
+        || trimmed.contains("<toolcall")
+        || trimmed.contains("<tool-call")
+        || trimmed.contains("\"tool_calls\"")
+        || trimmed.contains("TOOL_CALL")
+        || trimmed.contains("<FunctionCall>");
 
-    if tag_signal || fence_signal || json_signal {
+    // Markdown-fence signals must be anchored to the start of a line so prose
+    // that merely *describes* tool-call syntax (e.g. an explanation of this
+    // very parser, or documentation of the runtime tool format) does not trip
+    // the guardrail. A bare `contains("```tool ")` matched any text containing
+    // that literal substring, which broke walkthrough-style answers.
+    let fence_signal = trimmed.lines().any(line_starts_tool_fence);
+
+    if tag_signal || fence_signal {
         Some("response resembled a tool-call payload but no valid tool call could be parsed".into())
     } else {
         None
     }
-}
-
-fn line_starts_tool_payload_tag(line: &str) -> bool {
-    let line = line.trim_start();
-    line.starts_with("<tool_call")
-        || line.starts_with("<toolcall")
-        || line.starts_with("<tool-call")
-        || line.starts_with("<FunctionCall>")
-        || line.starts_with("TOOL_CALL")
 }
 
 /// Returns true when `line` looks like the opening of a markdown fenced code
@@ -1601,6 +1600,7 @@ fn line_starts_tool_fence(line: &str) -> bool {
     }
     let after_fence = &line[3..];
 
+    // Direct tool-call language tags.
     if after_fence.starts_with("tool_call")
         || after_fence.starts_with("toolcall")
         || after_fence.starts_with("tool-call")
@@ -1608,6 +1608,9 @@ fn line_starts_tool_fence(line: &str) -> bool {
         return true;
     }
 
+    // `tool <name>` form: must have a space after `tool` and a plausible
+    // identifier-shaped token afterwards. Reject anything that doesn't look
+    // like an actual tool invocation.
     let Some(rest) = after_fence.strip_prefix("tool ") else {
         return false;
     };
