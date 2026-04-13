@@ -75,6 +75,17 @@ fn apply_turn_grant_to_tool_args(
     call_arguments
 }
 
+/// Strip internal approval fields that only the turn-grant mechanism may set.
+/// Without this, a model could self-approve by emitting `"approved": true` or
+/// `"__approved_plan_shell_commands": [...]` in its raw tool-call arguments.
+fn strip_internal_approval_fields(mut args: Value) -> Value {
+    if let Some(obj) = args.as_object_mut() {
+        obj.remove("approved");
+        obj.remove(crate::tools::shell::APPROVED_PLAN_SHELL_COMMANDS_ARG);
+    }
+    args
+}
+
 async fn execute_one_tool(
     call_name: &str,
     call_arguments: serde_json::Value,
@@ -104,7 +115,11 @@ async fn execute_one_tool(
         });
     };
 
-    let effective_arguments = apply_turn_grant_to_tool_args(call_name, call_arguments, turn_grant);
+    // Strip internal fields before applying the turn grant so a model
+    // cannot self-approve by emitting "approved": true in its raw args.
+    let sanitized_arguments = strip_internal_approval_fields(call_arguments);
+    let effective_arguments =
+        apply_turn_grant_to_tool_args(call_name, sanitized_arguments, turn_grant);
     let tool_future = tool.execute(effective_arguments);
     let tool_result = if let Some(token) = cancellation_token {
         tokio::select! {
@@ -238,4 +253,32 @@ pub(super) async fn execute_tools_sequential(
     }
 
     Ok(outcomes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_internal_approval_fields_removes_approved_and_plan_commands() {
+        let args = serde_json::json!({
+            "command": "rm -rf /tmp/test",
+            "approved": true,
+            crate::tools::shell::APPROVED_PLAN_SHELL_COMMANDS_ARG: ["rm -rf /tmp/test"]
+        });
+
+        let stripped = strip_internal_approval_fields(args);
+        assert!(stripped.get("command").is_some());
+        assert!(stripped.get("approved").is_none());
+        assert!(stripped
+            .get(crate::tools::shell::APPROVED_PLAN_SHELL_COMMANDS_ARG)
+            .is_none());
+    }
+
+    #[test]
+    fn strip_internal_approval_fields_preserves_normal_args() {
+        let args = serde_json::json!({"command": "echo hello", "otp_code": "123456"});
+        let stripped = strip_internal_approval_fields(args.clone());
+        assert_eq!(stripped, args);
+    }
 }
