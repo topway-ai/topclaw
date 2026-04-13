@@ -159,14 +159,18 @@ impl Tool for ShellTool {
             .ok_or_else(|| "Missing 'command' parameter".to_string())?;
         let effective_command = self.security.apply_shell_redirect_policy(&command);
 
-        // Check structural safety only: subshell operators, redirections,
-        // dangerous arguments, forbidden paths. Do NOT check the per-binary
-        // allowlist — unlisted commands must pass precheck so the non-CLI
-        // approval prompt (inline buttons) is shown to the user. The actual
-        // per-binary + risk-level enforcement happens at execution time,
-        // after the turn grant injects `approved` and the temporary
-        // allowlist entries.
-        self.security.validate_command_structure(&command)?;
+        // Simulate post-approval conditions: approved=true and the command
+        // itself as a temporary allowlist entry.  This lets unlisted commands
+        // pass precheck so the non-CLI approval prompt (inline buttons) is
+        // shown.  Structural safety checks (subshell operators, redirections,
+        // dangerous arguments, forbidden paths) still run because they
+        // execute before the per-binary allowlist gate.
+        self.security
+            .validate_command_execution_with_temporary_allowlist(
+                &command,
+                true,
+                std::slice::from_ref(&command),
+            )?;
         self.runtime
             .build_shell_command(&effective_command, &self.security.workspace_dir)
             .map(|_| ())

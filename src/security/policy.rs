@@ -1062,31 +1062,6 @@ impl SecurityPolicy {
         Ok(risk)
     }
 
-    /// Validate **only** structural safety of a shell command — subshell
-    /// operators, redirections, dangerous arguments, and forbidden paths.
-    ///
-    /// Unlike [`validate_command_execution_with_temporary_allowlist`], this
-    /// intentionally **skips** the per-binary allowlist check and risk-level
-    /// enforcement.  It is designed for `approval_precheck` so that commands
-    /// whose binaries are not in the static allowlist still pass the
-    /// precheck and reach the non-CLI approval prompt (inline buttons).
-    pub fn validate_command_structure(&self, command: &str) -> Result<(), String> {
-        let effective_command = self.apply_shell_redirect_policy(command);
-        let segments = split_unquoted_segments(&effective_command);
-
-        if !self.is_command_structurally_safe(&effective_command, &segments) {
-            return Err(format!(
-                "Command blocked by structural safety policy: {command}"
-            ));
-        }
-
-        if let Some(path) = self.forbidden_path_argument_with_segments(&segments) {
-            return Err(format!("Path blocked by security policy: {path}"));
-        }
-
-        Ok(())
-    }
-
     // ── Layered Command Allowlist ──────────────────────────────────────────
     // Defence-in-depth: five independent gates run in order before the
     // per-segment allowlist check. Each gate targets a specific bypass
@@ -1231,67 +1206,6 @@ impl SecurityPolicy {
         });
 
         has_cmd
-    }
-
-    /// Check structural safety of a command without checking the per-binary
-    /// allowlist.  Returns `true` if the command passes all structural gates
-    /// (subshell operators, redirections, `tee`, background `&`, dangerous
-    /// arguments) and contains at least one non-empty command segment.
-    fn is_command_structurally_safe(&self, command: &str, segments: &[String]) -> bool {
-        if self.autonomy == AutonomyLevel::ReadOnly {
-            return false;
-        }
-
-        // Subshell/expansion operators
-        if self.shell_redirect_policy != ShellRedirectPolicy::Allow
-            && (command.contains('`')
-                || contains_unquoted_shell_variable_expansion(command)
-                || command.contains("<(")
-                || command.contains(">("))
-        {
-            return false;
-        }
-
-        // Shell redirections
-        if self.shell_redirect_policy != ShellRedirectPolicy::Allow
-            && (contains_unquoted_char(command, '>') || contains_unquoted_char(command, '<'))
-        {
-            return false;
-        }
-
-        // tee bypass
-        if command
-            .split_whitespace()
-            .any(|w| w == "tee" || w.ends_with("/tee"))
-        {
-            return false;
-        }
-
-        // Background &
-        if contains_unquoted_single_ampersand(command) {
-            return false;
-        }
-
-        // Dangerous arguments per segment (find -exec, git config, etc.)
-        for segment in segments {
-            let cmd_part = skip_env_assignments(segment);
-            let mut words = cmd_part.split_whitespace();
-            let executable = strip_wrapping_quotes(words.next().unwrap_or("")).trim();
-            let base_cmd = executable.rsplit('/').next().unwrap_or("");
-            if base_cmd.is_empty() {
-                continue;
-            }
-            let args: Vec<String> = words.map(|w| w.to_ascii_lowercase()).collect();
-            if !self.is_args_safe(base_cmd, &args) {
-                return false;
-            }
-        }
-
-        // At least one command present
-        segments.iter().any(|s| {
-            let s = skip_env_assignments(s.trim());
-            s.split_whitespace().next().is_some_and(|w| !w.is_empty())
-        })
     }
 
     /// Check for dangerous arguments that allow sub-command execution.
