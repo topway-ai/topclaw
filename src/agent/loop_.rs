@@ -1296,9 +1296,7 @@ pub(crate) fn build_tool_instructions_from_specs(tool_specs: &[crate::tools::Too
 
 /// Build shell-policy instructions for the system prompt so the model is aware
 /// of command-level execution constraints before it emits tool calls.
-pub(crate) fn build_shell_policy_instructions(
-    autonomy: &crate::config::AutonomyConfig,
-) -> String {
+pub(crate) fn build_shell_policy_instructions(autonomy: &crate::config::AutonomyConfig) -> String {
     let mut instructions = String::new();
     instructions.push_str("\n## Shell Policy\n\n");
     instructions
@@ -1364,7 +1362,7 @@ pub(crate) fn build_shell_policy_instructions(
         "- If a requested command is outside policy, choose allowed alternatives and explain the limitation.\n",
     );
     instructions.push_str(
-        "- Call the shell tool directly when you need to run a command. The runtime handles approval when required — do not present a text-based preflight or ask the user to confirm before calling the tool.\n",
+        "- Before any shell command, first present a compact preflight with the goal, exact command(s), affected paths, risk level, reversibility, rollback plan, and execution rationale.\n",
     );
 
     instructions
@@ -3466,11 +3464,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn run_tool_call_loop_shows_approval_prompt_for_unlisted_shell_command() {
-        // When the LLM plans a shell command whose binary is not in the
-        // static allowlist, the system should still show the inline-button
-        // approval prompt instead of silently blocking the plan. On
-        // approval, the command is granted via the temporary allowlist.
+    async fn run_tool_call_loop_suppresses_approval_prompt_for_blocked_shell_plan() {
         let provider = ScriptedProvider::from_text_responses(vec![
             r#"<tool_call>
 {"name":"shell","arguments":{"command":"rm -rf tmp_test_dir"}}
@@ -3507,7 +3501,7 @@ mod tests {
         ];
         let observer = NoopObserver;
 
-        let err = run_tool_call_loop_with_non_cli_approval_context(
+        let result = run_tool_call_loop_with_non_cli_approval_context(
             &provider,
             &mut history,
             &tools_registry,
@@ -3535,19 +3529,19 @@ mod tests {
             &[],
         )
         .await
-        .expect_err("unlisted shell plan should trigger approval prompt, not silent block");
+        .expect("blocked shell plan should continue without approval prompt");
 
+        assert_eq!(result, "done");
         assert!(
-            err.downcast_ref::<NonCliApprovalPending>().is_some(),
-            "error should be NonCliApprovalPending so the caller can wait for user decision"
+            prompt_rx.try_recv().is_err(),
+            "blocked shell plans should not emit approval prompts"
         );
-
-        let prompt = prompt_rx
-            .try_recv()
-            .expect("approval prompt should be emitted for unlisted shell commands");
+        assert_eq!(web_calls.load(Ordering::SeqCst), 0);
         assert!(
-            !prompt.request_id.is_empty(),
-            "approval prompt should carry a request ID for inline-button callbacks"
+            history.iter().any(|message| message.content.contains(
+                "Approval not requested because the current execution plan includes `shell`"
+            )),
+            "tool results should explain why approval was suppressed"
         );
     }
 
@@ -4531,17 +4525,6 @@ Done."#;
 
         assert!(instructions.contains("Autonomy level: `read_only`"));
         assert!(instructions.contains("Shell execution is disabled"));
-    }
-
-    #[test]
-    fn build_shell_policy_instructions_never_includes_preflight() {
-        let mut autonomy = crate::config::AutonomyConfig::default();
-        autonomy.level = crate::security::AutonomyLevel::Supervised;
-        autonomy.allowed_commands = vec!["echo".into()];
-
-        let instructions = build_shell_policy_instructions(&autonomy);
-        assert!(!instructions.contains("first present a compact preflight"));
-        assert!(instructions.contains("Call the shell tool directly"));
     }
 
     #[test]

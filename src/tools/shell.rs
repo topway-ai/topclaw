@@ -160,22 +160,12 @@ impl Tool for ShellTool {
         let effective_command = self.security.apply_shell_redirect_policy(&command);
 
         // Validate against the static security policy with approved=true
-        // and the command itself as a temporary allowlist entry — this
-        // simulates what happens when the user actually approves via
-        // inline buttons. Without this, commands whose binaries are not
-        // in the static allowlist get blocked before the approval prompt
-        // is ever shown, creating a confusing UX where the LLM mimics
-        // an approval flow that the system can never fulfil.
-        //
-        // Structural safety checks (subshell operators, redirections,
-        // dangerous arguments, forbidden paths) still reject here because
-        // they run before the per-binary allowlist gate.
+        // (simulating user approval) but WITHOUT a self-referential temporary
+        // allowlist. This ensures `blocked_non_cli_approval_plan_reason` can
+        // detect commands whose binaries are not in the static allowlist —
+        // those would fail even after user approval.
         self.security
-            .validate_command_execution_with_temporary_allowlist(
-                &command,
-                true,
-                std::slice::from_ref(&command),
-            )?;
+            .validate_command_execution_with_temporary_allowlist(&command, true, &[])?;
         self.runtime
             .build_shell_command(&effective_command, &self.security.workspace_dir)
             .map(|_| ())
@@ -556,11 +546,12 @@ mod tests {
     }
 
     #[test]
-    fn shell_approval_precheck_passes_command_not_in_static_allowlist() {
-        // Commands whose binaries are not in the static allowlist should
-        // still pass the precheck so the approval prompt (with inline
-        // buttons) is shown to the user. On approval, the command is
-        // added as a temporary allowlist entry for execution.
+    fn shell_approval_precheck_rejects_command_not_in_static_allowlist() {
+        // If the command's binary is not in the static allowlist, the precheck
+        // should fail. This allows `blocked_non_cli_approval_plan_reason` to
+        // detect plans that would fail even after user approval (because the
+        // temporary allowlist from the first turn only helps at execution time,
+        // not at the precheck stage).
         let tool = ShellTool::new(
             test_security(AutonomyLevel::Supervised),
             Arc::new(ApprovalPrecheckRuntime { build_error: None }),
@@ -568,21 +559,6 @@ mod tests {
 
         assert!(tool
             .approval_precheck(&json!({"command": "rm -rf tmp_shell_precheck_test"}))
-            .is_ok());
-    }
-
-    #[test]
-    fn shell_approval_precheck_rejects_structurally_unsafe_command() {
-        // Commands that use subshell operators or other structurally
-        // unsafe patterns must still be rejected by precheck, even
-        // though they would get a temporary allowlist entry.
-        let tool = ShellTool::new(
-            test_security(AutonomyLevel::Supervised),
-            Arc::new(ApprovalPrecheckRuntime { build_error: None }),
-        );
-
-        assert!(tool
-            .approval_precheck(&json!({"command": "echo $(rm -rf /)"}))
             .is_err());
     }
 
