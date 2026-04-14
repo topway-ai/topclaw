@@ -28,6 +28,7 @@ pub mod cli_discovery;
 #[cfg(feature = "tool-composio")]
 pub mod composio;
 pub mod config_grant_browser_domain;
+pub mod config_patch;
 pub mod content_search;
 pub mod cron_add;
 pub mod cron_list;
@@ -78,6 +79,7 @@ pub use browser_open::BrowserOpenTool;
 #[cfg(feature = "tool-composio")]
 pub use composio::ComposioTool;
 pub use config_grant_browser_domain::ConfigGrantBrowserDomainTool;
+pub use config_patch::ConfigPatchTool;
 pub use content_search::ContentSearchTool;
 pub use cron_add::CronAddTool;
 pub use cron_list::CronListTool;
@@ -204,6 +206,7 @@ fn auxiliary_non_shell_tool_arcs(
             config.clone(),
             security.clone(),
         )),
+        Arc::new(ConfigPatchTool::new(config.clone(), security.clone())),
         Arc::new(ProxyConfigTool::new(config.clone(), security.clone())),
         Arc::new(ScreenshotTool::new(security.clone())),
         Arc::new(ImageInfoTool::new(security.clone())),

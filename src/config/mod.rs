@@ -28,6 +28,7 @@ pub mod model_route;
 pub mod multimodal;
 pub mod observability;
 pub mod otp;
+pub mod patch;
 pub mod provider;
 pub mod proxy;
 pub mod query_classification;
