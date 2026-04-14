@@ -516,6 +516,30 @@ Notes:
   - allow `*.<host>`
   - deny
 - Non-interactive runs still fail closed and require you to edit `browser.allowed_domains` manually — or, from a Telegram/Discord session, let the agent call `config_grant_browser_domain` (see below).
+
+### Runtime config patching (`config_patch` tool)
+
+A narrow, centrally-reviewed allowlist of `config.toml` paths can be mutated
+at runtime via the `config_patch` tool, after explicit user approval. This
+lets the agent finish tasks (e.g. "switch to the computer-use backend") end-
+to-end instead of asking the user to hand-edit `config.toml`.
+
+Currently patchable paths:
+
+| Path | Value shape | Notes |
+|---|---|---|
+| `browser.backend` | string | Must be one of `"auto"`, `"computer_use"`, `"rust_native"`, `"agent_browser"` |
+| `browser.computer_use.window_allowlist` | array of strings | Max 32 entries, 128 chars each; entries are trimmed, sorted, and deduped; control chars rejected |
+
+Unknown paths are rejected **before** the approval prompt is shown, so a
+confused or malicious model cannot use this tool to rewrite arbitrary
+config. Each successful patch writes `config.toml` atomically (temp-file +
+rename) and preserves comments and formatting. Idempotent patches skip the
+write entirely.
+
+Adding a new patchable path requires a PR to `src/config/patch.rs` with a
+matching validator — the registry is deliberately closed, not trait-based,
+so path review stays centralized.
 - When `backend = "computer_use"`, the agent delegates browser actions to the sidecar at `computer_use.endpoint`.
 - The sidecar contract is intended to be cross-platform: macOS, Windows, and Linux backends can expose the same TopClaw action surface.
 - `allow_remote_endpoint = false` (default) rejects any non-loopback endpoint to prevent accidental public exposure.
