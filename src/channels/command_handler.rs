@@ -590,6 +590,113 @@ pub(super) async fn handle_runtime_command_if_needed(
                 }
             }
         }
+        ChannelRuntimeCommand::ConfirmToolApprovalAlways(raw_request_id) => {
+            let (mut request_id, follow_up_content) =
+                split_runtime_request_id_and_followup(&raw_request_id);
+            let request_resolution = if request_id.is_empty() {
+                if is_slash_command {
+                    Err("Usage: `/approve-confirm-always <request-id>`".to_string())
+                } else {
+                    resolve_scoped_pending_request_id(
+                        ctx.as_ref(),
+                        sender,
+                        source_channel,
+                        reply_target,
+                        "confirm-always",
+                    )
+                }
+            } else {
+                Ok(request_id.clone())
+            };
+
+            match request_resolution {
+                Err(message) => message,
+                Ok(scoped_request_id) => {
+                    request_id = scoped_request_id;
+                    match ctx.approval_manager.confirm_non_cli_pending_request(
+                        &request_id,
+                        sender,
+                        source_channel,
+                        reply_target,
+                    ) {
+                        Ok(req) => {
+                            ctx.approval_manager.record_non_cli_pending_resolution(
+                                &request_id,
+                                ApprovalResponse::Yes,
+                            );
+                            let resume_request = req.resume_request.clone();
+
+                            // Turn grant so the current request executes immediately
+                            let _remaining = ctx.approval_manager.grant_non_cli_turn_grant(
+                                crate::approval::NonCliTurnApprovalGrant {
+                                    approved_shell_commands: req
+                                        .approved_shell_commands
+                                        .clone(),
+                                },
+                            );
+
+                            // Session grant so future shell calls skip approval
+                            ctx.approval_manager.grant_non_cli_session("shell");
+
+                            runtime_trace::record_event(
+                                "approval_request_confirmed_always",
+                                Some(source_channel),
+                                None,
+                                None,
+                                None,
+                                Some(true),
+                                Some("pending request confirmed with session-level grant"),
+                                serde_json::json!({
+                                    "request_id": request_id,
+                                    "tool_name": "shell",
+                                    "sender": sender,
+                                    "channel": source_channel,
+                                }),
+                            );
+
+                            let has_resume = resume_request.is_some();
+                            if let Some(content) = follow_up_content {
+                                auto_resume_message = Some(traits::ChannelMessage {
+                                    id: format!("{}:approval-followup", msg.id),
+                                    sender: msg.sender.clone(),
+                                    reply_target: msg.reply_target.clone(),
+                                    content,
+                                    channel: msg.channel.clone(),
+                                    timestamp: msg.timestamp,
+                                    thread_ts: msg.thread_ts.clone(),
+                                });
+                            } else if let Some(resume_request) = resume_request {
+                                auto_resume_message = Some(traits::ChannelMessage {
+                                    id: resume_request.message_id,
+                                    sender: req.requested_by.clone(),
+                                    reply_target: req.requested_reply_target.clone(),
+                                    content: resume_request.content,
+                                    channel: req.requested_channel.clone(),
+                                    timestamp: resume_request.timestamp,
+                                    thread_ts: resume_request.thread_ts,
+                                });
+                            }
+
+                            if has_resume {
+                                String::new()
+                            } else {
+                                format!(
+                                    "Approved shell execution for this session from request `{request_id}`.\nFuture shell commands will not require approval until the daemon restarts."
+                                )
+                            }
+                        }
+                        Err(err) => format_pending_approval_error(
+                            err,
+                            &request_id,
+                            sender,
+                            source_channel,
+                            "approval_request_confirmed_always",
+                            "confirmed-always",
+                        ),
+                    }
+                }
+            }
+        }
         ChannelRuntimeCommand::DenyToolApproval(raw_request_id) => {
             let (mut request_id, _) = split_runtime_request_id_and_followup(&raw_request_id);
             let request_resolution = if request_id.is_empty() {

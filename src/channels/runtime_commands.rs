@@ -10,6 +10,7 @@ pub(crate) enum ChannelRuntimeCommand {
     RequestAllToolsOnce,
     RequestToolApproval(String),
     ConfirmToolApproval(String),
+    ConfirmToolApprovalAlways(String),
     ApprovePendingRequest(String),
     DenyToolApproval(String),
     ListPendingApprovals,
@@ -48,6 +49,7 @@ pub(crate) fn parse_runtime_command(
         "/approve-all-once" => Some(ChannelRuntimeCommand::RequestAllToolsOnce),
         "/approve-request" => Some(ChannelRuntimeCommand::RequestToolApproval(tail)),
         "/approve-confirm" => Some(ChannelRuntimeCommand::ConfirmToolApproval(tail)),
+        "/approve-confirm-always" => Some(ChannelRuntimeCommand::ConfirmToolApprovalAlways(tail)),
         "/approve-allow" => Some(ChannelRuntimeCommand::ApprovePendingRequest(tail)),
         "/approve-deny" => Some(ChannelRuntimeCommand::DenyToolApproval(tail)),
         "/approve-pending" => Some(ChannelRuntimeCommand::ListPendingApprovals),
@@ -200,6 +202,7 @@ pub(crate) fn is_approval_management_command(command: &ChannelRuntimeCommand) ->
         ChannelRuntimeCommand::RequestAllToolsOnce
             | ChannelRuntimeCommand::RequestToolApproval(_)
             | ChannelRuntimeCommand::ConfirmToolApproval(_)
+            | ChannelRuntimeCommand::ConfirmToolApprovalAlways(_)
             | ChannelRuntimeCommand::ApprovePendingRequest(_)
             | ChannelRuntimeCommand::DenyToolApproval(_)
             | ChannelRuntimeCommand::ListPendingApprovals

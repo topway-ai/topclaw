@@ -52,6 +52,7 @@ struct VoiceMetadata {
 const TELEGRAM_BIND_COMMAND: &str = "/bind";
 const TELEGRAM_APPROVAL_CALLBACK_APPROVE_PREFIX: &str = "zcapr:yes:";
 const TELEGRAM_APPROVAL_CALLBACK_DENY_PREFIX: &str = "zcapr:no:";
+const TELEGRAM_APPROVAL_CALLBACK_ALWAYS_PREFIX: &str = "zcapr:always:";
 
 /// Split a message into chunks that respect Telegram's 4096 character limit.
 /// Tries to split at word boundaries when possible, and handles continuation.
@@ -648,6 +649,11 @@ impl TelegramChannel {
         if let Some(request_id) = data.strip_prefix(TELEGRAM_APPROVAL_CALLBACK_DENY_PREFIX) {
             if !request_id.trim().is_empty() {
                 return Some(format!("/approve-deny {}", request_id.trim()));
+            }
+        }
+        if let Some(request_id) = data.strip_prefix(TELEGRAM_APPROVAL_CALLBACK_ALWAYS_PREFIX) {
+            if !request_id.trim().is_empty() {
+                return Some(format!("/approve-confirm-always {}", request_id.trim()));
             }
         }
         None
@@ -3066,8 +3072,12 @@ impl Channel for TelegramChannel {
             "reply_markup": {
                 "inline_keyboard": [[
                     {
-                        "text": "Approve This Turn",
+                        "text": "Approve Once",
                         "callback_data": format!("{TELEGRAM_APPROVAL_CALLBACK_APPROVE_PREFIX}{request_id}")
+                    },
+                    {
+                        "text": "Always",
+                        "callback_data": format!("{TELEGRAM_APPROVAL_CALLBACK_ALWAYS_PREFIX}{request_id}")
                     },
                     {
                         "text": "Deny",
