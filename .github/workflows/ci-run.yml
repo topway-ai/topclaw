@@ -601,7 +601,7 @@ jobs:
 
             - name: Post actionable lint failure summary
               if: always()
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
               env:
                   RUST_CHANGED: ${{ needs.changes.outputs.rust_changed }}
                   DOCS_CHANGED: ${{ needs.changes.outputs.docs_changed }}
@@ -626,7 +626,7 @@ jobs:
               uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
             - name: Enforce owner-only edits for root license files
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
               with:
                   script: |
                     const script = require('./.github/workflows/scripts/ci_license_file_owner_guard.js');
