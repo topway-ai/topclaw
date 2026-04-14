@@ -27,6 +27,7 @@ pub mod channel_runtime_context;
 pub mod cli_discovery;
 #[cfg(feature = "tool-composio")]
 pub mod composio;
+pub mod config_grant_browser_domain;
 pub mod content_search;
 pub mod cron_add;
 pub mod cron_list;
@@ -76,6 +77,7 @@ pub use browser::{BrowserTool, ComputerUseConfig};
 pub use browser_open::BrowserOpenTool;
 #[cfg(feature = "tool-composio")]
 pub use composio::ComposioTool;
+pub use config_grant_browser_domain::ConfigGrantBrowserDomainTool;
 pub use content_search::ContentSearchTool;
 pub use cron_add::CronAddTool;
 pub use cron_list::CronListTool;
@@ -428,14 +430,36 @@ fn build_tools_with_runtime(
         tool_arcs.push(Arc::new(ContentSearchTool::new(security.clone())));
     }
     if browser_config.enabled {
+        // Build a shared, mutable allowlist that unions config.toml with the
+        // persistent grants overlay. Corrupt or unreadable grants fall back to
+        // an in-memory allowlist so browser_open never breaks on bad state.
+        let browser_allowlist = crate::config::BrowserAllowlist::load(
+            &topclaw_dir,
+            browser_config.allowed_domains.clone(),
+        )
+        .unwrap_or_else(|e| {
+            tracing::warn!(
+                error = %e,
+                "failed to load browser allowlist grants; falling back to config-only allowlist"
+            );
+            crate::config::BrowserAllowlist::in_memory(browser_config.allowed_domains.clone())
+        });
+
         // Add legacy browser_open tool for simple URL opening (unless disabled)
         if has_shell_access && !browser_config.browser_open.eq_ignore_ascii_case("disable") {
-            tool_arcs.push(Arc::new(BrowserOpenTool::new(
+            tool_arcs.push(Arc::new(BrowserOpenTool::with_allowlist(
                 security.clone(),
-                browser_config.allowed_domains.clone(),
+                browser_allowlist.clone(),
                 browser_config.browser_open.clone(),
             )));
         }
+
+        // Register the grant tool so the agent can request new domains via
+        // the standard approval flow instead of asking the user to hand-edit
+        // config.toml.
+        tool_arcs.push(Arc::new(ConfigGrantBrowserDomainTool::new(
+            browser_allowlist.clone(),
+        )));
         // Add full browser automation tool (pluggable backend)
         #[cfg(feature = "browser-native")]
         {

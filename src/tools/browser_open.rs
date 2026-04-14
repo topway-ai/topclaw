@@ -1,7 +1,6 @@
 use super::traits::{Tool, ToolResult};
-use super::url_validation::{
-    normalize_allowed_domains, validate_url, DomainPolicy, UrlSchemePolicy,
-};
+use super::url_validation::{validate_url, DomainPolicy, UrlSchemePolicy};
+use crate::config::BrowserAllowlist;
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use serde_json::json;
@@ -10,32 +9,49 @@ use std::sync::Arc;
 /// Open approved HTTPS URLs in a browser (no scraping, no DOM automation).
 pub struct BrowserOpenTool {
     security: Arc<SecurityPolicy>,
-    allowed_domains: Vec<String>,
+    allowlist: Arc<BrowserAllowlist>,
     browser_name: String,
 }
 
 impl BrowserOpenTool {
+    /// Construct with a shared [`BrowserAllowlist`] so that runtime grants
+    /// take effect immediately without restarting the agent.
+    pub fn with_allowlist(
+        security: Arc<SecurityPolicy>,
+        allowlist: Arc<BrowserAllowlist>,
+        browser_name: String,
+    ) -> Self {
+        Self {
+            security,
+            allowlist,
+            browser_name,
+        }
+    }
+
+    /// Back-compat constructor for tests and call sites that still pass a
+    /// raw allowlist. Wraps the input in an in-memory-only [`BrowserAllowlist`].
     pub fn new(
         security: Arc<SecurityPolicy>,
         allowed_domains: Vec<String>,
         browser_name: String,
     ) -> Self {
-        Self {
+        Self::with_allowlist(
             security,
-            allowed_domains: normalize_allowed_domains(allowed_domains),
+            BrowserAllowlist::in_memory(allowed_domains),
             browser_name,
-        }
+        )
     }
 
     fn validate_url(&self, raw_url: &str) -> anyhow::Result<String> {
+        let allowed = self.allowlist.snapshot();
         validate_url(
             raw_url,
             &DomainPolicy {
-                allowed_domains: &self.allowed_domains,
+                allowed_domains: &allowed,
                 blocked_domains: &[],
                 allowed_field_name: "browser.allowed_domains",
                 blocked_field_name: None,
-                empty_allowed_message: "Browser tool is enabled but no allowed_domains are configured. Add [browser].allowed_domains in config.toml",
+                empty_allowed_message: "Browser tool is enabled but no allowed_domains are configured. Add [browser].allowed_domains in config.toml or run config_grant_browser_domain to request one.",
                 scheme_policy: UrlSchemePolicy::HttpsOnly,
                 ipv6_error_context: "browser_open",
             },
@@ -400,7 +416,7 @@ mod tests {
     use super::*;
     use crate::config::OtpConfig;
     use crate::security::{AutonomyLevel, OtpValidator, SecretStore, SecurityPolicy};
-    use crate::tools::url_validation::normalize_domain;
+    use crate::tools::url_validation::{normalize_allowed_domains, normalize_domain};
     use std::time::{SystemTime, UNIX_EPOCH};
     use tempfile::TempDir;
 
