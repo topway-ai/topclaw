@@ -21,6 +21,7 @@ pub enum AuditEventType {
     AuthFailure,
     PolicyViolation,
     SecurityEvent,
+    BrowserDomainGrant,
 }
 
 /// Actor information (who performed the action)

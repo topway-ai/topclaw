@@ -515,12 +515,23 @@ Notes:
   - allow the exact host only (recommended)
   - allow `*.<host>`
   - deny
-- Non-interactive runs still fail closed and require you to edit `browser.allowed_domains` manually.
+- Non-interactive runs still fail closed and require you to edit `browser.allowed_domains` manually — or, from a Telegram/Discord session, let the agent call `config_grant_browser_domain` (see below).
 - When `backend = "computer_use"`, the agent delegates browser actions to the sidecar at `computer_use.endpoint`.
 - The sidecar contract is intended to be cross-platform: macOS, Windows, and Linux backends can expose the same TopClaw action surface.
 - `allow_remote_endpoint = false` (default) rejects any non-loopback endpoint to prevent accidental public exposure.
 - Use `window_allowlist` to restrict which OS windows the sidecar can interact with.
 - Current computer-use action surface includes OS-level mouse/keyboard/screen actions plus desktop-control actions such as `window_list`, `window_focus`, `window_close`, `app_launch`, and `app_terminate`.
+
+### Runtime grants overlay
+
+When the `browser` tool is enabled, the agent can request new allowlist entries via the `config_grant_browser_domain` tool without editing `config.toml`:
+
+- Each grant call is a tool invocation that the existing approval flow intercepts; the user sees the exact domain (and optional reason) in the Telegram/Discord/CLI approval prompt before tapping Approve.
+- Validation refuses `*`, IP literals, `localhost`, `.local`, single-label hosts, and labels containing anything other than ASCII LDH. Wildcards cannot be introduced through this path.
+- On approval, the domain is appended to `~/.topclaw/browser-allowed-domains-grants.json` (atomic write) and takes effect immediately for subsequent `browser_open` calls — no restart.
+- The effective allowlist at any moment is `union([browser].allowed_domains, grants)`. The config-file entry is the declarative baseline; the grants file is an append-only record of runtime approvals.
+- To revoke a grant, delete its entry from `browser-allowed-domains-grants.json` (or remove the file entirely). `config.toml` is never mutated by this flow.
+- If the grants file is missing or corrupt at startup, TopClaw logs a warning and falls back to config-only domains; `browser_open` keeps working with the declarative baseline.
 
 Linux preset:
 
