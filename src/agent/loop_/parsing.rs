@@ -1615,10 +1615,7 @@ fn line_starts_tool_fence(line: &str) -> bool {
     let Some(rest) = after_fence.strip_prefix("tool ") else {
         return false;
     };
-    let next_token = rest
-        .split(|c: char| c.is_whitespace())
-        .next()
-        .unwrap_or("");
+    let next_token = rest.split(|c: char| c.is_whitespace()).next().unwrap_or("");
     if next_token.is_empty() {
         return false;
     }
