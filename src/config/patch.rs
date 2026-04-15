@@ -32,7 +32,11 @@ use toml_edit::{value as toml_value, Array, DocumentMut, Item};
 ///
 /// Used for human-facing error messages that enumerate options when the
 /// caller supplies an unknown path. Keep in sync with [`apply_patch`].
-pub const PATCHABLE_PATHS: &[&str] = &["browser.backend", "browser.computer_use.window_allowlist"];
+pub const PATCHABLE_PATHS: &[&str] = &[
+    "browser.enabled",
+    "browser.backend",
+    "browser.computer_use.window_allowlist",
+];
 
 /// Outcome of a successful patch, suitable for surfacing to the user.
 #[derive(Debug, Clone)]
@@ -72,6 +76,7 @@ pub fn apply_patch(
     input: &JsonValue,
 ) -> Result<PatchOutcome, PatchError> {
     match path {
+        "browser.enabled" => patch_browser_enabled(doc, input),
         "browser.backend" => patch_browser_backend(doc, input),
         "browser.computer_use.window_allowlist" => patch_window_allowlist(doc, input),
         _ => Err(PatchError::UnknownPath {
@@ -138,6 +143,46 @@ fn tmp_path(parent: &Path, file_name: &str) -> PathBuf {
 }
 
 // ── patchable paths ────────────────────────────────────────────────────────
+
+fn patch_browser_enabled(
+    doc: &mut DocumentMut,
+    input: &JsonValue,
+) -> Result<PatchOutcome, PatchError> {
+    let new_value = input.as_bool().ok_or_else(|| PatchError::InvalidValue {
+        path: "browser.enabled".into(),
+        reason: "must be a boolean".into(),
+    })?;
+
+    let current = doc
+        .get("browser")
+        .and_then(Item::as_table)
+        .and_then(|t| t.get("enabled"))
+        .and_then(Item::as_bool)
+        .unwrap_or(false);
+    if current == new_value {
+        return Ok(PatchOutcome {
+            path: "browser.enabled".into(),
+            summary: format!("browser.enabled already = {new_value} (no change)"),
+            changed: false,
+        });
+    }
+
+    let browser = doc
+        .entry("browser")
+        .or_insert(Item::Table(toml_edit::Table::new()))
+        .as_table_mut()
+        .ok_or_else(|| PatchError::InvalidValue {
+            path: "browser.enabled".into(),
+            reason: "[browser] is not a table in config.toml".into(),
+        })?;
+    browser["enabled"] = toml_value(new_value);
+
+    Ok(PatchOutcome {
+        path: "browser.enabled".into(),
+        summary: format!("Set browser.enabled = {new_value} (was {current})"),
+        changed: true,
+    })
+}
 
 const BROWSER_BACKEND_ALLOWED: &[&str] = &["auto", "computer_use", "rust_native", "agent_browser"];
 
@@ -324,8 +369,49 @@ mod tests {
             .expect_err("must reject");
         let msg = err.to_string();
         assert!(msg.contains("autonomy.allowed_commands"));
+        assert!(msg.contains("browser.enabled"));
         assert!(msg.contains("browser.backend"));
         assert!(msg.contains("browser.computer_use.window_allowlist"));
+    }
+
+    #[test]
+    fn browser_enabled_rejects_non_bool() {
+        let mut doc = parse("");
+        assert!(apply_patch(&mut doc, "browser.enabled", &json!("true")).is_err());
+        assert!(apply_patch(&mut doc, "browser.enabled", &json!(1)).is_err());
+    }
+
+    #[test]
+    fn browser_enabled_applies_and_creates_section() {
+        let mut doc = parse("");
+        let outcome = apply_patch(&mut doc, "browser.enabled", &json!(true)).unwrap();
+        assert!(outcome.changed);
+        assert!(doc.to_string().contains("enabled = true"));
+    }
+
+    #[test]
+    fn browser_enabled_preserves_comments() {
+        let raw = r#"# top comment
+[browser]
+# gate
+enabled = false
+backend = "auto"
+"#;
+        let mut doc = parse(raw);
+        let outcome = apply_patch(&mut doc, "browser.enabled", &json!(true)).unwrap();
+        assert!(outcome.changed);
+        let rendered = doc.to_string();
+        assert!(rendered.contains("# top comment"));
+        assert!(rendered.contains("# gate"));
+        assert!(rendered.contains("enabled = true"));
+    }
+
+    #[test]
+    fn browser_enabled_idempotent_when_same() {
+        let raw = "[browser]\nenabled = true\n";
+        let mut doc = parse(raw);
+        let outcome = apply_patch(&mut doc, "browser.enabled", &json!(true)).unwrap();
+        assert!(!outcome.changed);
     }
 
     #[test]

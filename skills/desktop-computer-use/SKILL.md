@@ -1,6 +1,6 @@
 ---
 name: desktop-computer-use
-description: "Trigger only when the user explicitly asks TopClaw to drive real desktop applications or OS windows (not just browse the web) on macOS, Windows, or Linux. Before using, verify all of: browser.enabled is true, browser.backend is set to computer_use, a compatible computer-use sidecar is running, browser.computer_use.endpoint points to a trusted local or explicitly approved remote sidecar, and browser.computer_use.window_allowlist is narrow and task-scoped. If any check fails, refuse and explain the gate. For each task: list candidate windows, focus the intended one, capture the screen, plan the smallest reversible step, execute one mouse or keyboard action, then re-capture and verify. Stop immediately on password, MFA, wallet, payment, privileged admin, system-settings, or unbounded file-deletion prompts. Treat app_launch and app_terminate as higher-risk than focus or capture. Prefer safe-web-search, web_fetch, or agent-browser-extension before reaching for OS-level control. Read skills/desktop-computer-use/SKILL.md for the full action surface and operator checks."
+description: "Trigger only when the user explicitly asks TopClaw to drive real desktop applications or OS windows (not just browse the web) on macOS, Windows, or Linux. If browser.enabled is false or browser.backend is not 'computer_use', do NOT refuse — instead call config_patch to set browser.enabled=true and browser.backend='computer_use' (both are approval-gated). If the sidecar endpoint is unreachable, call computer_use_sidecar_start (approval-gated) to spawn the built-in sidecar. Only refuse if the user denies approval. For each task: list candidate windows, focus the intended one, capture the screen, plan the smallest reversible step, execute one mouse or keyboard action, then re-capture and verify. Stop immediately on password, MFA, wallet, payment, privileged admin, system-settings, or unbounded file-deletion prompts. Treat app_launch and app_terminate as higher-risk than focus or capture. Prefer safe-web-search, web_fetch, or agent-browser-extension before reaching for OS-level control. Read skills/desktop-computer-use/SKILL.md for the full action surface and the one-tap enablement flow."
 ---
 
 # Desktop Computer Use
@@ -13,13 +13,13 @@ session, and data involved.
 
 ## Intended use
 
-Use this skill only when:
+Use this skill only when the user explicitly asks TopClaw to operate desktop
+software, not just browse the web, and the machine is isolated enough that
+accidental clicks or typing will not cause unacceptable harm.
 
-- the user explicitly asks TopClaw to operate desktop software, not just browse the web
-- `browser.enabled = true` is already set
-- `browser.backend = "computer_use"` is already configured intentionally
-- a compatible computer-use sidecar is already running for the current OS
-- the machine is isolated enough that accidental clicks or typing will not cause unacceptable harm
+If preconditions are missing, **do not refuse**. Propose the enablement flow
+below — each step is approval-gated, so the user has final say, but a single
+approved sequence gets the skill working end-to-end.
 
 This skill is designed for:
 
@@ -42,16 +42,39 @@ It assumes the sidecar exposes TopClaw's computer-use action surface through the
 - `app_launch`
 - `app_terminate`
 
-## Required operator checks
+## Enablement flow (one tap per gate)
 
-Before using this skill, confirm all of the following:
+When a precondition is not yet satisfied, call these tools in order. Each one
+emits an approval prompt the user taps Approve on — nothing runs unattended.
 
-1. `browser.enabled = true` is explicitly set by the operator.
-2. `browser.backend = "computer_use"` is selected intentionally.
-3. `browser.computer_use.endpoint` points to a trusted local or explicitly approved remote sidecar.
-4. `browser.computer_use.window_allowlist` is narrow and task-scoped when possible.
-5. The current machine and desktop session do not contain unattended payment, wallet, privileged admin, or private personal workflows that must never be touched.
-6. The user understands that OS-level automation can click the wrong thing if the desktop changes unexpectedly.
+1. `config_patch` with `{path: "browser.enabled", value: true}` — flips the
+   top-level browser gate.
+2. `config_patch` with `{path: "browser.backend", value: "computer_use"}` —
+   routes the browser tool through the computer-use sidecar.
+3. `computer_use_sidecar_start` with `{bind: "127.0.0.1:8787"}` — spawns the
+   built-in sidecar (Linux only at present; see below). Idempotent: if a
+   healthy sidecar is already listening, the tool returns success without
+   spawning a duplicate.
+4. Optionally `config_patch` with
+   `{path: "browser.computer_use.window_allowlist", value: [...]}` to narrow
+   the allowed window titles for the task at hand.
+
+If the user denies any approval, stop and explain which capability is blocked.
+Do not attempt to work around a denial.
+
+## Required operator awareness
+
+Before proposing the flow, confirm the user understands:
+
+- The current machine and desktop session do not contain unattended payment,
+  wallet, privileged admin, or private personal workflows that must never be
+  touched.
+- OS-level automation can click the wrong thing if the desktop changes
+  unexpectedly; the agent will re-capture and verify after each action.
+- The built-in sidecar is Linux-only (shells out to `xdotool`, `wmctrl`,
+  `scrot`/`gnome-screenshot`, `xdg-open`, `pkill`). On macOS or Windows, the
+  user must install and run a protocol-compatible sidecar (see
+  `docs/computer-use-sidecar-protocol.md`) before step 3 will succeed.
 
 ## Guardrails
 

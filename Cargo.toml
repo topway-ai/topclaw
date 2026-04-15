@@ -162,16 +162,21 @@ landlock = { version = "0.4", optional = true }
 # Default: minimal set for smallest binary
 # Use: cargo build (default) for minimal binary
 # For full out-of-box experience: cargo build --features standard
-default = ["channel-telegram"]
+default = ["channel-telegram", "computer-use-sidecar"]
 
 # Standard: Telegram-first + Discord-second core product path
-standard = ["channel-telegram", "channel-discord", "web-fetch-html2md", "tool-discord"]
+standard = ["channel-telegram", "channel-discord", "web-fetch-html2md", "tool-discord", "computer-use-sidecar"]
 
 # Minimal: only essential channel (alias for default)
 minimal = ["channel-telegram"]
 
 # All: all channels
-all = ["channel-telegram", "channel-discord"]
+all = ["channel-telegram", "channel-discord", "computer-use-sidecar"]
+
+# Computer-use sidecar: built-in `topclaw computer-use-sidecar` subcommand serving
+# the protocol at docs/computer-use-sidecar-protocol.md. Linux-only runtime backing
+# via xdotool/wmctrl/scrot/xdg-open. Enables one-tap auto-spawn from the agent.
+computer-use-sidecar = ["dep:axum"]
 
 # Channel feature flags
 channel-telegram = []

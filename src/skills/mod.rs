@@ -1138,9 +1138,7 @@ fn skill_prompt_guard() -> &'static crate::security::PromptGuard {
 /// entry. Curated skills are trusted and bypass the prompt guard for descriptions
 /// and instructions — the guard exists to screen untrusted external skills.
 fn is_curated_skill(name: &str) -> bool {
-    CURATED_SKILL_CATALOG
-        .iter()
-        .any(|entry| entry.slug == name)
+    CURATED_SKILL_CATALOG.iter().any(|entry| entry.slug == name)
 }
 
 fn screened_skill_description(skill: &Skill) -> String {

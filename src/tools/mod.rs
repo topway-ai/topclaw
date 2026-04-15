@@ -27,6 +27,8 @@ pub mod channel_runtime_context;
 pub mod cli_discovery;
 #[cfg(feature = "tool-composio")]
 pub mod composio;
+#[cfg(feature = "computer-use-sidecar")]
+pub mod computer_use_sidecar_start;
 pub mod config_grant_browser_domain;
 pub mod config_patch;
 pub mod content_search;
@@ -78,6 +80,8 @@ pub use browser::{BrowserTool, ComputerUseConfig};
 pub use browser_open::BrowserOpenTool;
 #[cfg(feature = "tool-composio")]
 pub use composio::ComposioTool;
+#[cfg(feature = "computer-use-sidecar")]
+pub use computer_use_sidecar_start::ComputerUseSidecarStartTool;
 pub use config_grant_browser_domain::ConfigGrantBrowserDomainTool;
 pub use config_patch::ConfigPatchTool;
 pub use content_search::ContentSearchTool;
@@ -207,6 +211,8 @@ fn auxiliary_non_shell_tool_arcs(
             security.clone(),
         )),
         Arc::new(ConfigPatchTool::new(config.clone(), security.clone())),
+        #[cfg(feature = "computer-use-sidecar")]
+        Arc::new(ComputerUseSidecarStartTool::new(security.clone())),
         Arc::new(ProxyConfigTool::new(config.clone(), security.clone())),
         Arc::new(ScreenshotTool::new(security.clone())),
         Arc::new(ImageInfoTool::new(security.clone())),
