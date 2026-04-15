@@ -33,6 +33,7 @@ use toml_edit::{value as toml_value, Array, DocumentMut, Item};
 /// Used for human-facing error messages that enumerate options when the
 /// caller supplies an unknown path. Keep in sync with [`apply_patch`].
 pub const PATCHABLE_PATHS: &[&str] = &[
+    "agent.max_tool_iterations",
     "browser.enabled",
     "browser.backend",
     "browser.computer_use.window_allowlist",
@@ -76,6 +77,7 @@ pub fn apply_patch(
     input: &JsonValue,
 ) -> Result<PatchOutcome, PatchError> {
     match path {
+        "agent.max_tool_iterations" => patch_agent_max_tool_iterations(doc, input),
         "browser.enabled" => patch_browser_enabled(doc, input),
         "browser.backend" => patch_browser_backend(doc, input),
         "browser.computer_use.window_allowlist" => patch_window_allowlist(doc, input),
@@ -143,6 +145,67 @@ fn tmp_path(parent: &Path, file_name: &str) -> PathBuf {
 }
 
 // ── patchable paths ────────────────────────────────────────────────────────
+
+/// Upper bound on `agent.max_tool_iterations`. Chosen high enough for deep
+/// research / skill-building sessions but low enough to bound a single turn's
+/// worst-case tool spend. Bumping beyond 1000 should be a deliberate code
+/// change, not an agent-initiated patch.
+const AGENT_MAX_TOOL_ITERATIONS_CEILING: i64 = 1000;
+
+fn patch_agent_max_tool_iterations(
+    doc: &mut DocumentMut,
+    input: &JsonValue,
+) -> Result<PatchOutcome, PatchError> {
+    let n = input.as_i64().ok_or_else(|| PatchError::InvalidValue {
+        path: "agent.max_tool_iterations".into(),
+        reason: "must be an integer".into(),
+    })?;
+    if n < 1 {
+        return Err(PatchError::InvalidValue {
+            path: "agent.max_tool_iterations".into(),
+            reason: format!("must be >= 1, got {n}"),
+        });
+    }
+    if n > AGENT_MAX_TOOL_ITERATIONS_CEILING {
+        return Err(PatchError::InvalidValue {
+            path: "agent.max_tool_iterations".into(),
+            reason: format!("must be <= {AGENT_MAX_TOOL_ITERATIONS_CEILING}, got {n}"),
+        });
+    }
+
+    let current = doc
+        .get("agent")
+        .and_then(Item::as_table)
+        .and_then(|t| t.get("max_tool_iterations"))
+        .and_then(Item::as_integer);
+    if current == Some(n) {
+        return Ok(PatchOutcome {
+            path: "agent.max_tool_iterations".into(),
+            summary: format!("agent.max_tool_iterations already = {n} (no change)"),
+            changed: false,
+        });
+    }
+
+    let agent = doc
+        .entry("agent")
+        .or_insert(Item::Table(toml_edit::Table::new()))
+        .as_table_mut()
+        .ok_or_else(|| PatchError::InvalidValue {
+            path: "agent.max_tool_iterations".into(),
+            reason: "[agent] is not a table in config.toml".into(),
+        })?;
+    agent["max_tool_iterations"] = toml_value(n);
+
+    let summary = match current {
+        Some(prev) => format!("Set agent.max_tool_iterations = {n} (was {prev})"),
+        None => format!("Set agent.max_tool_iterations = {n} (was default)"),
+    };
+    Ok(PatchOutcome {
+        path: "agent.max_tool_iterations".into(),
+        summary,
+        changed: true,
+    })
+}
 
 fn patch_browser_enabled(
     doc: &mut DocumentMut,
@@ -369,9 +432,58 @@ mod tests {
             .expect_err("must reject");
         let msg = err.to_string();
         assert!(msg.contains("autonomy.allowed_commands"));
+        assert!(msg.contains("agent.max_tool_iterations"));
         assert!(msg.contains("browser.enabled"));
         assert!(msg.contains("browser.backend"));
         assert!(msg.contains("browser.computer_use.window_allowlist"));
+    }
+
+    #[test]
+    fn agent_max_tool_iterations_rejects_non_integer() {
+        let mut doc = parse("");
+        assert!(apply_patch(&mut doc, "agent.max_tool_iterations", &json!("100")).is_err());
+        assert!(apply_patch(&mut doc, "agent.max_tool_iterations", &json!(1.5)).is_err());
+    }
+
+    #[test]
+    fn agent_max_tool_iterations_rejects_out_of_range() {
+        let mut doc = parse("");
+        assert!(apply_patch(&mut doc, "agent.max_tool_iterations", &json!(0)).is_err());
+        assert!(apply_patch(&mut doc, "agent.max_tool_iterations", &json!(-5)).is_err());
+        assert!(apply_patch(&mut doc, "agent.max_tool_iterations", &json!(10_000)).is_err());
+    }
+
+    #[test]
+    fn agent_max_tool_iterations_applies_and_creates_section() {
+        let mut doc = parse("");
+        let outcome = apply_patch(&mut doc, "agent.max_tool_iterations", &json!(100)).unwrap();
+        assert!(outcome.changed);
+        assert!(doc.to_string().contains("max_tool_iterations = 100"));
+    }
+
+    #[test]
+    fn agent_max_tool_iterations_preserves_comments() {
+        let raw = r#"# top comment
+[agent]
+# iteration cap
+max_tool_iterations = 20
+max_history_messages = 50
+"#;
+        let mut doc = parse(raw);
+        let outcome = apply_patch(&mut doc, "agent.max_tool_iterations", &json!(100)).unwrap();
+        assert!(outcome.changed);
+        let rendered = doc.to_string();
+        assert!(rendered.contains("# top comment"));
+        assert!(rendered.contains("# iteration cap"));
+        assert!(rendered.contains("max_tool_iterations = 100"));
+    }
+
+    #[test]
+    fn agent_max_tool_iterations_idempotent_when_same() {
+        let raw = "[agent]\nmax_tool_iterations = 50\n";
+        let mut doc = parse(raw);
+        let outcome = apply_patch(&mut doc, "agent.max_tool_iterations", &json!(50)).unwrap();
+        assert!(!outcome.changed);
     }
 
     #[test]

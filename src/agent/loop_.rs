@@ -72,7 +72,7 @@ const STREAM_TOOL_MARKER_WINDOW_CHARS: usize = 512;
 
 /// Default maximum agentic tool-use iterations per user message to prevent runaway loops.
 /// Used as a safe fallback when `max_tool_iterations` is unset or configured as zero.
-const DEFAULT_MAX_TOOL_ITERATIONS: usize = 20;
+const DEFAULT_MAX_TOOL_ITERATIONS: usize = 100;
 
 /// Minimum user-message length (in chars) for auto-save to memory.
 /// Matches the channel-side constant in `channels/mod.rs`.

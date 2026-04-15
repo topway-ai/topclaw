@@ -2,7 +2,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 const fn default_agent_max_tool_iterations() -> usize {
-    20
+    100
 }
 
 const fn default_agent_max_history_messages() -> usize {
@@ -19,8 +19,8 @@ pub struct AgentConfig {
     /// When true: bootstrap_max_chars=6000, rag_chunk_limit=2. Use for 13B or smaller models.
     #[serde(default)]
     pub compact_context: bool,
-    /// Maximum tool-call loop turns per user message. Default: `20`.
-    /// Setting to `0` falls back to the safe default of `20`.
+    /// Maximum tool-call loop turns per user message. Default: `100`.
+    /// Setting to `0` falls back to the safe default of `100`.
     #[serde(default = "default_agent_max_tool_iterations")]
     pub max_tool_iterations: usize,
     /// Maximum conversation history messages retained per session. Default: `50`.

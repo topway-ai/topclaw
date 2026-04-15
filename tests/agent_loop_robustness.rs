@@ -315,14 +315,16 @@ async fn agent_handles_mixed_tool_success_and_failure() {
 // TG4.3: Iteration limit enforcement (#777)
 // ═════════════════════════════════════════════════════════════════════════════
 
-/// Agent should not exceed max_tool_iterations (default=20) even with
-/// a provider that keeps returning tool calls
+/// Agent should not exceed a configured `max_tool_iterations` even with
+/// a provider that keeps returning tool calls. This test pins the limit to 20
+/// explicitly so it stays cheap and independent of the default.
 #[tokio::test]
 async fn agent_respects_max_tool_iterations() {
+    const LIMIT: usize = 20;
     let (counting_tool, count) = CountingTool::new();
 
-    // Create 30 tool call responses - more than the default limit of 20
-    let mut responses: Vec<ChatResponse> = (0..30)
+    // Create more tool-call responses than the configured limit.
+    let mut responses: Vec<ChatResponse> = (0..LIMIT + 10)
         .map(|i| {
             tool_response(vec![ToolCall {
                 id: format!("tc_{i}"),
@@ -331,21 +333,29 @@ async fn agent_respects_max_tool_iterations() {
             }])
         })
         .collect();
-    // Add a final text response that would be used if limit is reached
     responses.push(text_response("Final response after iterations"));
 
     let provider = Box::new(MockProvider::new(responses));
-    let mut agent = build_agent(provider, vec![Box::new(counting_tool)]);
+    let mut agent_cfg = topclaw::config::AgentConfig::default();
+    agent_cfg.max_tool_iterations = LIMIT;
+    let mut agent = Agent::builder()
+        .provider(provider)
+        .tools(vec![Box::new(counting_tool)])
+        .memory(make_memory())
+        .observer(make_observer())
+        .tool_dispatcher(Box::new(NativeToolDispatcher))
+        .workspace_dir(std::env::temp_dir())
+        .config(agent_cfg)
+        .build()
+        .unwrap();
 
-    // Agent should complete (either by hitting iteration limit or running out of responses)
     let result = agent.turn("keep calling tools").await;
-    // The agent should complete without hanging
     assert!(result.is_ok() || result.is_err());
 
     let invocations = *count.lock().unwrap();
     assert!(
-        invocations <= 20,
-        "tool invocations ({invocations}) should not exceed default max_tool_iterations (20)"
+        invocations <= LIMIT,
+        "tool invocations ({invocations}) should not exceed configured max_tool_iterations ({LIMIT})"
     );
 }
 
