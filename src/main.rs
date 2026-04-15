@@ -564,6 +564,23 @@ Examples:
         workspace_command: WorkspaceCommands,
     },
 
+    /// Run the computer-use sidecar HTTP server
+    ///
+    /// Serves the protocol defined in `docs/computer-use-sidecar-protocol.md`
+    /// on a local address. Linux-only runtime. The agent auto-spawns this via
+    /// the approval-gated `computer_use_sidecar_start` tool; running it by
+    /// hand is rarely necessary.
+    #[cfg(feature = "computer-use-sidecar")]
+    #[command(name = "computer-use-sidecar")]
+    ComputerUseSidecar {
+        /// Bind address (default: 127.0.0.1:8787)
+        #[arg(long, default_value = "127.0.0.1:8787")]
+        bind: String,
+        /// Optional Bearer API key. If omitted, `TOPCLAW_SIDECAR_API_KEY` is read.
+        #[arg(long)]
+        api_key: Option<String>,
+    },
+
     /// Generate shell completions
     #[command(long_about = "\
 Generate shell completion scripts for `topclaw`.
@@ -839,6 +856,22 @@ async fn main() -> Result<()> {
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
+    // Computer-use sidecar runs a small HTTP server and does not touch the
+    // main config pipeline. Short-circuit here so `topclaw computer-use-sidecar`
+    // works even before onboarding is complete (the auto-spawn tool relies on
+    // this invariant).
+    #[cfg(feature = "computer-use-sidecar")]
+    if let Commands::ComputerUseSidecar { bind, api_key } = &cli.command {
+        let addr: std::net::SocketAddr = bind
+            .parse()
+            .with_context(|| format!("invalid --bind address '{bind}'"))?;
+        let key = api_key
+            .clone()
+            .or_else(|| std::env::var("TOPCLAW_SIDECAR_API_KEY").ok())
+            .filter(|s| !s.is_empty());
+        return topclaw::sidecar::run_server(addr, key).await;
+    }
+
     // Onboard runs quick setup by default, or the interactive wizard with --interactive.
     // The onboard wizard uses reqwest::blocking internally, which creates its own
     // Tokio runtime. To avoid "Cannot drop a runtime in a context where blocking is
@@ -929,6 +962,9 @@ async fn main() -> Result<()> {
         | Commands::Completions { .. }
         | Commands::Uninstall { .. }
         | Commands::Backup { .. } => unreachable!(),
+
+        #[cfg(feature = "computer-use-sidecar")]
+        Commands::ComputerUseSidecar { .. } => unreachable!(),
 
         Commands::Agent {
             message,

@@ -84,6 +84,8 @@ pub mod providers;
 pub mod runtime;
 pub mod security;
 pub mod service;
+#[cfg(feature = "computer-use-sidecar")]
+pub mod sidecar;
 pub mod skills;
 #[doc(hidden)]
 pub mod test_capabilities;
