@@ -54,7 +54,11 @@ const fn default_computer_use_timeout_ms() -> u64 {
 impl Default for BrowserComputerUseConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            // Enabled by default so a fresh TopClaw install can handle
+            // "open $app" / "click" / "take a screenshot" requests without
+            // asking the user to edit config.toml. Actions still flow
+            // through the normal approval + autonomy gates.
+            enabled: true,
             auto_start: true,
             app_allowlist: Vec::new(),
             endpoint: default_computer_use_endpoint(),
