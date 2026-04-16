@@ -62,6 +62,7 @@ If you only need the common day-1/day-2 commands, the table above is the fastest
 - `topclaw bootstrap --api-key <KEY> --provider <ID> --memory <sqlite|lucid|markdown|none>`
 - `topclaw bootstrap --api-key <KEY> --provider <ID> --model <MODEL_ID> --memory <sqlite|lucid|markdown|none>`
 - `topclaw bootstrap --api-key <KEY> --provider <ID> --model <MODEL_ID> --memory <sqlite|lucid|markdown|none> --force`
+- `topclaw bootstrap --install-desktop-helpers`
 
 `bootstrap` safety behavior:
 
@@ -70,6 +71,7 @@ If you only need the common day-1/day-2 commands, the table above is the fastest
   - Provider-only update (update provider/model/API key while preserving existing channels, tunnel, memory, hooks, and other settings)
 - In non-interactive environments, existing `config.toml` causes a safe refusal unless `--force` is passed.
 - Use `topclaw bootstrap --channels-only` when you only need to rotate channel tokens/allowlists.
+- Use `topclaw bootstrap --install-desktop-helpers` to install missing Linux desktop automation helpers (xdotool, wmctrl, scrot, xdg-open) during headless/CI bootstrap. This is useful when the `desktop-computer-use` skill is needed but the system lacks the required X11 tools.
 
 ### `agent`
 
@@ -197,11 +199,18 @@ Runs a Rust integration test (`tests/gemini_model_availability.rs`) that verifie
 ### `doctor`
 
 - `topclaw doctor`
+- `topclaw doctor desktop-helpers [--install]`
 - `topclaw doctor models [--provider <ID>] [--use-cache]`
 - `topclaw doctor traces [--limit <N>] [--event <TYPE>] [--contains <TEXT>]`
 - `topclaw doctor traces --id <TRACE_ID>`
 
 `topclaw doctor` now ends with concrete next-step commands when it detects actionable setup issues, such as missing provider configuration, missing auth, missing channels, or a missing workspace directory.
+
+`topclaw doctor desktop-helpers` checks for missing Linux desktop automation helpers (xdotool, wmctrl, scrot, xdg-open) when `browser.backend` is set to `computer_use`. Pass `--install` to attempt automatic installation via the system package manager.
+
+- When all helpers are present: prints `✅ All desktop helpers installed`.
+- When helpers are missing: prints the list and suggests `topclaw doctor desktop-helpers --install`.
+- When desktop automation is not configured: prints a hint to run `topclaw bootstrap --interactive` and select the `desktop-computer-use` skill.
 
 Beginner guidance:
 

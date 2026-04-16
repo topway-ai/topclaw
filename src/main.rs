@@ -196,6 +196,10 @@ enum Commands {
         /// Memory backend (sqlite, markdown, none) - used in quick mode, default: sqlite
         #[arg(long)]
         memory: Option<String>,
+
+        /// Attempt to install missing Linux desktop helpers (xdotool, wmctrl, scrot, xdg-open)
+        #[arg(long)]
+        install_desktop_helpers: bool,
     },
 
     /// Chat with TopClaw
@@ -891,6 +895,7 @@ async fn main() -> Result<()> {
         provider,
         model,
         memory,
+        install_desktop_helpers,
     } = &cli.command
     {
         let interactive = *interactive;
@@ -900,6 +905,7 @@ async fn main() -> Result<()> {
         let provider = provider.clone();
         let model = model.clone();
         let memory = memory.clone();
+        let install_desktop_helpers = *install_desktop_helpers;
 
         if interactive && channels_only {
             bail!("Use either --interactive or --channels-only, not both");
@@ -911,6 +917,9 @@ async fn main() -> Result<()> {
         }
         if channels_only && force {
             bail!("--channels-only does not accept --force");
+        }
+        if channels_only && install_desktop_helpers {
+            bail!("--channels-only does not accept --install-desktop-helpers");
         }
         let config = tokio::task::spawn_blocking(move || {
             let runtime = tokio::runtime::Builder::new_current_thread()
@@ -934,6 +943,23 @@ async fn main() -> Result<()> {
         })
         .await
         .context("onboarding task panicked")??;
+
+        // Headless/desktop-helper bootstrap: after the config is written,
+        // attempt to install missing Linux desktop helpers if requested.
+        // We call the functions directly rather than doctor::run_desktop_helpers()
+        // because the --install-desktop-helpers flag is an explicit user request
+        // that should work unconditionally (not gated on is_computer_use_backend).
+        if install_desktop_helpers {
+            let missing = topclaw::tools::computer_use::missing_linux_helpers();
+            if missing.is_empty() {
+                println!("✅ All desktop helpers already installed");
+            } else {
+                println!("📦 Installing missing desktop helpers: {}…", missing.join(", "));
+                let result = topclaw::tools::computer_use::install_desktop_helpers().await;
+                println!("{result}");
+            }
+        }
+
         let _ = config;
         return Ok(());
     }
@@ -1466,11 +1492,13 @@ mod tests {
                 api_key,
                 provider,
                 model,
+                install_desktop_helpers,
                 ..
             } => {
                 assert!(!interactive);
                 assert!(!force);
                 assert!(!channels_only);
+                assert!(!install_desktop_helpers);
                 assert_eq!(provider.as_deref(), Some("openrouter"));
                 assert_eq!(model.as_deref(), Some("custom-model-946"));
                 assert_eq!(api_key.as_deref(), Some("sk-issue946"));
@@ -1562,7 +1590,10 @@ mod tests {
             .expect("bootstrap --force should parse");
 
         match cli.command {
-            Commands::Onboard { force, .. } => assert!(force),
+            Commands::Onboard { force, install_desktop_helpers, .. } => {
+                assert!(force);
+                assert!(!install_desktop_helpers);
+            }
             other => panic!("expected bootstrap command, got {other:?}"),
         }
     }
@@ -1598,6 +1629,56 @@ mod tests {
                 doctor_command: Some(DoctorCommands::DesktopHelpers { install }),
             } => assert!(!install),
             other => panic!("expected doctor desktop-helpers command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn bootstrap_cli_accepts_install_desktop_helpers_flag() {
+        let cli = Cli::try_parse_from(["topclaw", "bootstrap", "--install-desktop-helpers"])
+            .expect("bootstrap --install-desktop-helpers should parse");
+
+        match cli.command {
+            Commands::Onboard {
+                install_desktop_helpers,
+                force,
+                interactive,
+                channels_only,
+                ..
+            } => {
+                assert!(install_desktop_helpers);
+                assert!(!force);
+                assert!(!interactive);
+                assert!(!channels_only);
+            }
+            other => panic!("expected bootstrap command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn bootstrap_cli_parses_channels_only_with_install_desktop_helpers() {
+        // Clap cannot enforce cross-flag constraints at parse time;
+        // runtime validation in main() rejects this combination with
+        // bail!("--channels-only does not accept --install-desktop-helpers").
+        // This test confirms the flags parse to the expected boolean values
+        // so the runtime guard can evaluate them.
+        let cli = Cli::try_parse_from([
+            "topclaw",
+            "bootstrap",
+            "--channels-only",
+            "--install-desktop-helpers",
+        ])
+        .expect("both flags should parse");
+
+        match cli.command {
+            Commands::Onboard {
+                channels_only,
+                install_desktop_helpers,
+                ..
+            } => {
+                assert!(channels_only);
+                assert!(install_desktop_helpers);
+            }
+            other => panic!("expected bootstrap command, got {other:?}"),
         }
     }
 
