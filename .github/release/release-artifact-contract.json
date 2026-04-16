@@ -1,11 +1,7 @@
 {
   "schema_version": "topclaw.release-artifact-contract.v1",
   "release_archive_patterns": [
-    "topclaw-x86_64-unknown-linux-gnu.tar.gz",
-    "topclaw-aarch64-unknown-linux-gnu.tar.gz",
-    "topclaw-x86_64-apple-darwin.tar.gz",
-    "topclaw-aarch64-apple-darwin.tar.gz",
-    "topclaw-x86_64-pc-windows-msvc.zip"
+    "topclaw-x86_64-unknown-linux-gnu.tar.gz"
   ],
   "required_manifest_files": [
     "release-manifest.json",
