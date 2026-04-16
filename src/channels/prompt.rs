@@ -397,8 +397,10 @@ fn append_desktop_automation_section(prompt: &mut String, has_computer_use: bool
                 "WARNING: no display server detected ($DISPLAY not set) — \
                  GUI operations (app_launch, screen_capture, mouse/keyboard) will likely fail. \
                  If a computer_use call returns an error about missing helpers or no display, \
-                 tell the user that desktop automation requires running TopClaw on a host \
-                 with a display server (not inside a headless Docker container). \
+                 tell the user that desktop automation requires the sidecar to run on the \
+                 host machine where the display is. If TopClaw is in a container, start the \
+                 sidecar on the host (`topclaw computer-use-sidecar --bind 0.0.0.0:8787`) \
+                 and set browser.computer_use.endpoint to point to it. \
                  For web content, fall back to web_fetch or web_search.\n\n",
             );
         } else {
@@ -413,8 +415,10 @@ fn append_desktop_automation_section(prompt: &mut String, has_computer_use: bool
              Desktop automation (opening apps, clicking, taking screenshots) is NOT available in this environment —\n\
              there is no display server (X11/Wayland). This typically means TopClaw is running inside a headless container.\n\
              Do NOT attempt to use computer_use, browser_open, or any tool that requires a GUI.\n\
-             If the user asks to 'open Chrome', 'open an app', or 'see the screen', explain that this requires\n\
-             running TopClaw on a host with a display server (not in a headless Docker container).\n\
+             If the user asks to 'open Chrome', 'open an app', or 'see the screen', explain that desktop automation\n\
+             requires the sidecar to run on the host machine where the display is. They can start the sidecar\n\
+             on the host (`topclaw computer-use-sidecar --bind 0.0.0.0:8787`) and set\n\
+             browser.computer_use.endpoint to point to it.\n\
              For web content, use web_fetch or web_search instead.\n\n",
         );
     }
@@ -816,6 +820,14 @@ mod desktop_automation_prompt_tests {
             prompt.contains("fall back to web_fetch or web_search"),
             "Headless caveat must suggest web fallback tools"
         );
+        assert!(
+            prompt.contains("sidecar to run on the host"),
+            "Headless caveat must explain that the sidecar needs to run on the host machine"
+        );
+        assert!(
+            prompt.contains("topclaw computer-use-sidecar"),
+            "Headless caveat must include the sidecar start command"
+        );
     }
 
     #[test]
@@ -838,6 +850,10 @@ mod desktop_automation_prompt_tests {
         assert!(
             prompt.contains("Do NOT attempt to use computer_use"),
             "Must instruct the LLM not to attempt computer_use"
+        );
+        assert!(
+            prompt.contains("sidecar to run on the host"),
+            "Must explain the sidecar needs to run on the host machine"
         );
         assert!(
             !prompt.contains("You HAVE the computer_use tool"),

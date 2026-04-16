@@ -7,9 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- **Docker desktop automation**: dev stage now includes Xvfb (virtual X11 display), xdotool, wmctrl, scrot, xdg-utils, Chromium, and font support so `computer_use` works inside containers. A `dev-entrypoint.sh` script auto-starts Xvfb before the TopClaw gateway.
-
 ### Changed
 - **CLI simplification**: merged `topclaw peripheral` into `topclaw hardware`; removed obsolete `auth setup-token` (use `auth add-key`).
 - **Streaming think-tag stripping**: `<think>` blocks from reasoning models (MiniMax M2.7, Qwen3, GLM-4) are now stripped from both streaming drafts and final channel responses.
@@ -25,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stale integration API gateway routes.
 
 ### Fixed
-- **Desktop automation tool selection for non-CLI channels**: `computer_use` now appears before `web_fetch`/`browser_open` in tool descriptions so the LLM picks it for "open Chrome" / "open app" requests; tool description enhanced with explicit `app_launch` + URL routing hints and examples; Desktop Automation system prompt section added with headless environment detection (`$DISPLAY` not set on Linux); `browser_open` registration no longer gated on `has_shell_access`; `browser_open` removed from `non_cli_excluded_tools` in dev config template.
+- **Desktop automation tool selection for non-CLI channels**: `computer_use` now appears before `web_fetch`/`browser_open` in tool descriptions so the LLM picks it for "open Chrome" / "open app" requests; tool description enhanced with explicit `app_launch` + URL routing hints and examples; Desktop Automation system prompt section added with headless environment detection (`$DISPLAY` not set on Linux) and correct guidance to run the sidecar on the host machine; `browser_open` registration no longer gated on `has_shell_access`; `browser_open` removed from `non_cli_excluded_tools` in dev config template.
 - **Gemini thinking model support** — provider skips internal reasoning parts (`thought: true`) and signature parts, extracting only the final answer text.
 - Updated default gateway port to `42617`.
 - **Onboarding channel menu dispatch** uses enum-backed selector instead of hard-coded numeric match arms.
