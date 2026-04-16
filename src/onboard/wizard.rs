@@ -4357,4 +4357,34 @@ mod tests {
             .to_string()
             .contains("Quick setup only supports default memory backends"));
     }
+
+
+    // ── maybe_install_desktop_helpers tests ─────────────────────
+
+    /// When no desktop-computer-use skill is selected, the function
+    /// should return immediately without calling any external tools.
+    #[tokio::test]
+    async fn maybe_install_desktop_helpers_skips_when_no_desktop_skill() {
+        let selection = SkillOnboardingSelection {
+            selected_curated_slugs: vec!["safe-web-search".into()],
+        };
+        // This should complete without error or side effects.
+        maybe_install_desktop_helpers(&selection).await;
+    }
+
+    /// When the desktop-computer-use skill is selected, the function
+    /// should not panic. On hosts with missing helpers, skip to avoid
+    /// triggering an actual sudo apt-get install during tests.
+    #[tokio::test]
+    async fn maybe_install_desktop_helpers_does_not_panic_when_desktop_skill_selected() {
+        // Guard: skip on Linux hosts where helpers are actually missing,
+        // because the function would attempt sudo -n apt-get install.
+        if !crate::tools::computer_use::missing_linux_helpers().is_empty() {
+            return;
+        }
+        let selection = SkillOnboardingSelection {
+            selected_curated_slugs: vec!["desktop-computer-use".into()],
+        };
+        maybe_install_desktop_helpers(&selection).await;
+    }
 }

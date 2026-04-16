@@ -1019,6 +1019,33 @@ mod tests {
         assert!(required_helpers("key_press").contains(&"xdotool"));
     }
 
+    /// install_desktop_helpers() returns a human-readable string
+    /// and never panics, regardless of platform.
+    #[tokio::test]
+    async fn install_desktop_helpers_returns_string() {
+        // Guard: skip on Linux hosts where helpers are actually missing,
+        // because the function would attempt `sudo -n apt-get install`.
+        if !missing_linux_helpers().is_empty() {
+            return;
+        }
+        let result = install_desktop_helpers().await;
+        // On Linux with all helpers: "All Linux desktop helpers ... already installed."
+        // On non-Linux: "bootstrap is a no-op on <OS>..."
+        // In all cases, it must return a non-empty string without panicking.
+        assert!(!result.is_empty());
+    }
+
+    /// missing_linux_helpers() always returns a Vec (empty on non-Linux).
+    #[test]
+    fn missing_linux_helpers_returns_vec() {
+        let missing = missing_linux_helpers();
+        // On non-Linux this is always empty; on Linux it depends on
+        // what's installed. Either way, it must not panic.
+        for bin in &missing {
+            assert!(!bin.is_empty(), "helper name should not be empty");
+        }
+    }
+
     #[tokio::test]
     async fn rejects_when_autonomy_readonly() {
         use crate::security::AutonomyLevel;
