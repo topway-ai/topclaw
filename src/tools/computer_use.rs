@@ -203,7 +203,12 @@ impl Tool for ComputerUseTool {
     }
 
     fn description(&self) -> &str {
-        "Control the local desktop: launch any application, list/focus/close windows, take a screenshot, click, drag, type, or press keys. Use this for any request that involves opening an app, seeing what is on the screen, or interacting with the computer like a human would. Do NOT use web_fetch for 'open Chrome' or 'open app X' — use this tool. If a call fails because Linux desktop helpers are missing, call it once with action='bootstrap' to install them via the system package manager, then retry."
+        "Desktop automation: launch applications, open URLs in a visible browser window, list/focus/close windows, take screenshots, click, drag, type, or press keys. \
+         IMPORTANT: When the user says 'open Chrome', 'open <app>', 'open this link in Chrome', or 'navigate to <URL> on the computer', use action=app_launch with the app name and args=[\"<URL>\"]. \
+         Do NOT use web_fetch for these — web_fetch only downloads HTML text, it does NOT open a visible window or interact with the desktop. \
+         Do NOT use browser_open for launching apps — browser_open only opens URLs and cannot launch arbitrary applications. \
+         Example: to open https://example.com in Chrome, call computer_use with action=app_launch, app=\"google-chrome\", args=[\"https://example.com\"]. \
+         If a call fails because Linux desktop helpers are missing, call it once with action=bootstrap to install them via the system package manager, then retry."
     }
 
     fn parameters_schema(&self) -> Value {

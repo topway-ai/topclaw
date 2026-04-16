@@ -78,7 +78,6 @@ non_cli_excluded_tools = [
   "file_write",
   "file_edit",
   "browser",
-  "browser_open",
   "http_request",
   "schedule",
   "cron_add",

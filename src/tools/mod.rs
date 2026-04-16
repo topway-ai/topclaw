@@ -458,8 +458,11 @@ fn build_tools_with_runtime(
             crate::config::BrowserAllowlist::in_memory(browser_config.allowed_domains.clone())
         });
 
-        // Add legacy browser_open tool for simple URL opening (unless disabled)
-        if has_shell_access && !browser_config.browser_open.eq_ignore_ascii_case("disable") {
+        // Add browser_open tool for simple URL opening (unless disabled).
+        // Not gated on has_shell_access — browser_open uses xdg-open / system
+        // open, not a shell. Non-CLI channels still gate it via
+        // autonomy.non_cli_excluded_tools.
+        if !browser_config.browser_open.eq_ignore_ascii_case("disable") {
             tool_arcs.push(Arc::new(BrowserOpenTool::with_allowlist(
                 security.clone(),
                 browser_allowlist.clone(),

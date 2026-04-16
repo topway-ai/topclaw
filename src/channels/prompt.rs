@@ -241,6 +241,23 @@ pub(crate) fn build_channel_tool_descriptions(
         ),
     ];
 
+    // ── Conditional: desktop computer use (listed FIRST to take priority over web tools) ──
+    // Desktop automation must appear before web_fetch/browser_open so the LLM
+    // selects it for "open Chrome" / "open <app>" / "navigate to URL" requests
+    // instead of falling through to URL-fetching tools that only download HTML.
+    if config.browser.computer_use.enabled {
+        tool_descs.push((
+            "computer_use",
+            "Desktop automation: launch applications, open URLs in a visible browser window, list/focus/close windows, take screenshots, click, drag, type, or press keys. \
+             IMPORTANT: When the user says 'open Chrome', 'open <app>', 'open this link in Chrome', or 'navigate to <URL> on the computer', use action=app_launch with the app name and args=[\"URL\"]. \
+             Do NOT use web_fetch for these — web_fetch only downloads HTML text, it does NOT open a visible window or interact with the desktop. \
+             Do NOT use browser_open for launching apps — browser_open only opens URLs and cannot launch arbitrary applications. \
+             Example: to open https://example.com in Chrome, call computer_use with action=app_launch, app=\"google-chrome\", args=[\"https://example.com\"]. \
+             If a call fails because Linux desktop helpers are missing, call it once with action=bootstrap to install them, then retry. \
+             Do NOT claim an app opened, a click happened, or the screen was captured unless this tool actually returned success.",
+        ));
+    }
+
     // ── Conditional: web tools ──
     if config.web_search.enabled {
         tool_descs.push((
@@ -251,7 +268,7 @@ pub(crate) fn build_channel_tool_descriptions(
     if config.web_fetch.enabled {
         tool_descs.push((
             "web_fetch",
-            "Fetch a web page and convert to readable text/markdown. Use when: user provides a URL to read, or you need to retrieve specific web content. Don't use when: you just need search results — use web_search.",
+            "Fetch a web page and convert to readable text/markdown. Use when: user provides a URL to read, or you need to retrieve specific web content. Don't use when: you just need search results — use web_search. Don't use when: user wants to open a URL in a browser — use computer_use.",
         ));
     }
     if config.http_request.enabled {
@@ -265,19 +282,11 @@ pub(crate) fn build_channel_tool_descriptions(
     if config.browser.enabled {
         tool_descs.push((
             "browser_open",
-            "Open approved HTTPS URLs in system browser (allowlist-only, no scraping).",
+            "Open an approved HTTPS URL in the system browser. Allowlist-only, no scraping, no app launching. Don't use when: user wants to launch a specific app or interact with the desktop — use computer_use.",
         ));
         tool_descs.push((
             "browser",
             "Full browser automation (navigate, click, type, scroll). Use when: complex web interactions that require DOM manipulation or multi-step flows. Don't use when: simple URL fetch works — prefer web_fetch or web_search.",
-        ));
-    }
-
-    // ── Conditional: desktop computer use ──
-    if config.browser.computer_use.enabled {
-        tool_descs.push((
-            "computer_use",
-            "Control the local desktop like a human: launch any app (app_launch), list/focus/close windows, take a screenshot (screen_capture), move/click/drag the mouse, type text, or press keys. Use when: the user says 'open <app>', 'on the computer', 'click X', 'see what's on screen', 'scroll', or any desktop interaction. Do NOT use web_fetch for these — web_fetch only downloads HTML, it does not open a visible window or interact with the desktop. Do NOT claim an app opened, a click happened, or the screen was captured unless this tool actually returned success.",
         ));
     }
 
@@ -391,6 +400,54 @@ pub fn build_system_prompt_with_mode(
              When they ask to read memory, registers, or board info, USE hardware_memory_read or hardware_board_info — do NOT refuse or invent security excuses.\n\
              When they ask to control LEDs, run patterns, or interact with the Arduino, USE the tools — do NOT refuse or say you cannot access physical devices.\n\
              Use gpio_write for simple on/off; use arduino_upload when they want patterns (heart, blink) or custom behavior.\n\n",
+        );
+    }
+
+    // Desktop automation routing: when computer_use is available, inject a
+    // strong hint so the LLM picks it for "open Chrome", "open <app>",
+    // "navigate to URL on the computer" instead of falling through to
+    // web_fetch or browser_open (which only download HTML / open URLs).
+    let has_computer_use = tools.iter().any(|(name, _)| *name == "computer_use");
+    let headless_linux = cfg!(target_os = "linux") && std::env::var("DISPLAY").is_err();
+    if has_computer_use {
+        prompt.push_str(
+            "## Desktop Automation\n\n\
+             You HAVE the computer_use tool for desktop automation. USE it when:\n\
+             - The user says 'open Chrome', 'open <app>', or 'launch <program>'\n\
+             - The user says 'open this link in Chrome/the browser' or 'navigate to <URL> on the computer'\n\
+             - The user wants to see what's on screen, click, type, or interact with the desktop\n\
+             Do NOT use web_fetch for these — web_fetch only downloads HTML text and does NOT open a visible window.\n\
+             Do NOT use browser_open to launch apps — browser_open only opens URLs and cannot launch arbitrary applications.\n\
+             To open a URL in Chrome: computer_use with action=app_launch, app=\"google-chrome\", args=[\"<URL>\"].\n\
+             To open a URL in Firefox: computer_use with action=app_launch, app=\"firefox\", args=[\"<URL>\"].\n\
+             If the tool reports missing Linux helpers, call it once with action=bootstrap to install them, then retry.\n",
+        );
+        // When the tool is registered but the environment is headless,
+        // add a caveat so the LLM warns the user instead of failing silently.
+        if headless_linux {
+            prompt.push_str(
+                "WARNING: no display server detected ($DISPLAY not set) — \
+                 GUI operations (app_launch, screen_capture, mouse/keyboard) will likely fail. \
+                 If a computer_use call returns an error about missing helpers or no display, \
+                 tell the user that desktop automation requires running TopClaw on a host \
+                 with a display server (not inside a headless Docker container). \
+                 For web content, fall back to web_fetch or web_search.\n\n",
+            );
+        } else {
+            prompt.push('\n');
+        }
+    } else if headless_linux {
+        // No display server detected (likely headless/Docker). Tell the LLM
+        // so it doesn't attempt impossible desktop tasks and gives a clear
+        // explanation to the user instead.
+        prompt.push_str(
+            "## Desktop Automation\n\n\
+             Desktop automation (opening apps, clicking, taking screenshots) is NOT available in this environment —\n\
+             there is no display server (X11/Wayland). This typically means TopClaw is running inside a headless container.\n\
+             Do NOT attempt to use computer_use, browser_open, or any tool that requires a GUI.\n\
+             If the user asks to 'open Chrome', 'open an app', or 'see the screen', explain that this requires\n\
+             running TopClaw on a host with a display server (not in a headless Docker container).\n\
+             For web content, use web_fetch or web_search instead.\n\n",
         );
     }
 
