@@ -43,6 +43,23 @@ const ACTIONS: &[&str] = &[
 #[cfg(target_os = "linux")]
 const LINUX_HELPERS: &[&str] = &["xdotool", "wmctrl", "scrot", "xdg-open"];
 
+/// Which helpers each action requires. Actions not listed (bootstrap, app_launch,
+/// app_terminate) don't need any helpers — they run directly or use kill/pkill.
+#[cfg(target_os = "linux")]
+fn required_helpers(action: &str) -> &'static [&'static str] {
+    match action {
+        // screen_capture falls back from scrot to gnome-screenshot in the
+        // sidecar, so skip the pre-flight — let the sidecar's own fallback
+        // logic handle it. Blocking on scrot alone would false-reject when
+        // only gnome-screenshot is installed.
+        "screen_capture" => &[],
+        "window_list" | "window_focus" | "window_close" => &["wmctrl"],
+        "mouse_move" | "mouse_click" | "mouse_drag" => &["xdotool"],
+        "key_type" | "key_press" => &["xdotool"],
+        _ => &[],
+    }
+}
+
 /// Provider-agnostic desktop automation tool.
 pub struct ComputerUseTool {
     security: Arc<SecurityPolicy>,
@@ -375,17 +392,23 @@ impl Tool for ComputerUseTool {
             _ => unreachable!(),
         };
 
-        // Pre-flight: on Linux, the sidecar shells out to xdotool/wmctrl/scrot/
-        // xdg-open. If any are missing, surface a clear error pointing the
-        // model at the bootstrap action instead of letting the sidecar emit a
-        // cryptic "command not found".
+        // Pre-flight: on Linux, check only the helpers the specific action needs.
+        // This avoids blocking app_launch (no helpers needed) or screen_capture
+        // (only needs scrot) just because wmctrl is missing.
         #[cfg(target_os = "linux")]
         {
-            let missing = missing_linux_helpers();
+            let needed = required_helpers(&action);
+            let missing: Vec<&str> = needed
+                .iter()
+                .copied()
+                .filter(|bin| which::which(bin).is_err())
+                .collect();
             if !missing.is_empty() {
                 return Ok(fail(&format!(
-                    "missing desktop helpers on Linux: {}. Call computer_use with action=bootstrap to install them automatically (uses the system package manager via sudo -n), then retry.",
-                    missing.join(", ")
+                    "action '{}' requires {} but {} not installed. Call computer_use with action=bootstrap to install missing helpers automatically (uses the system package manager via sudo -n), then retry.",
+                    action,
+                    missing.join(", "),
+                    if missing.len() == 1 { "it is" } else { "they are" }
                 )));
             }
         }
@@ -933,6 +956,26 @@ mod tests {
         let r = run_bootstrap().await;
         assert!(r.success);
         assert!(r.output.contains("no-op"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn required_helpers_maps_actions_correctly() {
+        // Actions that need no helpers
+        assert!(required_helpers("app_launch").is_empty());
+        assert!(required_helpers("app_terminate").is_empty());
+        assert!(required_helpers("bootstrap").is_empty());
+        // screen_capture skips pre-flight (sidecar has scrot/gnome-screenshot fallback)
+        assert!(required_helpers("screen_capture").is_empty());
+        // Actions that need specific helpers
+        assert!(required_helpers("window_list").contains(&"wmctrl"));
+        assert!(required_helpers("window_focus").contains(&"wmctrl"));
+        assert!(required_helpers("window_close").contains(&"wmctrl"));
+        assert!(required_helpers("mouse_move").contains(&"xdotool"));
+        assert!(required_helpers("mouse_click").contains(&"xdotool"));
+        assert!(required_helpers("mouse_drag").contains(&"xdotool"));
+        assert!(required_helpers("key_type").contains(&"xdotool"));
+        assert!(required_helpers("key_press").contains(&"xdotool"));
     }
 
     #[tokio::test]
