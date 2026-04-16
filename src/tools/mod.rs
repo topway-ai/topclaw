@@ -1107,6 +1107,98 @@ mod tests {
         assert!(!names.contains(&"delegate_coordination_status"));
     }
 
+    /// Mock runtime that reports no shell access, simulating a non-CLI
+    /// channel environment (e.g. Telegram running inside Docker).
+    struct HeadlessRuntime;
+
+    impl crate::runtime::RuntimeAdapter for HeadlessRuntime {
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn name(&self) -> &str {
+            "headless-mock"
+        }
+        fn has_shell_access(&self) -> bool {
+            false
+        }
+        fn has_filesystem_access(&self) -> bool {
+            true
+        }
+        fn storage_path(&self) -> std::path::PathBuf {
+            std::path::PathBuf::from("/tmp/headless-mock")
+        }
+        fn supports_long_running(&self) -> bool {
+            true
+        }
+        fn build_shell_command(
+            &self,
+            _command: &str,
+            _workspace_dir: &std::path::Path,
+        ) -> anyhow::Result<tokio::process::Command> {
+            anyhow::bail!("headless runtime has no shell")
+        }
+        fn build_exec_command(
+            &self,
+            program: &str,
+            args: &[String],
+            _workspace_dir: &std::path::Path,
+        ) -> anyhow::Result<tokio::process::Command> {
+            let mut cmd = tokio::process::Command::new(program);
+            cmd.args(args);
+            Ok(cmd)
+        }
+    }
+
+    #[test]
+    fn browser_open_included_when_no_shell_access_but_browser_enabled() {
+        // Verifies the fix: browser_open is NOT gated on has_shell_access.
+        // When browser.enabled=true and browser_open!="disable", the tool
+        // should be registered even when the runtime has no shell access
+        // (e.g. Telegram channel running in a container).
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy::default());
+        let mem_cfg = MemoryConfig {
+            backend: "markdown".into(),
+            ..MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+
+        let browser = BrowserConfig {
+            enabled: true,
+            allowed_domains: vec!["example.com".into()],
+            session_name: None,
+            ..BrowserConfig::default()
+        };
+        let http = crate::config::HttpRequestConfig::default();
+        let cfg = test_config(&tmp);
+
+        let tools = all_tools_with_runtime(
+            Arc::new(Config::default()),
+            &security,
+            Arc::new(HeadlessRuntime),
+            mem,
+            None,
+            None,
+            &browser,
+            &http,
+            &crate::config::WebFetchConfig::default(),
+            tmp.path(),
+            &HashMap::new(),
+            None,
+            &cfg,
+        );
+        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+
+        // browser_open must be present even without shell access
+        assert!(names.contains(&"browser_open"), "browser_open should be included when browser.enabled=true regardless of has_shell_access");
+
+        // Shell-dependent tools should be absent
+        assert!(!names.contains(&"shell"));
+        assert!(!names.contains(&"process"));
+        assert!(!names.contains(&"git_operations"));
+    }
+
     #[test]
     fn all_tools_disables_coordination_tool_when_coordination_is_disabled() {
         let tmp = TempDir::new().unwrap();

@@ -627,3 +627,147 @@ mod self_config_tests {
         assert!(prompt.contains("Do NOT tell the user the config is"));
     }
 }
+
+#[cfg(test)]
+mod tool_description_tests {
+    use super::build_channel_tool_descriptions;
+    use crate::config::Config;
+
+    #[test]
+    fn computer_use_appears_before_web_fetch_when_enabled() {
+        let mut config = Config::default();
+        config.browser.computer_use.enabled = true;
+        config.web_fetch.enabled = true;
+
+        let descs = build_channel_tool_descriptions(&config);
+        let names: Vec<&str> = descs.iter().map(|(n, _)| *n).collect();
+
+        let cu_idx = names
+            .iter()
+            .position(|&n| n == "computer_use")
+            .expect("computer_use should be present when enabled");
+        let wf_idx = names
+            .iter()
+            .position(|&n| n == "web_fetch")
+            .expect("web_fetch should be present when enabled");
+
+        assert!(
+            cu_idx < wf_idx,
+            "computer_use (index {cu_idx}) must appear before web_fetch (index {wf_idx}) so the LLM selects it for 'open Chrome' requests"
+        );
+    }
+
+    #[test]
+    fn computer_use_appears_before_browser_open_when_enabled() {
+        let mut config = Config::default();
+        config.browser.computer_use.enabled = true;
+        config.browser.enabled = true;
+
+        let descs = build_channel_tool_descriptions(&config);
+        let names: Vec<&str> = descs.iter().map(|(n, _)| *n).collect();
+
+        let cu_idx = names
+            .iter()
+            .position(|&n| n == "computer_use")
+            .expect("computer_use should be present when enabled");
+        let bo_idx = names
+            .iter()
+            .position(|&n| n == "browser_open")
+            .expect("browser_open should be present when browser.enabled");
+
+        assert!(
+            cu_idx < bo_idx,
+            "computer_use (index {cu_idx}) must appear before browser_open (index {bo_idx})"
+        );
+    }
+
+    #[test]
+    fn computer_use_absent_when_disabled() {
+        let mut config = Config::default();
+        config.browser.computer_use.enabled = false;
+
+        let descs = build_channel_tool_descriptions(&config);
+        let names: Vec<&str> = descs.iter().map(|(n, _)| *n).collect();
+
+        assert!(!names.contains(&"computer_use"));
+    }
+}
+
+#[cfg(test)]
+mod desktop_automation_prompt_tests {
+    use super::build_system_prompt;
+    use tempfile::TempDir;
+
+    #[test]
+    fn desktop_automation_section_present_when_computer_use_tool_available() {
+        let tmp = TempDir::new().unwrap();
+        let tools: Vec<(&str, &str)> = vec![
+            ("computer_use", "Desktop automation tool"),
+            ("web_fetch", "Fetch web pages"),
+        ];
+        let prompt = build_system_prompt(tmp.path(), "test-model", &tools, &[], None, None);
+
+        assert!(
+            prompt.contains("## Desktop Automation"),
+            "System prompt must include Desktop Automation section when computer_use tool is available"
+        );
+        assert!(
+            prompt.contains("You HAVE the computer_use tool"),
+            "Desktop Automation section must tell the LLM it has the tool"
+        );
+        assert!(
+            prompt.contains("Do NOT use web_fetch"),
+            "Desktop Automation section must warn against web_fetch for desktop tasks"
+        );
+        assert!(
+            prompt.contains("Do NOT use browser_open"),
+            "Desktop Automation section must warn against browser_open for desktop tasks"
+        );
+    }
+
+    #[test]
+    fn desktop_automation_section_absent_when_no_computer_use_tool() {
+        let tmp = TempDir::new().unwrap();
+        let tools: Vec<(&str, &str)> = vec![
+            ("web_fetch", "Fetch web pages"),
+            ("shell", "Run commands"),
+        ];
+        let prompt = build_system_prompt(tmp.path(), "test-model", &tools, &[], None, None);
+
+        // The positive routing hints must be absent
+        assert!(
+            !prompt.contains("You HAVE the computer_use tool"),
+            "Desktop Automation 'you HAVE' section must NOT appear when computer_use is absent"
+        );
+        assert!(
+            !prompt.contains("app_launch"),
+            "app_launch routing hint must NOT appear when computer_use is absent"
+        );
+        assert!(
+            !prompt.contains("google-chrome"),
+            "Chrome routing hint must NOT appear when computer_use is absent"
+        );
+    }
+
+    #[test]
+    fn desktop_automation_routing_mentions_chrome_and_firefox() {
+        let tmp = TempDir::new().unwrap();
+        let tools: Vec<(&str, &str)> = vec![
+            ("computer_use", "Desktop automation tool"),
+        ];
+        let prompt = build_system_prompt(tmp.path(), "test-model", &tools, &[], None, None);
+
+        assert!(
+            prompt.contains("google-chrome"),
+            "Desktop Automation section must include Chrome example"
+        );
+        assert!(
+            prompt.contains("firefox"),
+            "Desktop Automation section must include Firefox example"
+        );
+        assert!(
+            prompt.contains("app_launch"),
+            "Desktop Automation section must mention app_launch action"
+        );
+    }
+}
