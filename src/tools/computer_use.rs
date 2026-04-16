@@ -395,6 +395,10 @@ impl Tool for ComputerUseTool {
         // Pre-flight: on Linux, check only the helpers the specific action needs.
         // This avoids blocking app_launch (no helpers needed) or screen_capture
         // (only needs scrot) just because wmctrl is missing.
+        //
+        // If helpers are missing, auto-bootstrap first (if auto_start is on),
+        // then retry the pre-flight. This makes the first-use experience smooth:
+        // the user doesn't need to manually call action=bootstrap.
         #[cfg(target_os = "linux")]
         {
             let needed = required_helpers(&action);
@@ -404,12 +408,34 @@ impl Tool for ComputerUseTool {
                 .filter(|bin| which::which(bin).is_err())
                 .collect();
             if !missing.is_empty() {
-                return Ok(fail(&format!(
-                    "action '{}' requires {} but {} not installed. Call computer_use with action=bootstrap to install missing helpers automatically (uses the system package manager via sudo -n), then retry.",
-                    action,
-                    missing.join(", "),
-                    if missing.len() == 1 { "it is" } else { "they are" }
-                )));
+                // Auto-bootstrap: attempt to install missing helpers before
+                // failing. This is independent of auto_start (which controls
+                // sidecar spawning). The pre-flight already identified the
+                // specific missing helpers, so the intent to use this action
+                // is clear — installing the helpers is the natural next step.
+                info!(
+                    target: "topclaw::audit",
+                    event = "computer_use_auto_bootstrap",
+                    missing = %missing.join(","),
+                    "auto-bootstrapping missing desktop helpers"
+                );
+                let _ = run_bootstrap().await;
+                // Re-check after bootstrap attempt.
+                let still_missing: Vec<&str> = needed
+                    .iter()
+                    .copied()
+                    .filter(|bin| which::which(bin).is_err())
+                    .collect();
+                if still_missing.is_empty() {
+                    // Bootstrap succeeded — continue to the action.
+                } else {
+                    return Ok(fail(&format!(
+                        "action '{}' requires {} but {} still not installed after auto-bootstrap. Install manually: sudo apt-get install xdotool wmctrl scrot xdg-utils",
+                        action,
+                        still_missing.join(", "),
+                        if still_missing.len() == 1 { "it is" } else { "they are" }
+                    )));
+                }
             }
         }
 
@@ -530,7 +556,7 @@ fn spawn_sidecar(bind: &str, api_key: Option<&str>) -> Result<(), String> {
 
 /// Detect missing Linux desktop helpers by probing `PATH` with `which`.
 #[cfg(target_os = "linux")]
-fn missing_linux_helpers() -> Vec<&'static str> {
+pub fn missing_linux_helpers() -> Vec<&'static str> {
     LINUX_HELPERS
         .iter()
         .copied()
@@ -540,14 +566,29 @@ fn missing_linux_helpers() -> Vec<&'static str> {
 
 #[cfg(not(target_os = "linux"))]
 #[allow(dead_code)]
-fn missing_linux_helpers() -> Vec<&'static str> {
+pub fn missing_linux_helpers() -> Vec<&'static str> {
     Vec::new()
 }
 
 /// Install missing Linux desktop helpers using the detected package manager.
+/// Returns a human-readable summary string suitable for onboarding display.
 /// Non-Linux platforms report "no-op".
-#[cfg(target_os = "linux")]
+pub async fn install_desktop_helpers() -> String {
+    let result = run_bootstrap_impl().await;
+    if result.success {
+        result.output
+    } else {
+        format!("Bootstrap failed: {}", result.error.unwrap_or_default())
+    }
+}
+
+/// Internal bootstrap implementation returning a ToolResult.
 async fn run_bootstrap() -> ToolResult {
+    run_bootstrap_impl().await
+}
+
+#[cfg(target_os = "linux")]
+async fn run_bootstrap_impl() -> ToolResult {
     let missing = missing_linux_helpers();
     if missing.is_empty() {
         return ToolResult {
@@ -627,7 +668,7 @@ async fn run_bootstrap() -> ToolResult {
 }
 
 #[cfg(not(target_os = "linux"))]
-async fn run_bootstrap() -> ToolResult {
+async fn run_bootstrap_impl() -> ToolResult {
     ToolResult {
         success: true,
         output: format!(

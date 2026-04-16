@@ -65,9 +65,8 @@ use provider_setup::{
 #[cfg(test)]
 use skill_selection::{
     apply_onboarding_skill_selection_key, default_selected_onboarding_skill,
-    SkillOnboardingSelection,
 };
-use skill_selection::{apply_onboarding_skill_tool_defaults, setup_skills};
+use skill_selection::{apply_onboarding_skill_tool_defaults, setup_skills, SkillOnboardingSelection};
 
 // ── SIMPLIFIED WIZARD: 4 Steps for Newbies ───────────────────────
 //
@@ -245,6 +244,12 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         model_support_vision: None,
     };
     apply_onboarding_skill_tool_defaults(&mut config, &skill_selection);
+
+    // ── Proactive desktop helper bootstrap ────────────────────────
+    // If the user selected "desktop-computer-use" on Linux, check for
+    // missing helpers (xdotool, wmctrl, scrot, xdg-open) and offer to
+    // install them now — before they ever try to use the tool.
+    maybe_install_desktop_helpers(&skill_selection).await;
 
     println!();
     println!(
@@ -1370,6 +1375,70 @@ fn print_step(current: u8, total: u8, title: &str) {
 
 fn print_bullet(text: &str) {
     println!("  {} {}", style("›").cyan(), text);
+}
+
+/// After skill selection, if the user chose "desktop-computer-use" on Linux,
+/// proactively check for and offer to install missing desktop helpers.
+/// This eliminates the frustrating experience of selecting the skill only
+/// to discover missing packages at first runtime.
+async fn maybe_install_desktop_helpers(skill_selection: &SkillOnboardingSelection) {
+    let wants_desktop = skill_selection
+        .selected_curated_slugs
+        .iter()
+        .any(|slug| slug == "desktop-computer-use");
+    if !wants_desktop {
+        return;
+    }
+
+    let missing = crate::tools::computer_use::missing_linux_helpers();
+    if missing.is_empty() {
+        println!(
+            "  {} Desktop helpers: {}",
+            style("✓").green().bold(),
+            style("all installed").green()
+        );
+        return;
+    }
+
+    // Non-Linux platforms always return empty, so this only fires on Linux.
+    println!();
+    println!(
+        "  {} Desktop automation needs: {}",
+        style("⚠").yellow().bold(),
+        style(missing.join(", ")).yellow()
+    );
+    print_bullet("These packages are required to control desktop applications.");
+
+    let should_install = if std::io::stdin().is_terminal() {
+        Confirm::new()
+            .with_prompt("  Install missing desktop helpers now? (requires sudo -n)")
+            .default(true)
+            .interact()
+            .unwrap_or(false)
+    } else {
+        // Non-interactive: auto-install silently (e.g. `topclaw bootstrap`)
+        true
+    };
+
+    if should_install {
+        let result = crate::tools::computer_use::install_desktop_helpers().await;
+        if result.contains("already installed") || result.contains("Installed") {
+            println!(
+                "  {} Desktop helpers: {}",
+                style("✓").green().bold(),
+                style("installed").green()
+            );
+        } else {
+            println!(
+                "  {} Desktop helpers: {}",
+                style("!").yellow().bold(),
+                style(&result).yellow()
+            );
+            print_bullet("You can install them later with: sudo apt-get install xdotool wmctrl scrot xdg-utils");
+        }
+    } else {
+        print_bullet("Skipped. Install later with: sudo apt-get install xdotool wmctrl scrot xdg-utils");
+    }
 }
 
 fn resolve_interactive_onboarding_mode(
