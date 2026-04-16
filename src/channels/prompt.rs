@@ -362,6 +362,64 @@ pub fn build_system_prompt(
     )
 }
 
+/// Returns `true` when running on Linux without a display server.
+///
+/// This is used to inject headless-specific caveats into the system prompt
+/// so the LLM knows desktop automation will fail and can warn the user
+/// instead of attempting impossible operations.
+fn is_headless_linux() -> bool {
+    cfg!(target_os = "linux") && std::env::var("DISPLAY").is_err()
+}
+
+/// Append the Desktop Automation section to the system prompt.
+///
+/// Extracted from `build_system_prompt_with_mode` so tests can exercise all
+/// branches (headless / non-headless / tool-present / tool-absent) without
+/// mutating process-global env vars.
+fn append_desktop_automation_section(prompt: &mut String, has_computer_use: bool, headless_linux: bool) {
+    if has_computer_use {
+        prompt.push_str(
+            "## Desktop Automation\n\n\
+             You HAVE the computer_use tool for desktop automation. USE it when:\n\
+             - The user says 'open Chrome', 'open <app>', or 'launch <program>'\n\
+             - The user says 'open this link in Chrome/the browser' or 'navigate to <URL> on the computer'\n\
+             - The user wants to see what's on screen, click, type, or interact with the desktop\n\
+             Do NOT use web_fetch for these — web_fetch only downloads HTML text and does NOT open a visible window.\n\
+             Do NOT use browser_open to launch apps — browser_open only opens URLs and cannot launch arbitrary applications.\n\
+             To open a URL in Chrome: computer_use with action=app_launch, app=\"google-chrome\", args=[\"<URL>\"].\n\
+             To open a URL in Firefox: computer_use with action=app_launch, app=\"firefox\", args=[\"<URL>\"].\n\
+             If the tool reports missing Linux helpers, call it once with action=bootstrap to install them, then retry.\n",
+        );
+        // When the tool is registered but the environment is headless,
+        // add a caveat so the LLM warns the user instead of failing silently.
+        if headless_linux {
+            prompt.push_str(
+                "WARNING: no display server detected ($DISPLAY not set) — \
+                 GUI operations (app_launch, screen_capture, mouse/keyboard) will likely fail. \
+                 If a computer_use call returns an error about missing helpers or no display, \
+                 tell the user that desktop automation requires running TopClaw on a host \
+                 with a display server (not inside a headless Docker container). \
+                 For web content, fall back to web_fetch or web_search.\n\n",
+            );
+        } else {
+            prompt.push('\n');
+        }
+    } else if headless_linux {
+        // No display server detected (likely headless/Docker). Tell the LLM
+        // so it doesn't attempt impossible desktop tasks and gives a clear
+        // explanation to the user instead.
+        prompt.push_str(
+            "## Desktop Automation\n\n\
+             Desktop automation (opening apps, clicking, taking screenshots) is NOT available in this environment —\n\
+             there is no display server (X11/Wayland). This typically means TopClaw is running inside a headless container.\n\
+             Do NOT attempt to use computer_use, browser_open, or any tool that requires a GUI.\n\
+             If the user asks to 'open Chrome', 'open an app', or 'see the screen', explain that this requires\n\
+             running TopClaw on a host with a display server (not in a headless Docker container).\n\
+             For web content, use web_fetch or web_search instead.\n\n",
+        );
+    }
+}
+
 pub fn build_system_prompt_with_mode(
     workspace_dir: &Path,
     model_name: &str,
@@ -408,48 +466,7 @@ pub fn build_system_prompt_with_mode(
     // "navigate to URL on the computer" instead of falling through to
     // web_fetch or browser_open (which only download HTML / open URLs).
     let has_computer_use = tools.iter().any(|(name, _)| *name == "computer_use");
-    let headless_linux = cfg!(target_os = "linux") && std::env::var("DISPLAY").is_err();
-    if has_computer_use {
-        prompt.push_str(
-            "## Desktop Automation\n\n\
-             You HAVE the computer_use tool for desktop automation. USE it when:\n\
-             - The user says 'open Chrome', 'open <app>', or 'launch <program>'\n\
-             - The user says 'open this link in Chrome/the browser' or 'navigate to <URL> on the computer'\n\
-             - The user wants to see what's on screen, click, type, or interact with the desktop\n\
-             Do NOT use web_fetch for these — web_fetch only downloads HTML text and does NOT open a visible window.\n\
-             Do NOT use browser_open to launch apps — browser_open only opens URLs and cannot launch arbitrary applications.\n\
-             To open a URL in Chrome: computer_use with action=app_launch, app=\"google-chrome\", args=[\"<URL>\"].\n\
-             To open a URL in Firefox: computer_use with action=app_launch, app=\"firefox\", args=[\"<URL>\"].\n\
-             If the tool reports missing Linux helpers, call it once with action=bootstrap to install them, then retry.\n",
-        );
-        // When the tool is registered but the environment is headless,
-        // add a caveat so the LLM warns the user instead of failing silently.
-        if headless_linux {
-            prompt.push_str(
-                "WARNING: no display server detected ($DISPLAY not set) — \
-                 GUI operations (app_launch, screen_capture, mouse/keyboard) will likely fail. \
-                 If a computer_use call returns an error about missing helpers or no display, \
-                 tell the user that desktop automation requires running TopClaw on a host \
-                 with a display server (not inside a headless Docker container). \
-                 For web content, fall back to web_fetch or web_search.\n\n",
-            );
-        } else {
-            prompt.push('\n');
-        }
-    } else if headless_linux {
-        // No display server detected (likely headless/Docker). Tell the LLM
-        // so it doesn't attempt impossible desktop tasks and gives a clear
-        // explanation to the user instead.
-        prompt.push_str(
-            "## Desktop Automation\n\n\
-             Desktop automation (opening apps, clicking, taking screenshots) is NOT available in this environment —\n\
-             there is no display server (X11/Wayland). This typically means TopClaw is running inside a headless container.\n\
-             Do NOT attempt to use computer_use, browser_open, or any tool that requires a GUI.\n\
-             If the user asks to 'open Chrome', 'open an app', or 'see the screen', explain that this requires\n\
-             running TopClaw on a host with a display server (not in a headless Docker container).\n\
-             For web content, use web_fetch or web_search instead.\n\n",
-        );
-    }
+    append_desktop_automation_section(&mut prompt, has_computer_use, is_headless_linux());
 
     if native_tools {
         prompt.push_str(
@@ -768,6 +785,97 @@ mod desktop_automation_prompt_tests {
         assert!(
             prompt.contains("app_launch"),
             "Desktop Automation section must mention app_launch action"
+        );
+    }
+
+    // ── Headless Linux branch tests ────────────────────────────────
+    // These call append_desktop_automation_section() directly with explicit
+    // headless_linux=true/false so tests are deterministic regardless of the
+    // CI runner's $DISPLAY state. No process-global env var mutation needed.
+
+    use super::append_desktop_automation_section;
+
+    #[test]
+    fn headless_warning_when_computer_use_registered_but_no_display() {
+        let mut prompt = String::new();
+        append_desktop_automation_section(&mut prompt, /* has_computer_use */ true, /* headless_linux */ true);
+
+        assert!(
+            prompt.contains("## Desktop Automation"),
+            "Desktop Automation section must be present when computer_use is registered"
+        );
+        assert!(
+            prompt.contains("You HAVE the computer_use tool"),
+            "Positive routing hint must be present when the tool is registered"
+        );
+        assert!(
+            prompt.contains("WARNING: no display server detected"),
+            "Headless caveat must be appended when headless_linux=true"
+        );
+        assert!(
+            prompt.contains("fall back to web_fetch or web_search"),
+            "Headless caveat must suggest web fallback tools"
+        );
+    }
+
+    #[test]
+    fn headless_not_available_message_when_no_computer_use_and_no_display() {
+        let mut prompt = String::new();
+        append_desktop_automation_section(&mut prompt, /* has_computer_use */ false, /* headless_linux */ true);
+
+        assert!(
+            prompt.contains("## Desktop Automation"),
+            "Desktop Automation section must be present even without the tool on headless Linux"
+        );
+        assert!(
+            prompt.contains("is NOT available in this environment"),
+            "Must tell the LLM desktop automation is NOT available on headless Linux"
+        );
+        assert!(
+            prompt.contains("no display server"),
+            "Must explain there is no display server"
+        );
+        assert!(
+            prompt.contains("Do NOT attempt to use computer_use"),
+            "Must instruct the LLM not to attempt computer_use"
+        );
+        assert!(
+            !prompt.contains("You HAVE the computer_use tool"),
+            "Positive routing hint must NOT appear when the tool is absent"
+        );
+    }
+
+    #[test]
+    fn non_headless_no_headless_caveat_when_computer_use_present() {
+        let mut prompt = String::new();
+        append_desktop_automation_section(&mut prompt, /* has_computer_use */ true, /* headless_linux */ false);
+
+        assert!(
+            prompt.contains("## Desktop Automation"),
+            "Desktop Automation section must be present when computer_use is registered"
+        );
+        assert!(
+            prompt.contains("You HAVE the computer_use tool"),
+            "Positive routing hint must be present"
+        );
+        assert!(
+            !prompt.contains("WARNING: no display server detected"),
+            "Headless caveat must NOT appear when a display server is present"
+        );
+        assert!(
+            !prompt.contains("is NOT available in this environment"),
+            "NOT available message must NOT appear when the tool is registered and display is available"
+        );
+    }
+
+    #[test]
+    fn nothing_appended_when_no_tool_and_not_headless() {
+        let mut prompt = String::new();
+        append_desktop_automation_section(&mut prompt, /* has_computer_use */ false, /* headless_linux */ false);
+
+        assert!(
+            prompt.is_empty(),
+            "Desktop Automation section must NOT appear when no tool and not headless"
         );
     }
 }

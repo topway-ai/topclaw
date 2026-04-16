@@ -89,10 +89,20 @@ EOF
 # ── Stage 2: Development Runtime (Debian) ────────────────────
 FROM debian:trixie-slim@sha256:4ffb3a1511099754cddc70eb1b12e50ffdb67619aa0ab6c13fcd800a78ef7c7a AS dev
 
-# Install essential runtime dependencies only (use docker-compose.override.yml for dev tools)
+# Install essential runtime dependencies and desktop automation helpers.
+# Xvfb provides a virtual X11 display so computer_use / screenshot / app_launch
+# work inside the container. xdotool/wmctrl/scrot are the Linux desktop
+# helpers the computer-use sidecar shells out to.
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     curl \
+    xvfb \
+    xdotool \
+    wmctrl \
+    scrot \
+    xdg-utils \
+    chromium \
+    fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /topclaw-data /topclaw-data
@@ -110,14 +120,20 @@ ENV HOME=/topclaw-data
 ENV PROVIDER="ollama"
 ENV TOPCLAW_MODEL="llama3.2"
 ENV TOPCLAW_GATEWAY_PORT=42617
+# Virtual display for computer_use / desktop automation in headless containers.
+# Xvfb listens on :99; DISPLAY is exported by the dev-entrypoint.sh script.
+ENV XVFB_DISPLAY=:99
 
 # Note: API_KEY is intentionally NOT set here to avoid confusion.
 # It is set in config.toml as the Ollama URL.
 
+COPY dev/dev-entrypoint.sh /usr/local/bin/dev-entrypoint.sh
+RUN chmod +x /usr/local/bin/dev-entrypoint.sh
+
 WORKDIR /topclaw-data
 USER 65534:65534
 EXPOSE 42617
-ENTRYPOINT ["topclaw"]
+ENTRYPOINT ["/usr/local/bin/dev-entrypoint.sh"]
 CMD ["gateway"]
 
 # ── Stage 3: Production Runtime (Distroless) ─────────────────

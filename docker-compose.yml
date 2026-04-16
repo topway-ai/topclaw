@@ -14,6 +14,13 @@ services:
     # build: .
     container_name: topclaw
     restart: unless-stopped
+    #
+    # For desktop automation (computer_use, app_launch, screenshots),
+    # use the dev stage which includes Xvfb + desktop helpers:
+    #   build:
+    #     context: .
+    #     target: dev
+    #   shm_size: '2g'  # Chromium needs >64MB /dev/shm
     
     environment:
       # Required: Your LLM provider API key
