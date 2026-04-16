@@ -71,11 +71,7 @@ impl GitOperationsTool {
             );
         }
         // Block injection patterns in the URL.
-        if url.contains("$(")
-            || url.contains('`')
-            || url.contains('\0')
-            || url.contains('\n')
-        {
+        if url.contains("$(") || url.contains('`') || url.contains('\0') || url.contains('\n') {
             anyhow::bail!("Blocked potentially dangerous clone URL");
         }
         // Block URLs that contain shell metacharacters or whitespace.
@@ -532,10 +528,7 @@ impl GitOperationsTool {
         }
 
         // Depth (shallow clone by default for efficiency)
-        let depth = args
-            .get("depth")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(1);
+        let depth = args.get("depth").and_then(|v| v.as_u64()).unwrap_or(1);
         let depth_str = depth.to_string();
 
         // Build git clone arguments
@@ -563,11 +556,7 @@ impl GitOperationsTool {
             if std::path::Path::new(dest).is_absolute() {
                 dest_owned = dest.to_string();
             } else {
-                dest_owned = self
-                    .workspace_dir
-                    .join(dest)
-                    .to_string_lossy()
-                    .into_owned();
+                dest_owned = self.workspace_dir.join(dest).to_string_lossy().into_owned();
             }
             git_args.push(&dest_owned);
         }
@@ -991,7 +980,9 @@ mod tests {
     #[test]
     fn clone_url_accepts_https() {
         assert!(GitOperationsTool::validate_clone_url("https://github.com/org/repo.git").is_ok());
-        assert!(GitOperationsTool::validate_clone_url("https://gitlab.com/user/project.git").is_ok());
+        assert!(
+            GitOperationsTool::validate_clone_url("https://gitlab.com/user/project.git").is_ok()
+        );
     }
 
     #[test]
@@ -1002,13 +993,15 @@ mod tests {
 
     #[test]
     fn clone_url_rejects_git_protocol() {
-        let err = GitOperationsTool::validate_clone_url("git://github.com/org/repo.git").unwrap_err();
+        let err =
+            GitOperationsTool::validate_clone_url("git://github.com/org/repo.git").unwrap_err();
         assert!(err.to_string().contains("HTTPS"));
     }
 
     #[test]
     fn clone_url_rejects_http() {
-        let err = GitOperationsTool::validate_clone_url("http://github.com/org/repo.git").unwrap_err();
+        let err =
+            GitOperationsTool::validate_clone_url("http://github.com/org/repo.git").unwrap_err();
         assert!(err.to_string().contains("HTTPS"));
     }
 
@@ -1016,7 +1009,9 @@ mod tests {
     fn clone_url_rejects_command_injection() {
         assert!(GitOperationsTool::validate_clone_url("https://evil.com/$(rm -rf /)").is_err());
         assert!(GitOperationsTool::validate_clone_url("https://evil.com/`whoami`").is_err());
-        assert!(GitOperationsTool::validate_clone_url("https://evil.com/repo.git; rm -rf /").is_err());
+        assert!(
+            GitOperationsTool::validate_clone_url("https://evil.com/repo.git; rm -rf /").is_err()
+        );
         assert!(GitOperationsTool::validate_clone_url("https://evil.com/repo.git | cat").is_err());
         assert!(GitOperationsTool::validate_clone_url("https://evil.com/repo.git&whoami").is_err());
     }

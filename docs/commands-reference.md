@@ -226,6 +226,12 @@ Beginner guidance:
 
 `topclaw status --diagnose` prints the same summary first, then the deeper `doctor` report and next-step commands.
 
+When `browser.backend = "computer_use"` is configured, `topclaw status` includes a **Desktop** readiness line in the Readiness section:
+- `✅ desktop helpers installed (xdotool, wmctrl, scrot, xdg-open)` — all helpers present
+- `⚠️  missing: xdotool, wmctrl — run topclaw doctor desktop-helpers --install` — some helpers missing
+
+Missing desktop helpers also cause the **Overall** readiness indicator to show `⚠️  action needed` instead of `✅ ready`, ensuring the status accurately reflects whether computer-use automation will work.
+
 Provider connectivity matrix CI/local helper:
 
 - `python3 scripts/ci/provider_connectivity_matrix.py --binary target/release-fast/topclaw --contract .github/connectivity/probe-contract.json`

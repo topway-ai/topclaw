@@ -141,7 +141,9 @@ pub fn print_report(results: &[DiagResult]) {
 pub async fn run_desktop_helpers(config: &Config, install: bool) -> Result<()> {
     if !is_computer_use_backend(config) {
         println!("ℹ️  Desktop automation not configured (browser.backend ≠ computer_use).");
-        println!("   Run `topclaw bootstrap --interactive` and select the desktop-computer-use skill.");
+        println!(
+            "   Run `topclaw bootstrap --interactive` and select the desktop-computer-use skill."
+        );
         return Ok(());
     }
 
@@ -170,9 +172,7 @@ pub async fn run_desktop_helpers(config: &Config, install: bool) -> Result<()> {
             );
         }
     } else {
-        println!(
-            "💡 Run `topclaw doctor desktop-helpers --install` to install automatically,"
-        );
+        println!("💡 Run `topclaw doctor desktop-helpers --install` to install automatically,");
         println!("   or manually: sudo apt-get install xdotool wmctrl scrot xdg-utils");
     }
 
@@ -293,9 +293,10 @@ fn next_step_suggestions(config: &Config, results: &[DiagResult]) -> Vec<String>
                 || item.message.starts_with("heartbeat stale"))
     });
 
-    if results.iter().any(|item| {
-        item.category == "desktop-automation" && item.severity == Severity::Warn
-    }) {
+    if results
+        .iter()
+        .any(|item| item.category == "desktop-automation" && item.severity == Severity::Warn)
+    {
         push_unique(
             &mut suggestions,
             "topclaw doctor desktop-helpers --install".to_string(),
@@ -1198,7 +1199,7 @@ fn check_environment(items: &mut Vec<DiagItem>) {
 
 // ── Desktop automation helpers ───────────────────────────────────
 
-fn is_computer_use_backend(config: &Config) -> bool {
+pub fn is_computer_use_backend(config: &Config) -> bool {
     config.browser.backend == "computer_use" || config.browser.backend == "computer-use"
 }
 
@@ -1212,7 +1213,10 @@ fn check_desktop_helpers(config: &Config, items: &mut Vec<DiagItem>) {
 
     let missing = crate::tools::computer_use::missing_linux_helpers();
     if missing.is_empty() {
-        items.push(DiagItem::ok(cat, "all desktop helpers installed (xdotool, wmctrl, scrot, xdg-open)"));
+        items.push(DiagItem::ok(
+            cat,
+            "all desktop helpers installed (xdotool, wmctrl, scrot, xdg-open)",
+        ));
     } else {
         items.push(DiagItem::warn(
             cat,

@@ -63,10 +63,10 @@ use provider_setup::{
     setup_advanced_custom_provider, setup_simple_named_provider,
 };
 #[cfg(test)]
+use skill_selection::{apply_onboarding_skill_selection_key, default_selected_onboarding_skill};
 use skill_selection::{
-    apply_onboarding_skill_selection_key, default_selected_onboarding_skill,
+    apply_onboarding_skill_tool_defaults, setup_skills, SkillOnboardingSelection,
 };
-use skill_selection::{apply_onboarding_skill_tool_defaults, setup_skills, SkillOnboardingSelection};
 
 // ── SIMPLIFIED WIZARD: 4 Steps for Newbies ───────────────────────
 //
@@ -1437,7 +1437,9 @@ async fn maybe_install_desktop_helpers(skill_selection: &SkillOnboardingSelectio
             print_bullet("You can install them later with: sudo apt-get install xdotool wmctrl scrot xdg-utils");
         }
     } else {
-        print_bullet("Skipped. Install later with: sudo apt-get install xdotool wmctrl scrot xdg-utils");
+        print_bullet(
+            "Skipped. Install later with: sudo apt-get install xdotool wmctrl scrot xdg-utils",
+        );
     }
 }
 
@@ -4357,7 +4359,6 @@ mod tests {
             .to_string()
             .contains("Quick setup only supports default memory backends"));
     }
-
 
     // ── maybe_install_desktop_helpers tests ─────────────────────
 

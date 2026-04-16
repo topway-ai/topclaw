@@ -376,7 +376,11 @@ fn is_headless_linux() -> bool {
 /// Extracted from `build_system_prompt_with_mode` so tests can exercise all
 /// branches (headless / non-headless / tool-present / tool-absent) without
 /// mutating process-global env vars.
-fn append_desktop_automation_section(prompt: &mut String, has_computer_use: bool, headless_linux: bool) {
+fn append_desktop_automation_section(
+    prompt: &mut String,
+    has_computer_use: bool,
+    headless_linux: bool,
+) {
     if has_computer_use {
         prompt.push_str(
             "## Desktop Automation\n\n\
@@ -749,10 +753,8 @@ mod desktop_automation_prompt_tests {
     #[test]
     fn desktop_automation_section_absent_when_no_computer_use_tool() {
         let tmp = TempDir::new().unwrap();
-        let tools: Vec<(&str, &str)> = vec![
-            ("web_fetch", "Fetch web pages"),
-            ("shell", "Run commands"),
-        ];
+        let tools: Vec<(&str, &str)> =
+            vec![("web_fetch", "Fetch web pages"), ("shell", "Run commands")];
         let prompt = build_system_prompt(tmp.path(), "test-model", &tools, &[], None, None);
 
         // The positive routing hints must be absent
@@ -773,9 +775,7 @@ mod desktop_automation_prompt_tests {
     #[test]
     fn desktop_automation_routing_mentions_chrome_and_firefox() {
         let tmp = TempDir::new().unwrap();
-        let tools: Vec<(&str, &str)> = vec![
-            ("computer_use", "Desktop automation tool"),
-        ];
+        let tools: Vec<(&str, &str)> = vec![("computer_use", "Desktop automation tool")];
         let prompt = build_system_prompt(tmp.path(), "test-model", &tools, &[], None, None);
 
         assert!(
@@ -802,7 +802,11 @@ mod desktop_automation_prompt_tests {
     #[test]
     fn headless_warning_when_computer_use_registered_but_no_display() {
         let mut prompt = String::new();
-        append_desktop_automation_section(&mut prompt, /* has_computer_use */ true, /* headless_linux */ true);
+        append_desktop_automation_section(
+            &mut prompt,
+            /* has_computer_use */ true,
+            /* headless_linux */ true,
+        );
 
         assert!(
             prompt.contains("## Desktop Automation"),
@@ -833,7 +837,11 @@ mod desktop_automation_prompt_tests {
     #[test]
     fn headless_not_available_message_when_no_computer_use_and_no_display() {
         let mut prompt = String::new();
-        append_desktop_automation_section(&mut prompt, /* has_computer_use */ false, /* headless_linux */ true);
+        append_desktop_automation_section(
+            &mut prompt,
+            /* has_computer_use */ false,
+            /* headless_linux */ true,
+        );
 
         assert!(
             prompt.contains("## Desktop Automation"),
@@ -864,7 +872,11 @@ mod desktop_automation_prompt_tests {
     #[test]
     fn non_headless_no_headless_caveat_when_computer_use_present() {
         let mut prompt = String::new();
-        append_desktop_automation_section(&mut prompt, /* has_computer_use */ true, /* headless_linux */ false);
+        append_desktop_automation_section(
+            &mut prompt,
+            /* has_computer_use */ true,
+            /* headless_linux */ false,
+        );
 
         assert!(
             prompt.contains("## Desktop Automation"),
@@ -887,7 +899,11 @@ mod desktop_automation_prompt_tests {
     #[test]
     fn nothing_appended_when_no_tool_and_not_headless() {
         let mut prompt = String::new();
-        append_desktop_automation_section(&mut prompt, /* has_computer_use */ false, /* headless_linux */ false);
+        append_desktop_automation_section(
+            &mut prompt,
+            /* has_computer_use */ false,
+            /* headless_linux */ false,
+        );
 
         assert!(
             prompt.is_empty(),

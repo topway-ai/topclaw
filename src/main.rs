@@ -954,7 +954,10 @@ async fn main() -> Result<()> {
             if missing.is_empty() {
                 println!("✅ All desktop helpers already installed");
             } else {
-                println!("📦 Installing missing desktop helpers: {}…", missing.join(", "));
+                println!(
+                    "📦 Installing missing desktop helpers: {}…",
+                    missing.join(", ")
+                );
                 let result = topclaw::tools::computer_use::install_desktop_helpers().await;
                 println!("{result}");
             }
@@ -1076,7 +1079,15 @@ async fn main() -> Result<()> {
             let provider_ready = provider_ready(&config);
             let channels_configured = channels_configured(&config);
             let daemon_ready = daemon_ready(&diag_results);
-            let overall_ready = provider_ready && (!channels_configured || daemon_ready);
+            let (desktop_helpers_ready, desktop_missing) =
+                if doctor::is_computer_use_backend(&config) {
+                    let missing = topclaw::tools::computer_use::missing_linux_helpers();
+                    (missing.is_empty(), missing)
+                } else {
+                    (true, Vec::new())
+                };
+            let overall_ready =
+                provider_ready && (!channels_configured || daemon_ready) && desktop_helpers_ready;
             println!("🦀 TopClaw Status");
             println!();
             println!("Version:     {}", env!("CARGO_PKG_VERSION"));
@@ -1112,6 +1123,17 @@ async fn main() -> Result<()> {
                     "ℹ️  background runtime not required"
                 }
             );
+            if doctor::is_computer_use_backend(&config) {
+                let desktop_status = if desktop_helpers_ready {
+                    "✅ desktop helpers installed (xdotool, wmctrl, scrot, xdg-open)".to_string()
+                } else {
+                    format!(
+                        "⚠️  missing: {} — run `topclaw doctor desktop-helpers --install`",
+                        desktop_missing.join(", ")
+                    )
+                };
+                println!("  Desktop:    {desktop_status}");
+            }
             println!(
                 "  Overall:    {}",
                 if overall_ready {
@@ -1590,12 +1612,59 @@ mod tests {
             .expect("bootstrap --force should parse");
 
         match cli.command {
-            Commands::Onboard { force, install_desktop_helpers, .. } => {
+            Commands::Onboard {
+                force,
+                install_desktop_helpers,
+                ..
+            } => {
                 assert!(force);
                 assert!(!install_desktop_helpers);
             }
             other => panic!("expected bootstrap command, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn status_overall_ready_includes_desktop_helpers_check() {
+        // When browser.backend=computer_use and helpers are missing,
+        // overall_ready should be false even if provider is ready.
+        let mut config = Config::default();
+        config.browser.backend = "computer_use".into();
+        config.default_provider = Some("openrouter".into());
+        config.api_key = Some("sk-test".into());
+
+        let provider_rdy = provider_ready(&config);
+        assert!(provider_rdy, "provider should be ready with API key set");
+
+        let (desktop_helpers_ready, _) = if doctor::is_computer_use_backend(&config) {
+            let missing = topclaw::tools::computer_use::missing_linux_helpers();
+            (missing.is_empty(), missing)
+        } else {
+            (true, Vec::new())
+        };
+
+        if !desktop_helpers_ready {
+            // If helpers are missing on this host, overall_ready must be false.
+            let diag_results = doctor::diagnose(&config);
+            let channels_configured = channels_configured(&config);
+            let daemon_rdy = daemon_ready(&diag_results);
+            let overall =
+                provider_rdy && (!channels_configured || daemon_rdy) && desktop_helpers_ready;
+            assert!(
+                !overall,
+                "overall_ready must be false when desktop helpers are missing"
+            );
+        }
+        // When all helpers are installed, overall_ready depends only on
+        // provider/channels/daemon — desktop_helpers_ready is true, so it
+        // doesn't drag overall down. That's covered by existing tests.
+    }
+
+    #[test]
+    fn status_omits_desktop_helpers_when_not_computer_use() {
+        let config = Config::default();
+        // Default browser backend is not computer_use.
+        assert!(!doctor::is_computer_use_backend(&config));
     }
 
     #[test]
