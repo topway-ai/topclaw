@@ -4,6 +4,18 @@ use serde::{Deserialize, Serialize};
 /// Computer-use sidecar configuration for browser automation.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct BrowserComputerUseConfig {
+    /// Enable the general-purpose `computer_use` tool (launch/focus apps,
+    /// screenshot, click, type). Provider-agnostic — works with any LLM.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Auto-start the sidecar on first tool use when `/health` is unreachable.
+    #[serde(default = "default_true_bool")]
+    pub auto_start: bool,
+    /// Allowlist of binary names or paths the tool may launch via `app_launch`.
+    /// Empty = permit-all at the TopClaw layer (sidecar still enforces its own
+    /// policy).
+    #[serde(default)]
+    pub app_allowlist: Vec<String>,
     /// Sidecar endpoint URL
     #[serde(default = "default_computer_use_endpoint")]
     pub endpoint: String,
@@ -27,6 +39,10 @@ pub struct BrowserComputerUseConfig {
     pub max_coordinate_y: Option<i64>,
 }
 
+const fn default_true_bool() -> bool {
+    true
+}
+
 fn default_computer_use_endpoint() -> String {
     "http://127.0.0.1:8787/v1/actions".into()
 }
@@ -38,6 +54,13 @@ const fn default_computer_use_timeout_ms() -> u64 {
 impl Default for BrowserComputerUseConfig {
     fn default() -> Self {
         Self {
+            // Enabled by default so a fresh TopClaw install can handle
+            // "open $app" / "click" / "take a screenshot" requests without
+            // asking the user to edit config.toml. Actions still flow
+            // through the normal approval + autonomy gates.
+            enabled: true,
+            auto_start: true,
+            app_allowlist: Vec::new(),
             endpoint: default_computer_use_endpoint(),
             api_key: None,
             timeout_ms: default_computer_use_timeout_ms(),
