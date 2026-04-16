@@ -77,12 +77,24 @@ From a clean local checkout synced to `origin/main`:
 scripts/release/cut_release_tag.sh vX.Y.Z --push
 ```
 
+> **⚠️  Tags must be annotated, not lightweight.**
+> The `Pub Release` workflow rejects lightweight tags (exit code 3 from
+> `release_trigger_guard.py`). Always use `git tag -a` or the
+> `cut_release_tag.sh` script (which creates annotated tags).
+> `gh release create` auto-creates a **lightweight** tag — avoid using
+> it to create tags. To publish via `gh`, first push an annotated tag,
+> then run `gh release create` (it will reuse the existing tag).
+>
+> Verify before pushing: `git cat-file -t vX.Y.Z` should output
+> `tag` (not `commit` = lightweight).
+
 This script enforces:
 
 - clean working tree
 - `HEAD == origin/main`
 - non-duplicate tag
 - stable semver tag format (`vX.Y.Z`)
+- annotated tag creation (uses `git tag -a`)
 - when `gh` is available, it waits briefly for a push-triggered `Pub Release` run and dispatches the existing manual publish fallback if no run appears
 
 ### 4) Monitor publish run
@@ -157,6 +169,12 @@ For staged release confidence:
 4. Publish prerelease assets only after guard passes.
 
 ## Emergency / Recovery Path
+
+> **⚠️  When re-pushing a tag after a failed release, always create an
+> annotated tag (`git tag -a` or `git tag -s`).** Lightweight tags created
+> by `gh release create` or `git tag <name>` (without `-a`/`-s`) are
+> rejected by the `Pub Release` guard. Verify with
+> `git cat-file -t <tag>` — it must output `tag`, not `commit`.
 
 If tag-push release fails after artifacts are validated:
 
