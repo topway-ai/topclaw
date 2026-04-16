@@ -26,3 +26,19 @@ Before any write, shell command, deletion, network access, or config change:
 
 This preflight is a required operating discipline, not a substitute for
 external policy enforcement.
+
+## Release Tags Must Be Annotated
+
+The `Pub Release` CI workflow rejects lightweight tags (exit code 3 from
+`release_trigger_guard.py`). When creating or re-pushing a `v*` tag:
+
+- **Always** use `git tag -a <tag> -m "Release <tag>"` or `git tag -s <tag>`.
+- **Never** use `gh release create` to create tags — it auto-pushes a
+  lightweight tag that the guard will reject. If you need `gh release create`,
+  push the annotated tag first; `gh` will reuse the existing tag object.
+- **Verify** before pushing: `git cat-file -t <tag>` must output `tag`,
+  not `commit` (which means lightweight).
+- Prefer `scripts/release/cut_release_tag.sh <tag> --push` which creates
+  annotated tags by default.
+
+Full procedure: [`docs/release-process.md`](docs/release-process.md).
