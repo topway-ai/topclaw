@@ -77,7 +77,6 @@ non_cli_excluded_tools = [
   "shell",
   "file_write",
   "file_edit",
-  "git_operations",
   "browser",
   "browser_open",
   "http_request",

@@ -41,7 +41,6 @@ impl std::str::FromStr for AutonomyLevel {
 #[serde(rename_all = "snake_case")]
 pub enum ShellRedirectPolicy {
     /// Block redirect operators (`<`, `>`, `>>`, etc.) in unquoted shell input.
-    #[default]
     Block,
     /// Strip common LLM-generated stderr/null redirects before validation/execution.
     ///
@@ -52,6 +51,7 @@ pub enum ShellRedirectPolicy {
     /// - `|&` -> `|`
     ///
     /// Other redirect forms remain blocked by command policy.
+    #[default]
     Strip,
     /// Allow redirect operators and normalize supported heredoc patterns that
     /// LLMs commonly emit for local scripting.
@@ -155,7 +155,7 @@ impl Default for SecurityPolicy {
             max_cost_per_day_cents: 500,
             require_approval_for_medium_risk: true,
             block_high_risk_commands: true,
-            shell_redirect_policy: ShellRedirectPolicy::Block,
+            shell_redirect_policy: ShellRedirectPolicy::Strip,
             shell_env_passthrough: vec![],
             otp_gated_actions: HashSet::new(),
             otp_gated_domains: DomainMatcher::default(),
@@ -2121,7 +2121,7 @@ mod tests {
         assert_eq!(p.max_cost_per_day_cents, 500);
         assert!(p.require_approval_for_medium_risk);
         assert!(p.block_high_risk_commands);
-        assert_eq!(p.shell_redirect_policy, ShellRedirectPolicy::Block);
+        assert_eq!(p.shell_redirect_policy, ShellRedirectPolicy::Strip);
         assert!(p.shell_env_passthrough.is_empty());
     }
 

@@ -53,8 +53,83 @@ impl GitOperationsTool {
     fn requires_write_access(&self, operation: &str) -> bool {
         matches!(
             operation,
-            "commit" | "add" | "checkout" | "stash" | "reset" | "revert"
+            "commit" | "add" | "checkout" | "stash" | "reset" | "revert" | "clone"
         )
+    }
+
+    /// Validate that a clone URL uses HTTPS and is not a smuggling vector.
+    fn validate_clone_url(url: &str) -> anyhow::Result<()> {
+        let url = url.trim();
+        if url.is_empty() {
+            anyhow::bail!("Clone URL must not be empty");
+        }
+        // Only allow HTTPS URLs to prevent SSH key leakage and git:// protocol.
+        if !url.starts_with("https://") {
+            anyhow::bail!(
+                "Clone URL must use HTTPS (e.g. https://github.com/org/repo.git). \
+                 SSH and git:// URLs are blocked to prevent credential leakage."
+            );
+        }
+        // Block injection patterns in the URL.
+        if url.contains("$(")
+            || url.contains('`')
+            || url.contains('\0')
+            || url.contains('\n')
+        {
+            anyhow::bail!("Blocked potentially dangerous clone URL");
+        }
+        // Block URLs that contain shell metacharacters or whitespace.
+        // Whitespace in URLs is invalid and would cause git to fail with a
+        // confusing error, so we reject early with a clear message.
+        if url.contains('|')
+            || url.contains(';')
+            || url.contains('&')
+            || url.contains('>')
+            || url.contains('<')
+            || url.contains(' ')
+        {
+            anyhow::bail!("Clone URL contains invalid characters");
+        }
+        Ok(())
+    }
+
+    /// Validate the clone destination directory against security policy.
+    fn validate_clone_destination(&self, dest: &str) -> anyhow::Result<()> {
+        let dest = dest.trim();
+        if dest.is_empty() {
+            anyhow::bail!("Clone destination must not be empty");
+        }
+        // Block path traversal.
+        if dest.contains("..") || dest.contains('\0') {
+            anyhow::bail!("Clone destination contains invalid path components");
+        }
+        // Block shell metacharacters.
+        if dest.contains('$')
+            || dest.contains('`')
+            || dest.contains('|')
+            || dest.contains(';')
+            || dest.contains('&')
+            || dest.contains('>')
+            || dest.contains('<')
+        {
+            anyhow::bail!("Clone destination contains invalid characters");
+        }
+        // Resolve destination relative to workspace_dir.
+        let resolved = if std::path::Path::new(dest).is_absolute() {
+            std::path::PathBuf::from(dest)
+        } else {
+            self.workspace_dir.join(dest)
+        };
+
+        // Check against security policy path rules.
+        if !self.security.is_resolved_path_allowed(&resolved) {
+            anyhow::bail!(
+                "Clone destination blocked by security policy: {}. {}",
+                resolved.display(),
+                self.security.resolved_path_violation_message(&resolved)
+            );
+        }
+        Ok(())
     }
 
     async fn run_git_command(&self, args: &[&str]) -> anyhow::Result<String> {
@@ -413,6 +488,113 @@ impl GitOperationsTool {
             }),
         }
     }
+
+    async fn git_clone(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
+        let url = match args.get("url").and_then(|v| v.as_str()) {
+            Some(u) => u,
+            None => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("Missing 'url' parameter".into()),
+                })
+            }
+        };
+
+        // Validate URL (HTTPS-only, no injection)
+        if let Err(e) = Self::validate_clone_url(url) {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(e.to_string()),
+            });
+        }
+
+        // Determine destination directory
+        let dest = args
+            .get("destination")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        // When no destination is specified, git derives the directory name from the URL
+        // and clones into the current working directory (which is workspace_dir, as set
+        // in run_git_command). This is safe because workspace_dir is already validated
+        // by the security policy at startup. When a destination IS specified, we must
+        // validate it explicitly.
+        if !dest.is_empty() {
+            if let Err(e) = self.validate_clone_destination(dest) {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(e.to_string()),
+                });
+            }
+        }
+
+        // Depth (shallow clone by default for efficiency)
+        let depth = args
+            .get("depth")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1);
+        let depth_str = depth.to_string();
+
+        // Build git clone arguments
+        let mut git_args = vec!["clone", "--depth", &depth_str];
+
+        // Optional branch
+        let branch = args.get("branch").and_then(|v| v.as_str()).unwrap_or("");
+        let branch_sanitized;
+        if !branch.is_empty() {
+            let sanitized = self.sanitize_git_args(branch)?;
+            if sanitized.len() != 1 {
+                anyhow::bail!("Invalid branch specification");
+            }
+            branch_sanitized = sanitized[0].clone();
+            git_args.push("--branch");
+            git_args.push(&branch_sanitized);
+        }
+
+        git_args.push(url);
+
+        // Add destination if specified
+        let dest_owned;
+        if !dest.is_empty() {
+            // Resolve relative paths against workspace_dir
+            if std::path::Path::new(dest).is_absolute() {
+                dest_owned = dest.to_string();
+            } else {
+                dest_owned = self
+                    .workspace_dir
+                    .join(dest)
+                    .to_string_lossy()
+                    .into_owned();
+            }
+            git_args.push(&dest_owned);
+        }
+
+        let output = self.run_git_command(&git_args).await;
+
+        match output {
+            Ok(_) => {
+                let result = serde_json::json!({
+                    "url": url,
+                    "destination": if dest.is_empty() { "(auto-derived from URL)" } else { dest },
+                    "depth": depth,
+                    "branch": if branch.is_empty() { "(default)" } else { branch },
+                });
+                Ok(ToolResult {
+                    success: true,
+                    output: serde_json::to_string_pretty(&result).unwrap_or_default(),
+                    error: None,
+                })
+            }
+            Err(e) => Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("Clone failed: {e}")),
+            }),
+        }
+    }
 }
 
 #[async_trait]
@@ -422,7 +604,7 @@ impl Tool for GitOperationsTool {
     }
 
     fn description(&self) -> &str {
-        "Perform structured Git operations (status, diff, log, branch, commit, add, checkout, stash). Provides parsed JSON output and integrates with security policy for autonomy controls."
+        "Perform structured Git operations (status, diff, log, branch, commit, add, checkout, stash, clone). Provides parsed JSON output and integrates with security policy for autonomy controls. Clone uses HTTPS-only and shallow depth by default."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -431,7 +613,7 @@ impl Tool for GitOperationsTool {
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["status", "diff", "log", "branch", "commit", "add", "checkout", "stash"],
+                    "enum": ["status", "diff", "log", "branch", "commit", "add", "checkout", "stash", "clone"],
                     "description": "Git operation to perform"
                 },
                 "message": {
@@ -444,7 +626,7 @@ impl Tool for GitOperationsTool {
                 },
                 "branch": {
                     "type": "string",
-                    "description": "Branch name (for 'checkout' operation)"
+                    "description": "Branch name. For 'checkout': the branch to switch to. For 'clone': the branch to clone (optional)."
                 },
                 "files": {
                     "type": "string",
@@ -466,6 +648,18 @@ impl Tool for GitOperationsTool {
                 "index": {
                     "type": "integer",
                     "description": "Stash index (for 'stash' with 'drop' action)"
+                },
+                "url": {
+                    "type": "string",
+                    "description": "Repository URL to clone (for 'clone' operation). Must use HTTPS."
+                },
+                "destination": {
+                    "type": "string",
+                    "description": "Target directory for clone (for 'clone' operation). Relative to workspace_dir. Optional — if omitted, git derives the name from the URL."
+                },
+                "depth": {
+                    "type": "integer",
+                    "description": "Clone depth / shallow clone (for 'clone' operation, default: 1)"
                 }
             },
             "required": ["operation"]
@@ -484,25 +678,27 @@ impl Tool for GitOperationsTool {
             }
         };
 
-        // Check if we're in a git repository
-        if !self.workspace_dir.join(".git").exists() {
-            // Try to find .git in parent directories
-            let mut current_dir = self.workspace_dir.as_path();
-            let mut found_git = false;
-            while current_dir.parent().is_some() {
-                if current_dir.join(".git").exists() {
-                    found_git = true;
-                    break;
+        // Check if we're in a git repository (skip for clone — it creates one)
+        if operation != "clone" {
+            if !self.workspace_dir.join(".git").exists() {
+                // Try to find .git in parent directories
+                let mut current_dir = self.workspace_dir.as_path();
+                let mut found_git = false;
+                while current_dir.parent().is_some() {
+                    if current_dir.join(".git").exists() {
+                        found_git = true;
+                        break;
+                    }
+                    current_dir = current_dir.parent().unwrap();
                 }
-                current_dir = current_dir.parent().unwrap();
-            }
 
-            if !found_git {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some("Not in a git repository".into()),
-                });
+                if !found_git {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some("Not in a git repository".into()),
+                    });
+                }
             }
         }
 
@@ -549,6 +745,7 @@ impl Tool for GitOperationsTool {
             "add" => self.git_add(args).await,
             "checkout" => self.git_checkout(args).await,
             "stash" => self.git_stash(args).await,
+            "clone" => self.git_clone(args).await,
             _ => Ok(ToolResult {
                 success: false,
                 output: String::new(),
@@ -652,6 +849,7 @@ mod tests {
         assert!(tool.requires_write_access("commit"));
         assert!(tool.requires_write_access("add"));
         assert!(tool.requires_write_access("checkout"));
+        assert!(tool.requires_write_access("clone"));
 
         assert!(!tool.requires_write_access("status"));
         assert!(!tool.requires_write_access("diff"));
@@ -786,5 +984,179 @@ mod tests {
         let truncated = GitOperationsTool::truncate_commit_message(&long);
 
         assert_eq!(truncated.chars().count(), 2000);
+    }
+
+    // ── Clone URL validation ────────────────────────────────────
+
+    #[test]
+    fn clone_url_accepts_https() {
+        assert!(GitOperationsTool::validate_clone_url("https://github.com/org/repo.git").is_ok());
+        assert!(GitOperationsTool::validate_clone_url("https://gitlab.com/user/project.git").is_ok());
+    }
+
+    #[test]
+    fn clone_url_rejects_ssh() {
+        let err = GitOperationsTool::validate_clone_url("git@github.com:org/repo.git").unwrap_err();
+        assert!(err.to_string().contains("HTTPS"));
+    }
+
+    #[test]
+    fn clone_url_rejects_git_protocol() {
+        let err = GitOperationsTool::validate_clone_url("git://github.com/org/repo.git").unwrap_err();
+        assert!(err.to_string().contains("HTTPS"));
+    }
+
+    #[test]
+    fn clone_url_rejects_http() {
+        let err = GitOperationsTool::validate_clone_url("http://github.com/org/repo.git").unwrap_err();
+        assert!(err.to_string().contains("HTTPS"));
+    }
+
+    #[test]
+    fn clone_url_rejects_command_injection() {
+        assert!(GitOperationsTool::validate_clone_url("https://evil.com/$(rm -rf /)").is_err());
+        assert!(GitOperationsTool::validate_clone_url("https://evil.com/`whoami`").is_err());
+        assert!(GitOperationsTool::validate_clone_url("https://evil.com/repo.git; rm -rf /").is_err());
+        assert!(GitOperationsTool::validate_clone_url("https://evil.com/repo.git | cat").is_err());
+        assert!(GitOperationsTool::validate_clone_url("https://evil.com/repo.git&whoami").is_err());
+    }
+
+    #[test]
+    fn clone_url_rejects_empty() {
+        assert!(GitOperationsTool::validate_clone_url("").is_err());
+    }
+
+    // ── Clone destination validation ─────────────────────────────
+
+    #[test]
+    fn clone_destination_rejects_traversal() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Full,
+            workspace_dir: tmp.path().to_path_buf(),
+            ..SecurityPolicy::default()
+        });
+        let tool = GitOperationsTool::new(security, tmp.path().to_path_buf());
+
+        assert!(tool.validate_clone_destination("../../etc/evil").is_err());
+        assert!(tool.validate_clone_destination("../outside").is_err());
+    }
+
+    #[test]
+    fn clone_destination_rejects_shell_metacharacters() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Full,
+            workspace_dir: tmp.path().to_path_buf(),
+            ..SecurityPolicy::default()
+        });
+        let tool = GitOperationsTool::new(security, tmp.path().to_path_buf());
+
+        assert!(tool.validate_clone_destination("repo$(whoami)").is_err());
+        assert!(tool.validate_clone_destination("repo`evil`").is_err());
+        assert!(tool.validate_clone_destination("repo;evil").is_err());
+        assert!(tool.validate_clone_destination("repo|evil").is_err());
+    }
+
+    #[test]
+    fn clone_destination_rejects_empty() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Full,
+            workspace_dir: tmp.path().to_path_buf(),
+            ..SecurityPolicy::default()
+        });
+        let tool = GitOperationsTool::new(security, tmp.path().to_path_buf());
+
+        assert!(tool.validate_clone_destination("").is_err());
+        assert!(tool.validate_clone_destination("  ").is_err());
+    }
+
+    #[test]
+    fn clone_destination_accepts_safe_relative() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Full,
+            workspace_dir: tmp.path().to_path_buf(),
+            ..SecurityPolicy::default()
+        });
+        let tool = GitOperationsTool::new(security, tmp.path().to_path_buf());
+
+        assert!(tool.validate_clone_destination("my-repo").is_ok());
+        assert!(tool.validate_clone_destination("projects/my-repo").is_ok());
+    }
+
+    #[test]
+    fn clone_destination_rejects_forbidden_path() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Full,
+            workspace_dir: tmp.path().to_path_buf(),
+            ..SecurityPolicy::default()
+        });
+        let tool = GitOperationsTool::new(security, tmp.path().to_path_buf());
+
+        // /etc is in default forbidden_paths and workspace_only=true blocks absolute paths
+        assert!(tool.validate_clone_destination("/etc/evil-repo").is_err());
+        assert!(tool.validate_clone_destination("/tmp/evil-repo").is_err());
+    }
+
+    #[tokio::test]
+    async fn clone_is_write_gated() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::ReadOnly,
+            ..SecurityPolicy::default()
+        });
+        let tool = GitOperationsTool::new(security, tmp.path().to_path_buf());
+
+        let result = tool
+            .execute(json!({"operation": "clone", "url": "https://github.com/org/repo.git"}))
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("higher autonomy"));
+    }
+
+    #[tokio::test]
+    async fn clone_rejects_missing_url() {
+        let tmp = TempDir::new().unwrap();
+        // Need a git repo for the non-clone check to pass
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+        let tool = test_tool(tmp.path());
+
+        let result = tool.execute(json!({"operation": "clone"})).await.unwrap();
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("Missing 'url'"));
+    }
+
+    #[tokio::test]
+    async fn clone_rejects_non_https_url() {
+        let tmp = TempDir::new().unwrap();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+        let tool = test_tool(tmp.path());
+
+        let result = tool
+            .execute(json!({"operation": "clone", "url": "git@github.com:org/repo.git"}))
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(result.error.as_deref().unwrap_or("").contains("HTTPS"));
     }
 }

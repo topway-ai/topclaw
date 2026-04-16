@@ -147,7 +147,7 @@ impl Default for AutonomyConfig {
             max_cost_per_day_cents: 500,
             require_approval_for_medium_risk: true,
             block_high_risk_commands: true,
-            shell_redirect_policy: ShellRedirectPolicy::Block,
+            shell_redirect_policy: ShellRedirectPolicy::Strip,
             shell_env_passthrough: vec![],
             auto_approve: default_auto_approve(),
             always_ask: default_always_ask(),

@@ -1801,7 +1801,7 @@ mod tests {
         assert_eq!(a.max_cost_per_day_cents, 500);
         assert!(a.require_approval_for_medium_risk);
         assert!(a.block_high_risk_commands);
-        assert_eq!(a.shell_redirect_policy, ShellRedirectPolicy::Block);
+        assert_eq!(a.shell_redirect_policy, ShellRedirectPolicy::Strip);
         assert!(a.shell_env_passthrough.is_empty());
         assert_eq!(
             a.non_cli_excluded_tools,
@@ -1828,7 +1828,7 @@ always_ask = []
         allowed_roots = []
 "#;
         let parsed: AutonomyConfig = toml::from_str(raw).unwrap();
-        assert_eq!(parsed.shell_redirect_policy, ShellRedirectPolicy::Block);
+        assert_eq!(parsed.shell_redirect_policy, ShellRedirectPolicy::Strip);
         assert_eq!(
             parsed.non_cli_excluded_tools,
             default_non_cli_excluded_tools()
