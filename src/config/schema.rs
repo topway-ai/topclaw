@@ -3117,6 +3117,9 @@ default_temperature = 0.7
         assert!(b.computer_use.window_allowlist.is_empty());
         assert!(b.computer_use.max_coordinate_x.is_none());
         assert!(b.computer_use.max_coordinate_y.is_none());
+        assert!(!b.computer_use.enabled);
+        assert!(b.computer_use.auto_start);
+        assert!(b.computer_use.app_allowlist.is_empty());
     }
 
     #[test]
@@ -3131,6 +3134,9 @@ default_temperature = 0.7
             native_webdriver_url: "http://localhost:4444".into(),
             native_chrome_path: Some("/usr/bin/chromium".into()),
             computer_use: BrowserComputerUseConfig {
+                enabled: true,
+                auto_start: false,
+                app_allowlist: vec!["google-chrome".into()],
                 endpoint: "https://computer-use.example.com/v1/actions".into(),
                 api_key: Some("test-token".into()),
                 timeout_ms: 8_000,
@@ -3143,6 +3149,9 @@ default_temperature = 0.7
         let toml_str = toml::to_string(&b).unwrap();
         let parsed: BrowserConfig = toml::from_str(&toml_str).unwrap();
         assert!(parsed.enabled);
+        assert!(parsed.computer_use.enabled);
+        assert!(!parsed.computer_use.auto_start);
+        assert_eq!(parsed.computer_use.app_allowlist, vec!["google-chrome"]);
         assert_eq!(parsed.allowed_domains.len(), 2);
         assert_eq!(parsed.allowed_domains[0], "example.com");
         assert_eq!(parsed.backend, "auto");

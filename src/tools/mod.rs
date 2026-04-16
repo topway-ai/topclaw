@@ -28,6 +28,8 @@ pub mod cli_discovery;
 #[cfg(feature = "tool-composio")]
 pub mod composio;
 #[cfg(feature = "computer-use-sidecar")]
+pub mod computer_use;
+#[cfg(feature = "computer-use-sidecar")]
 pub mod computer_use_sidecar_start;
 pub mod config_grant_browser_domain;
 pub mod config_patch;
@@ -80,6 +82,8 @@ pub use browser::{BrowserTool, ComputerUseConfig};
 pub use browser_open::BrowserOpenTool;
 #[cfg(feature = "tool-composio")]
 pub use composio::ComposioTool;
+#[cfg(feature = "computer-use-sidecar")]
+pub use computer_use::ComputerUseTool;
 #[cfg(feature = "computer-use-sidecar")]
 pub use computer_use_sidecar_start::ComputerUseSidecarStartTool;
 pub use config_grant_browser_domain::ConfigGrantBrowserDomainTool;
@@ -492,6 +496,19 @@ fn build_tools_with_runtime(
                 },
             )));
         }
+    }
+
+    // General-purpose computer-use tool. Works with any LLM that supports
+    // function calling. Registered independently of `browser.enabled` because
+    // desktop automation is not tied to the browser URL surface.
+    #[cfg(feature = "computer-use-sidecar")]
+    if browser_config.computer_use.enabled {
+        tool_arcs.push(Arc::new(ComputerUseTool::new(
+            security.clone(),
+            browser_config.computer_use.clone(),
+            topclaw_dir.clone(),
+            browser_config.session_name.clone(),
+        )));
     }
 
     if http_config.enabled {
