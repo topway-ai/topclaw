@@ -82,6 +82,7 @@ pub fn diagnose(config: &Config) -> Vec<DiagResult> {
     check_daemon_state(config, &mut items);
     check_environment(&mut items);
     check_cli_tools(&mut items);
+    check_desktop_helpers(config, &mut items);
 
     items.into_iter().map(DiagItem::into_result).collect()
 }
@@ -134,6 +135,48 @@ pub fn print_report(results: &[DiagResult]) {
         };
         println!("    {} {}", icon, item.message);
     }
+}
+
+/// Check or install desktop automation helpers (xdotool, wmctrl, scrot, xdg-open).
+pub async fn run_desktop_helpers(config: &Config, install: bool) -> Result<()> {
+    if !is_computer_use_backend(config) {
+        println!("ℹ️  Desktop automation not configured (browser.backend ≠ computer_use).");
+        println!("   Run `topclaw bootstrap --interactive` and select the desktop-computer-use skill.");
+        return Ok(());
+    }
+
+    let missing = crate::tools::computer_use::missing_linux_helpers();
+
+    if missing.is_empty() {
+        println!("✅ All desktop helpers installed (xdotool, wmctrl, scrot, xdg-open)");
+        return Ok(());
+    }
+
+    println!("⚠️  Missing desktop helpers: {}", missing.join(", "));
+
+    if install {
+        println!("📦 Installing missing desktop helpers…");
+        let result = crate::tools::computer_use::install_desktop_helpers().await;
+        println!("{result}");
+
+        // Re-check after install attempt
+        let still_missing = crate::tools::computer_use::missing_linux_helpers();
+        if still_missing.is_empty() {
+            println!("✅ All desktop helpers now installed");
+        } else {
+            println!(
+                "⚠️  Still missing: {} — try manually: sudo apt-get install xdotool wmctrl scrot xdg-utils",
+                still_missing.join(", ")
+            );
+        }
+    } else {
+        println!(
+            "💡 Run `topclaw doctor desktop-helpers --install` to install automatically,"
+        );
+        println!("   or manually: sudo apt-get install xdotool wmctrl scrot xdg-utils");
+    }
+
+    Ok(())
 }
 
 pub fn print_next_step_suggestions(config: &Config, results: &[DiagResult]) {
@@ -249,6 +292,15 @@ fn next_step_suggestions(config: &Config, results: &[DiagResult]) -> Vec<String>
             && (item.message.starts_with("state file not found:")
                 || item.message.starts_with("heartbeat stale"))
     });
+
+    if results.iter().any(|item| {
+        item.category == "desktop-automation" && item.severity == Severity::Warn
+    }) {
+        push_unique(
+            &mut suggestions,
+            "topclaw doctor desktop-helpers --install".to_string(),
+        );
+    }
 
     if channels_configured && daemon_unhealthy {
         push_unique(&mut suggestions, "topclaw service status".to_string());
@@ -1144,6 +1196,34 @@ fn check_environment(items: &mut Vec<DiagItem>) {
     check_command_available("curl", &["--version"], cat, items);
 }
 
+// ── Desktop automation helpers ───────────────────────────────────
+
+fn is_computer_use_backend(config: &Config) -> bool {
+    config.browser.backend == "computer_use" || config.browser.backend == "computer-use"
+}
+
+fn check_desktop_helpers(config: &Config, items: &mut Vec<DiagItem>) {
+    let cat = "desktop-automation";
+
+    // Only check if the user has computer-use configured.
+    if !is_computer_use_backend(config) {
+        return;
+    }
+
+    let missing = crate::tools::computer_use::missing_linux_helpers();
+    if missing.is_empty() {
+        items.push(DiagItem::ok(cat, "all desktop helpers installed (xdotool, wmctrl, scrot, xdg-open)"));
+    } else {
+        items.push(DiagItem::warn(
+            cat,
+            format!(
+                "missing desktop helpers: {} — run `topclaw doctor desktop-helpers --install` or `topclaw bootstrap --interactive`",
+                missing.join(", ")
+            ),
+        ));
+    }
+}
+
 fn check_cli_tools(items: &mut Vec<DiagItem>) {
     let cat = "cli-tools";
 
@@ -1578,6 +1658,67 @@ mod tests {
         });
         assert!(route_item.is_some());
         assert_eq!(route_item.unwrap().severity, Severity::Warn);
+    }
+
+    #[test]
+    fn desktop_helpers_check_skips_when_no_computer_use_backend() {
+        let config = Config::default();
+        let mut items = Vec::new();
+        check_desktop_helpers(&config, &mut items);
+        // Default browser backend is not computer_use, so no items should be emitted.
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn desktop_helpers_check_reports_ok_when_all_installed() {
+        // Guard: skip on Linux hosts where helpers are actually missing,
+        // because we can't control the host environment in unit tests.
+        if !crate::tools::computer_use::missing_linux_helpers().is_empty() {
+            return;
+        }
+        let mut config = Config::default();
+        config.browser.backend = "computer_use".into();
+        let mut items = Vec::new();
+        check_desktop_helpers(&config, &mut items);
+        assert!(!items.is_empty());
+        assert_eq!(items[0].severity, Severity::Ok);
+        assert!(items[0].message.contains("desktop helpers installed"));
+    }
+
+    #[tokio::test]
+    async fn run_desktop_helpers_reports_not_configured_when_no_computer_use() {
+        // Default config has browser.backend != computer_use, so it should
+        // print the "not configured" message and return Ok.
+        let config = Config::default();
+        let result = run_desktop_helpers(&config, false).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn run_desktop_helpers_reports_all_installed_when_configured() {
+        // Guard: skip on Linux hosts where helpers are actually missing.
+        if !crate::tools::computer_use::missing_linux_helpers().is_empty() {
+            return;
+        }
+        let mut config = Config::default();
+        config.browser.backend = "computer_use".into();
+        // install=false should print the check result without attempting install.
+        let result = run_desktop_helpers(&config, false).await;
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn next_step_suggests_desktop_helpers_install_when_missing() {
+        let mut config = Config::default();
+        config.browser.backend = "computer_use".into();
+        // Build results that include a desktop-automation warning
+        let results = vec![DiagResult {
+            severity: Severity::Warn,
+            category: "desktop-automation".into(),
+            message: "missing desktop helpers: xdotool".into(),
+        }];
+        let suggestions = next_step_suggestions(&config, &results);
+        assert!(suggestions.contains(&"topclaw doctor desktop-helpers --install".to_string()));
     }
 
     #[test]

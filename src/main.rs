@@ -802,6 +802,13 @@ enum DoctorCommands {
         #[arg(long)]
         use_cache: bool,
     },
+    /// Check or install desktop automation helpers (xdotool, wmctrl, scrot, xdg-open)
+    DesktopHelpers {
+        /// Attempt to install missing desktop helpers via the system package manager
+        #[arg(long)]
+        install: bool,
+    },
+
     /// Query runtime trace events (tool diagnostics and model replies)
     Traces {
         /// Show a specific trace event by id
@@ -1332,6 +1339,9 @@ async fn main() -> Result<()> {
                 all_providers,
                 use_cache,
             }) => doctor::run_models(&config, provider.as_deref(), all_providers, use_cache).await,
+            Some(DoctorCommands::DesktopHelpers { install }) => {
+                doctor::run_desktop_helpers(&config, install).await
+            }
             Some(DoctorCommands::Traces {
                 id,
                 event,
@@ -1575,6 +1585,32 @@ mod tests {
         match cli.command {
             Commands::Doctor { .. } => {}
             other => panic!("expected doctor command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn doctor_cli_parses_desktop_helpers_without_install() {
+        let cli = Cli::try_parse_from(["topclaw", "doctor", "desktop-helpers"])
+            .expect("doctor desktop-helpers should parse");
+
+        match cli.command {
+            Commands::Doctor {
+                doctor_command: Some(DoctorCommands::DesktopHelpers { install }),
+            } => assert!(!install),
+            other => panic!("expected doctor desktop-helpers command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn doctor_cli_parses_desktop_helpers_with_install() {
+        let cli = Cli::try_parse_from(["topclaw", "doctor", "desktop-helpers", "--install"])
+            .expect("doctor desktop-helpers --install should parse");
+
+        match cli.command {
+            Commands::Doctor {
+                doctor_command: Some(DoctorCommands::DesktopHelpers { install }),
+            } => assert!(install),
+            other => panic!("expected doctor desktop-helpers --install command, got {other:?}"),
         }
     }
 
