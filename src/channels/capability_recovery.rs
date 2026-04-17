@@ -1,7 +1,7 @@
 use super::capability_detection::{
-    extract_json_object, looks_like_file_read_task, looks_like_file_write_task,
-    looks_like_remote_repo_review_request, looks_like_shell_task, looks_like_web_task,
-    should_try_llm_capability_recovery,
+    extract_json_object, looks_like_desktop_computer_use_task, looks_like_file_read_task,
+    looks_like_file_write_task, looks_like_remote_repo_review_request, looks_like_shell_task,
+    looks_like_web_task, should_try_llm_capability_recovery,
 };
 use super::runtime_helpers::exclusion_set;
 use super::{traits, ChannelRuntimeContext};
@@ -14,6 +14,7 @@ use std::collections::HashSet;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(clippy::enum_variant_names)]
 pub(super) enum CapabilityRecoveryKind {
+    DesktopAccess,
     WebAccess,
     ShellAccess,
     FileReadAccess,
@@ -212,6 +213,20 @@ pub(super) fn infer_capability_recovery_plan(
         return None;
     }
 
+    if looks_like_desktop_computer_use_task(&msg.content) {
+        return create_capability_recovery_plan(
+            ctx,
+            msg,
+            excluded_tools,
+            CapabilityRecoveryKind::DesktopAccess,
+            &[CapabilityToolCandidate {
+                tool_name: "computer_use",
+                setup_hint: "I can’t drive the visible desktop from this chat right now.\nEnable `computer_use` for channel use, or switch to the local workspace flow.",
+            }],
+            "user request appears to require OS-level desktop automation in a non-CLI channel",
+        );
+    }
+
     if looks_like_web_task(&msg.content) {
         // Repo-review prompts often include a remote origin URL even when the
         // local workspace is the authoritative source. More broadly, when no
@@ -305,6 +320,7 @@ pub(super) fn infer_capability_recovery_plan(
 
 fn map_tool_to_capability_kind(tool_name: &str) -> Option<CapabilityRecoveryKind> {
     match tool_name {
+        "computer_use" => Some(CapabilityRecoveryKind::DesktopAccess),
         "web_fetch" | "web_search_tool" | "http_request" | "browser" => {
             Some(CapabilityRecoveryKind::WebAccess)
         }

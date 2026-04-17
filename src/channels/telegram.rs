@@ -24,7 +24,7 @@ const TELEGRAM_STARTUP_PROBE_MAX_409_RETRIES: u32 = 6;
 const TELEGRAM_NATIVE_DRAFT_PREFIX: &str = "telegram-draft:";
 const TELEGRAM_INBOUND_COMMAND_DEDUPE_WINDOW: Duration = Duration::from_secs(2);
 
-/// Metadata for an incoming document or photo attachment.
+/// Metadata for an incoming document, photo, or audio attachment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct IncomingAttachment {
     file_id: String,
@@ -34,11 +34,12 @@ struct IncomingAttachment {
     kind: IncomingAttachmentKind,
 }
 
-/// The kind of incoming attachment (document vs photo).
+/// The kind of incoming attachment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum IncomingAttachmentKind {
     Document,
     Photo,
+    Audio,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -188,7 +189,8 @@ fn is_image_extension(path: &Path) -> bool {
 ///
 /// Photos and Documents with a recognized image extension use `[IMAGE:/path]`
 /// so the multimodal pipeline can validate vision capability and send them
-/// as proper image content blocks. Non-image files use `[Document: name] /path`.
+/// as proper image content blocks. Audio files use `[Audio: name] /path`.
+/// Other non-image files use `[Document: name] /path`.
 fn format_attachment_content(
     kind: IncomingAttachmentKind,
     local_filename: &str,
@@ -199,6 +201,9 @@ fn format_attachment_content(
             if is_image_extension(local_path) =>
         {
             format!("[IMAGE:{}]", local_path.display())
+        }
+        IncomingAttachmentKind::Audio => {
+            format!("[Audio: {local_filename}] {}", local_path.display())
         }
         _ => {
             format!("[Document: {}] {}", local_filename, local_path.display())
@@ -354,6 +359,40 @@ fn infer_attachment_kind_from_target(target: &str) -> Option<TelegramAttachmentK
         "pdf" | "txt" | "md" | "csv" | "json" | "zip" | "tar" | "gz" | "doc" | "docx" | "xls"
         | "xlsx" | "ppt" | "pptx" => Some(TelegramAttachmentKind::Document),
         _ => None,
+    }
+}
+
+fn infer_incoming_attachment_kind(
+    file_name: Option<&str>,
+    mime_type: Option<&str>,
+) -> IncomingAttachmentKind {
+    let mime_is_audio = mime_type
+        .map(str::trim)
+        .is_some_and(|mime| mime.to_ascii_lowercase().starts_with("audio/"));
+    if mime_is_audio {
+        return IncomingAttachmentKind::Audio;
+    }
+
+    let file_is_audio = file_name
+        .and_then(infer_attachment_kind_from_target)
+        .is_some_and(|kind| {
+            matches!(
+                kind,
+                TelegramAttachmentKind::Audio | TelegramAttachmentKind::Voice
+            )
+        });
+    if file_is_audio {
+        return IncomingAttachmentKind::Audio;
+    }
+
+    IncomingAttachmentKind::Document
+}
+
+fn default_generated_attachment_extension(kind: IncomingAttachmentKind) -> &'static str {
+    match kind {
+        IncomingAttachmentKind::Document => "bin",
+        IncomingAttachmentKind::Photo => "jpg",
+        IncomingAttachmentKind::Audio => "mp3",
     }
 }
 
@@ -1338,9 +1377,9 @@ Allowlist Telegram username (without '@') or numeric user ID.",
         }
     }
 
-    /// Extract attachment metadata from an incoming Telegram message (document or photo).
+    /// Extract attachment metadata from an incoming Telegram message.
     ///
-    /// Returns `None` for text-only, voice, and other unsupported message types.
+    /// Returns `None` for text-only and other unsupported message types.
     fn parse_attachment_metadata(message: &serde_json::Value) -> Option<IncomingAttachment> {
         // Try document first
         if let Some(doc) = message.get("document") {
@@ -1349,7 +1388,30 @@ Allowlist Telegram username (without '@') or numeric user ID.",
                 .get("file_name")
                 .and_then(serde_json::Value::as_str)
                 .map(String::from);
+            let mime_type = doc.get("mime_type").and_then(serde_json::Value::as_str);
             let file_size = doc.get("file_size").and_then(serde_json::Value::as_u64);
+            let caption = message
+                .get("caption")
+                .and_then(serde_json::Value::as_str)
+                .map(String::from);
+            let kind = infer_incoming_attachment_kind(file_name.as_deref(), mime_type);
+            return Some(IncomingAttachment {
+                file_id,
+                file_name,
+                file_size,
+                caption,
+                kind,
+            });
+        }
+
+        // Try audio / music uploads.
+        if let Some(audio) = message.get("audio") {
+            let file_id = audio.get("file_id")?.as_str()?.to_string();
+            let file_name = audio
+                .get("file_name")
+                .and_then(serde_json::Value::as_str)
+                .map(String::from);
+            let file_size = audio.get("file_size").and_then(serde_json::Value::as_u64);
             let caption = message
                 .get("caption")
                 .and_then(serde_json::Value::as_str)
@@ -1359,7 +1421,24 @@ Allowlist Telegram username (without '@') or numeric user ID.",
                 file_name,
                 file_size,
                 caption,
-                kind: IncomingAttachmentKind::Document,
+                kind: IncomingAttachmentKind::Audio,
+            });
+        }
+
+        // Try voice notes when transcription is unavailable or fails.
+        if let Some(voice) = message.get("voice") {
+            let file_id = voice.get("file_id")?.as_str()?.to_string();
+            let file_size = voice.get("file_size").and_then(serde_json::Value::as_u64);
+            let caption = message
+                .get("caption")
+                .and_then(serde_json::Value::as_str)
+                .map(String::from);
+            return Some(IncomingAttachment {
+                file_id,
+                file_name: None,
+                file_size,
+                caption,
+                kind: IncomingAttachmentKind::Audio,
             });
         }
 
@@ -1384,7 +1463,7 @@ Allowlist Telegram username (without '@') or numeric user ID.",
         None
     }
 
-    /// Attempt to parse a Telegram update as a document/photo attachment.
+    /// Attempt to parse a Telegram update as a document/photo/audio attachment.
     ///
     /// Downloads the file to `{workspace_dir}/telegram_files/` and returns a
     /// `ChannelMessage` with the local file path. Returns `None` if the message
@@ -1499,10 +1578,21 @@ Allowlist Telegram username (without '@') or numeric user ID.",
             Some(name) => sanitize_attachment_filename(name)
                 .unwrap_or_else(|| format!("attachment_{chat_id}_{message_id}.bin")),
             None => {
-                // For photos, derive extension from Telegram file path
-                let ext =
-                    sanitize_generated_extension(tg_file_path.rsplit('.').next().unwrap_or("jpg"));
-                format!("photo_{chat_id}_{message_id}.{ext}")
+                let default_ext = default_generated_attachment_extension(attachment.kind);
+                let ext = sanitize_generated_extension(
+                    tg_file_path.rsplit('.').next().unwrap_or(default_ext),
+                );
+                match attachment.kind {
+                    IncomingAttachmentKind::Photo => {
+                        format!("photo_{chat_id}_{message_id}.{ext}")
+                    }
+                    IncomingAttachmentKind::Audio => {
+                        format!("audio_{chat_id}_{message_id}.{ext}")
+                    }
+                    IncomingAttachmentKind::Document => {
+                        format!("attachment_{chat_id}_{message_id}.{ext}")
+                    }
+                }
             }
         };
 
@@ -4215,6 +4305,46 @@ mod tests {
 
     // ── IncomingAttachment / parse_attachment_metadata tests ─────────
 
+    #[test]
+    fn parse_attachment_metadata_detects_audio_uploads() {
+        let message = serde_json::json!({
+            "audio": {
+                "file_id": "audio123",
+                "file_name": "recording.m4a",
+                "file_size": 1234
+            },
+            "caption": "Are you able to read this file?"
+        });
+
+        let attachment =
+            TelegramChannel::parse_attachment_metadata(&message).expect("audio should parse");
+
+        assert_eq!(attachment.kind, IncomingAttachmentKind::Audio);
+        assert_eq!(attachment.file_name.as_deref(), Some("recording.m4a"));
+        assert_eq!(
+            attachment.caption.as_deref(),
+            Some("Are you able to read this file?")
+        );
+    }
+
+    #[test]
+    fn parse_attachment_metadata_detects_audio_documents() {
+        let message = serde_json::json!({
+            "document": {
+                "file_id": "doc123",
+                "file_name": "recording.m4a",
+                "file_size": 1234,
+                "mime_type": "audio/x-m4a"
+            }
+        });
+
+        let attachment = TelegramChannel::parse_attachment_metadata(&message)
+            .expect("audio document should parse");
+
+        assert_eq!(attachment.kind, IncomingAttachmentKind::Audio);
+        assert_eq!(attachment.file_name.as_deref(), Some("recording.m4a"));
+    }
+
     // ── Attachment content format tests ──────────────────────────────
 
     /// Photo attachments with image extension must use `[IMAGE:/path]` marker
@@ -4230,6 +4360,22 @@ mod tests {
         assert_eq!(content, "[IMAGE:/tmp/workspace/photo_123_45.jpg]");
         assert!(content.starts_with("[IMAGE:"));
         assert!(content.ends_with(']'));
+    }
+
+    #[test]
+    fn attachment_audio_content_uses_audio_marker() {
+        let local_path = std::path::Path::new("/tmp/workspace/recording.m4a");
+        let local_filename = "recording.m4a";
+
+        let content =
+            format_attachment_content(IncomingAttachmentKind::Audio, local_filename, local_path);
+
+        assert_eq!(
+            content,
+            "[Audio: recording.m4a] /tmp/workspace/recording.m4a"
+        );
+        assert!(content.starts_with("[Audio:"));
+        assert!(content.contains("/tmp/workspace/recording.m4a"));
     }
 
     /// `is_image_extension` helper recognizes image formats and rejects others.
@@ -4337,6 +4483,21 @@ mod tests {
             crate::multimodal::count_image_markers(&md_msgs),
             0,
             "markdown file must not trigger image marker detection"
+        );
+
+        // ── Audio attachment ─────────────────────────────────────────
+        let audio_filename = "recording.m4a";
+        let audio_path = workspace.path().join(audio_filename);
+        std::fs::write(&audio_path, b"fake m4a payload").expect("write audio fixture");
+        let audio_content =
+            format_attachment_content(IncomingAttachmentKind::Audio, audio_filename, &audio_path);
+        assert!(
+            audio_content.starts_with("[Audio: recording.m4a]"),
+            "audio must use [Audio: name] marker: {audio_content}"
+        );
+        assert!(
+            audio_content.contains(audio_path.to_string_lossy().as_ref()),
+            "audio path must be present in content: {audio_content}"
         );
     }
 
