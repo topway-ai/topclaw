@@ -82,6 +82,7 @@ pub fn diagnose(config: &Config) -> Vec<DiagResult> {
     check_daemon_state(config, &mut items);
     check_environment(&mut items);
     check_cli_tools(&mut items);
+    #[cfg(feature = "computer-use-sidecar")]
     check_desktop_helpers(config, &mut items);
 
     items.into_iter().map(DiagItem::into_result).collect()
@@ -138,6 +139,7 @@ pub fn print_report(results: &[DiagResult]) {
 }
 
 /// Check or install desktop automation helpers (xdotool, wmctrl, scrot, xdg-open).
+#[cfg(feature = "computer-use-sidecar")]
 pub async fn run_desktop_helpers(config: &Config, install: bool) -> Result<()> {
     if !is_computer_use_backend(config) {
         println!("ℹ️  Desktop automation not configured (browser.backend ≠ computer_use).");
@@ -293,6 +295,7 @@ fn next_step_suggestions(config: &Config, results: &[DiagResult]) -> Vec<String>
                 || item.message.starts_with("heartbeat stale"))
     });
 
+    #[cfg(feature = "computer-use-sidecar")]
     if results
         .iter()
         .any(|item| item.category == "desktop-automation" && item.severity == Severity::Warn)
@@ -1203,6 +1206,7 @@ pub fn is_computer_use_backend(config: &Config) -> bool {
     config.browser.backend == "computer_use" || config.browser.backend == "computer-use"
 }
 
+#[cfg(feature = "computer-use-sidecar")]
 fn check_desktop_helpers(config: &Config, items: &mut Vec<DiagItem>) {
     let cat = "desktop-automation";
 
@@ -1665,6 +1669,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "computer-use-sidecar")]
     fn desktop_helpers_check_skips_when_no_computer_use_backend() {
         let config = Config::default();
         let mut items = Vec::new();
@@ -1674,6 +1679,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "computer-use-sidecar")]
     fn desktop_helpers_check_reports_ok_when_all_installed() {
         // Guard: skip on Linux hosts where helpers are actually missing,
         // because we can't control the host environment in unit tests.
@@ -1690,6 +1696,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "computer-use-sidecar")]
     async fn run_desktop_helpers_reports_not_configured_when_no_computer_use() {
         // Default config has browser.backend != computer_use, so it should
         // print the "not configured" message and return Ok.
@@ -1699,6 +1706,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "computer-use-sidecar")]
     async fn run_desktop_helpers_reports_all_installed_when_configured() {
         // Guard: skip on Linux hosts where helpers are actually missing.
         if !crate::tools::computer_use::missing_linux_helpers().is_empty() {
@@ -1712,6 +1720,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "computer-use-sidecar")]
     fn next_step_suggests_desktop_helpers_install_when_missing() {
         let mut config = Config::default();
         config.browser.backend = "computer_use".into();

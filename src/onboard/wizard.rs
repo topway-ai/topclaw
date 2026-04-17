@@ -249,6 +249,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
     // If the user selected "desktop-computer-use" on Linux, check for
     // missing helpers (xdotool, wmctrl, scrot, xdg-open) and offer to
     // install them now — before they ever try to use the tool.
+    #[cfg(feature = "computer-use-sidecar")]
     maybe_install_desktop_helpers(&skill_selection).await;
 
     println!();
@@ -1381,6 +1382,7 @@ fn print_bullet(text: &str) {
 /// proactively check for and offer to install missing desktop helpers.
 /// This eliminates the frustrating experience of selecting the skill only
 /// to discover missing packages at first runtime.
+#[cfg(feature = "computer-use-sidecar")]
 async fn maybe_install_desktop_helpers(skill_selection: &SkillOnboardingSelection) {
     let wants_desktop = skill_selection
         .selected_curated_slugs

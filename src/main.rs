@@ -198,6 +198,7 @@ enum Commands {
         memory: Option<String>,
 
         /// Attempt to install missing Linux desktop helpers (xdotool, wmctrl, scrot, xdg-open)
+        #[cfg(feature = "computer-use-sidecar")]
         #[arg(long)]
         install_desktop_helpers: bool,
     },
@@ -807,6 +808,7 @@ enum DoctorCommands {
         use_cache: bool,
     },
     /// Check or install desktop automation helpers (xdotool, wmctrl, scrot, xdg-open)
+    #[cfg(feature = "computer-use-sidecar")]
     DesktopHelpers {
         /// Attempt to install missing desktop helpers via the system package manager
         #[arg(long)]
@@ -895,6 +897,7 @@ async fn main() -> Result<()> {
         provider,
         model,
         memory,
+        #[cfg(feature = "computer-use-sidecar")]
         install_desktop_helpers,
     } = &cli.command
     {
@@ -905,6 +908,7 @@ async fn main() -> Result<()> {
         let provider = provider.clone();
         let model = model.clone();
         let memory = memory.clone();
+        #[cfg(feature = "computer-use-sidecar")]
         let install_desktop_helpers = *install_desktop_helpers;
 
         if interactive && channels_only {
@@ -918,6 +922,7 @@ async fn main() -> Result<()> {
         if channels_only && force {
             bail!("--channels-only does not accept --force");
         }
+        #[cfg(feature = "computer-use-sidecar")]
         if channels_only && install_desktop_helpers {
             bail!("--channels-only does not accept --install-desktop-helpers");
         }
@@ -949,6 +954,7 @@ async fn main() -> Result<()> {
         // We call the functions directly rather than doctor::run_desktop_helpers()
         // because the --install-desktop-helpers flag is an explicit user request
         // that should work unconditionally (not gated on is_computer_use_backend).
+        #[cfg(feature = "computer-use-sidecar")]
         if install_desktop_helpers {
             let missing = topclaw::tools::computer_use::missing_linux_helpers();
             if missing.is_empty() {
@@ -1079,13 +1085,17 @@ async fn main() -> Result<()> {
             let provider_ready = provider_ready(&config);
             let channels_configured = channels_configured(&config);
             let daemon_ready = daemon_ready(&diag_results);
-            let (desktop_helpers_ready, desktop_missing) =
+            #[cfg(feature = "computer-use-sidecar")]
+            let (desktop_helpers_ready, desktop_missing) = {
                 if doctor::is_computer_use_backend(&config) {
                     let missing = topclaw::tools::computer_use::missing_linux_helpers();
                     (missing.is_empty(), missing)
                 } else {
                     (true, Vec::new())
-                };
+                }
+            };
+            #[cfg(not(feature = "computer-use-sidecar"))]
+            let desktop_helpers_ready = true;
             let overall_ready =
                 provider_ready && (!channels_configured || daemon_ready) && desktop_helpers_ready;
             println!("🦀 TopClaw Status");
@@ -1123,6 +1133,7 @@ async fn main() -> Result<()> {
                     "ℹ️  background runtime not required"
                 }
             );
+            #[cfg(feature = "computer-use-sidecar")]
             if doctor::is_computer_use_backend(&config) {
                 let desktop_status = if desktop_helpers_ready {
                     "✅ desktop helpers installed (xdotool, wmctrl, scrot, xdg-open)".to_string()
@@ -1387,6 +1398,7 @@ async fn main() -> Result<()> {
                 all_providers,
                 use_cache,
             }) => doctor::run_models(&config, provider.as_deref(), all_providers, use_cache).await,
+            #[cfg(feature = "computer-use-sidecar")]
             Some(DoctorCommands::DesktopHelpers { install }) => {
                 doctor::run_desktop_helpers(&config, install).await
             }
@@ -1514,12 +1526,14 @@ mod tests {
                 api_key,
                 provider,
                 model,
+                #[cfg(feature = "computer-use-sidecar")]
                 install_desktop_helpers,
                 ..
             } => {
                 assert!(!interactive);
                 assert!(!force);
                 assert!(!channels_only);
+                #[cfg(feature = "computer-use-sidecar")]
                 assert!(!install_desktop_helpers);
                 assert_eq!(provider.as_deref(), Some("openrouter"));
                 assert_eq!(model.as_deref(), Some("custom-model-946"));
@@ -1614,10 +1628,12 @@ mod tests {
         match cli.command {
             Commands::Onboard {
                 force,
+                #[cfg(feature = "computer-use-sidecar")]
                 install_desktop_helpers,
                 ..
             } => {
                 assert!(force);
+                #[cfg(feature = "computer-use-sidecar")]
                 assert!(!install_desktop_helpers);
             }
             other => panic!("expected bootstrap command, got {other:?}"),
@@ -1625,6 +1641,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "computer-use-sidecar")]
     fn status_overall_ready_includes_desktop_helpers_check() {
         // When browser.backend=computer_use and helpers are missing,
         // overall_ready should be false even if provider is ready.
@@ -1689,6 +1706,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "computer-use-sidecar")]
     fn doctor_cli_parses_desktop_helpers_without_install() {
         let cli = Cli::try_parse_from(["topclaw", "doctor", "desktop-helpers"])
             .expect("doctor desktop-helpers should parse");
@@ -1702,6 +1720,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "computer-use-sidecar")]
     fn bootstrap_cli_accepts_install_desktop_helpers_flag() {
         let cli = Cli::try_parse_from(["topclaw", "bootstrap", "--install-desktop-helpers"])
             .expect("bootstrap --install-desktop-helpers should parse");
@@ -1724,6 +1743,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "computer-use-sidecar")]
     fn bootstrap_cli_parses_channels_only_with_install_desktop_helpers() {
         // Clap cannot enforce cross-flag constraints at parse time;
         // runtime validation in main() rejects this combination with
@@ -1752,6 +1772,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "computer-use-sidecar")]
     fn doctor_cli_parses_desktop_helpers_with_install() {
         let cli = Cli::try_parse_from(["topclaw", "doctor", "desktop-helpers", "--install"])
             .expect("doctor desktop-helpers --install should parse");
