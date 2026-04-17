@@ -1,5 +1,6 @@
 use super::capability_detection::{
     looks_like_desktop_computer_use_task, looks_like_repo_metrics_task,
+    looks_like_skill_workflow_request,
 };
 use super::BOOTSTRAP_MAX_CHARS;
 use crate::config::{Config, IdentityConfig, SkillsPromptInjectionMode};
@@ -355,6 +356,17 @@ pub(crate) fn build_current_turn_routing_hint(
             "This request asks for exact repository metrics. Prefer local analysis via `shell` \
              (and `git_operations` for cloning when useful) with tools like `cloc` or `tokei` \
              instead of `web_fetch`; web pages only provide estimates."
+                .to_string(),
+        );
+    }
+
+    if looks_like_skill_workflow_request(user_message) {
+        return Some(
+            "This request is about skill discovery or skill creation. Prefer installed and \
+             curated local skills first; do NOT jump to `skills.sh`, web search, or desktop/app \
+             automation as the first step. Do NOT use `computer_use`, `browser_open`, or \
+             `app_launch` unless the user explicitly asks you to operate the desktop. \
+             If no existing skill fits, use `skill-creator` to scaffold the requested skill."
                 .to_string(),
         );
     }
@@ -779,6 +791,19 @@ mod tool_description_tests {
         assert!(hint.contains("exact repository metrics"));
         assert!(hint.contains("`shell`"));
         assert!(hint.contains("`cloc` or `tokei`"));
+    }
+
+    #[test]
+    fn current_turn_routing_hint_prefers_local_skill_workflow() {
+        let hint = build_current_turn_routing_hint(
+            "create a skill that can transcribe m4a audio file",
+            &["web_search", "shell"],
+        )
+        .expect("skill workflow should produce a routing hint");
+
+        assert!(hint.contains("installed and curated local skills first"));
+        assert!(hint.contains("do NOT jump to `skills.sh`"));
+        assert!(hint.contains("`skill-creator`"));
     }
 }
 

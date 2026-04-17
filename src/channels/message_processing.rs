@@ -281,6 +281,63 @@ pub(super) async fn process_channel_message_with_options(
         &route.provider,
         &route.model,
     );
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S %Z");
+    let timestamped_content = format!("[{now}] {}", msg.content);
+
+    if let Some(local_response) = local_capability_response
+        .as_ref()
+        .filter(|_| should_answer_local_capability_response_immediately(&msg.content))
+    {
+        runtime_trace::record_event(
+            "channel_message_local_capability_response",
+            Some(msg.channel.as_str()),
+            Some(route.provider.as_str()),
+            Some(route.model.as_str()),
+            None,
+            Some(true),
+            Some("answered capability/workflow question locally before provider execution"),
+            serde_json::json!({
+                "sender": msg.sender,
+                "message_id": msg.id,
+            }),
+        );
+
+        append_sender_turn(
+            ctx.as_ref(),
+            &history_key,
+            ChatMessage::user(&timestamped_content),
+        );
+        append_sender_turn(
+            ctx.as_ref(),
+            &history_key,
+            ChatMessage::assistant(local_response),
+        );
+
+        if let Ok(mut lossless_context) = LosslessContext::for_session(
+            ctx.workspace_dir.as_path(),
+            "channel",
+            &history_key,
+            ctx.system_prompt.as_str(),
+        ) {
+            let _ = lossless_context.record_raw_message(&ChatMessage::user(&timestamped_content));
+            let _ = lossless_context.record_raw_message(&ChatMessage::assistant(local_response));
+        }
+
+        println!(
+            "  \u{1F916} Reply (0ms): {}",
+            truncate_with_ellipsis(local_response, 80)
+        );
+        if let Some(channel) = target_channel.as_ref() {
+            let _ = channel
+                .send(
+                    &SendMessage::new(local_response, &msg.reply_target)
+                        .in_thread(msg.thread_ts.clone()),
+                )
+                .await;
+        }
+        return;
+    }
+
     let runtime_defaults = runtime_defaults_snapshot(ctx.as_ref());
     let active_provider = match get_or_create_provider(ctx.as_ref(), &route.provider).await {
         Ok(provider) => provider,
@@ -419,11 +476,6 @@ pub(super) async fn process_channel_message_with_options(
         }
     };
     let had_prior_history = lossless_context.has_non_system_messages().unwrap_or(false);
-
-    // Inject per-message timestamp so the LLM always knows the current time,
-    // even in multi-turn conversations where the system prompt may be stale.
-    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S %Z");
-    let timestamped_content = format!("[{now}] {}", msg.content);
 
     let expose_internal_tool_details =
         msg.channel == "cli" || should_expose_internal_tool_details(&msg.content);

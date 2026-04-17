@@ -52,6 +52,10 @@ pub(crate) fn looks_like_web_task(user_message: &str) -> bool {
         return false;
     }
 
+    if looks_like_desktop_computer_use_task(trimmed) {
+        return false;
+    }
+
     let lower = trimmed.to_ascii_lowercase();
     let english_hints = [
         "review",
@@ -274,6 +278,114 @@ pub(crate) fn looks_like_loaded_skills_question(user_message: &str) -> bool {
     false
 }
 
+pub(crate) fn looks_like_audio_file_question(user_message: &str) -> bool {
+    let trimmed = user_message.trim();
+    if trimmed.is_empty() || trimmed.starts_with('/') {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let references_audio = [
+        "[audio:",
+        "[voice]",
+        "audio file",
+        "voice message",
+        "voice note",
+        "transcrib",
+        "transcript",
+        ".m4a",
+        ".mp3",
+        ".wav",
+        ".flac",
+        ".ogg",
+        ".opus",
+        ".webm",
+    ]
+    .iter()
+    .any(|hint| lower.contains(hint));
+
+    if !references_audio {
+        return false;
+    }
+
+    let asks_about_audio = [
+        "read this file",
+        "read file",
+        "can you read",
+        "able to read",
+        "listen to",
+        "summarize",
+        "what does it say",
+        "transcribe",
+    ]
+    .iter()
+    .any(|hint| lower.contains(hint));
+
+    asks_about_audio || lower.contains('?') || lower.contains("[audio:")
+}
+
+pub(crate) fn looks_like_audio_capability_question(user_message: &str) -> bool {
+    if !looks_like_audio_file_question(user_message) {
+        return false;
+    }
+
+    let lower = user_message.trim().to_ascii_lowercase();
+    [
+        "can you",
+        "are you able",
+        "able to",
+        "do you support",
+        "if i upload",
+        "if i send",
+        "read this file",
+        "can you read",
+        "can you transcribe",
+        "can you summarize",
+    ]
+    .iter()
+    .any(|hint| lower.contains(hint))
+}
+
+pub(crate) fn looks_like_skill_workflow_request(user_message: &str) -> bool {
+    let trimmed = user_message.trim();
+    if trimmed.is_empty() || trimmed.starts_with('/') {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    if !lower.contains("skill") {
+        return false;
+    }
+
+    [
+        "find ", "search", "discover", "install", "create", "build", "make ", "scaffold",
+    ]
+    .iter()
+    .any(|hint| lower.contains(hint))
+}
+
+pub(crate) fn looks_like_skill_workflow_advisory_question(user_message: &str) -> bool {
+    if !looks_like_skill_workflow_request(user_message) {
+        return false;
+    }
+
+    let lower = user_message.trim().to_ascii_lowercase();
+    [
+        "tell me whether",
+        "would you use",
+        "what would you use",
+        "which would you use",
+        "use first",
+        "do you need skills.sh",
+        "need skills.sh",
+        "don't write files yet",
+        "do not write files yet",
+        "before writing files",
+    ]
+    .iter()
+    .any(|hint| lower.contains(hint))
+}
+
 pub(crate) fn should_try_llm_capability_recovery(user_message: &str) -> bool {
     let trimmed = user_message.trim();
     if trimmed.is_empty() || trimmed.starts_with('/') {
@@ -349,8 +461,11 @@ pub(crate) fn extract_json_object(text: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::{
-        contains_make_command_hint, looks_like_desktop_computer_use_task,
-        looks_like_repo_metrics_task, looks_like_shell_task, should_try_llm_capability_recovery,
+        contains_make_command_hint, looks_like_audio_capability_question,
+        looks_like_audio_file_question, looks_like_desktop_computer_use_task,
+        looks_like_repo_metrics_task, looks_like_shell_task,
+        looks_like_skill_workflow_advisory_question, looks_like_skill_workflow_request,
+        looks_like_web_task, should_try_llm_capability_recovery,
     };
 
     #[test]
@@ -384,6 +499,13 @@ mod tests {
     }
 
     #[test]
+    fn web_detection_does_not_claim_desktop_chrome_requests() {
+        assert!(!looks_like_web_task(
+            "open Google Chrome to https://example.com and scroll to the bottom"
+        ));
+    }
+
+    #[test]
     fn llm_capability_recovery_detection_ignores_normal_how_questions() {
         assert!(!should_try_llm_capability_recovery(
             "How many lines of code does this repo have? https://github.com/topway-ai/topclaw"
@@ -394,6 +516,44 @@ mod tests {
     fn llm_capability_recovery_detection_keeps_real_capability_questions() {
         assert!(should_try_llm_capability_recovery(
             "why can't you use that desktop skill?"
+        ));
+    }
+
+    #[test]
+    fn audio_file_detection_flags_attached_audio_questions() {
+        assert!(looks_like_audio_file_question(
+            "[Audio: 20260416 212230.m4a] /tmp/20260416_212230.m4a\n\nAre you able to read this file?"
+        ));
+        assert!(looks_like_audio_file_question(
+            "are you able to read m4a audio file?"
+        ));
+    }
+
+    #[test]
+    fn audio_capability_detection_stays_narrow() {
+        assert!(looks_like_audio_capability_question(
+            "Can you read or transcribe an m4a audio file if I upload it here?"
+        ));
+        assert!(!looks_like_audio_capability_question(
+            "Transcribe this attached m4a audio file now."
+        ));
+    }
+
+    #[test]
+    fn skill_workflow_detection_flags_find_and_create_skill_requests() {
+        assert!(looks_like_skill_workflow_request("find a skill yourself"));
+        assert!(looks_like_skill_workflow_request(
+            "create a skill that can transcribe m4a audio file"
+        ));
+    }
+
+    #[test]
+    fn skill_workflow_advisory_detection_flags_meta_planning_questions() {
+        assert!(looks_like_skill_workflow_advisory_question(
+            "Create a skill that can transcribe m4a audio file, but do not write files yet. Tell me whether you would use local curated skills or skill-creator first, and whether you need skills.sh."
+        ));
+        assert!(!looks_like_skill_workflow_advisory_question(
+            "Create a skill that can transcribe m4a audio file."
         ));
     }
 }

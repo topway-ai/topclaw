@@ -45,7 +45,7 @@ pub(crate) fn parse_runtime_command(
     let tail = args.join(" ").trim().to_string();
 
     match base_command.as_str() {
-        "/new" | "/clear" => Some(ChannelRuntimeCommand::NewSession),
+        "/new" | "/clear" | "/reset" => Some(ChannelRuntimeCommand::NewSession),
         "/approve-all-once" => Some(ChannelRuntimeCommand::RequestAllToolsOnce),
         "/approve-request" => Some(ChannelRuntimeCommand::RequestToolApproval(tail)),
         "/approve-confirm" => Some(ChannelRuntimeCommand::ConfirmToolApproval(tail)),

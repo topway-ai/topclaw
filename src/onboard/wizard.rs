@@ -1588,8 +1588,8 @@ async fn setup_workspace() -> Result<(PathBuf, PathBuf)> {
 // ── Step 2: Provider & Authentication ────────────────────────────
 
 const SIMPLE_PROVIDER_OPTIONS: [(&str, &str); 4] = [
-    ("openai-codex", "OpenAI Codex"),
     ("openrouter", "OpenRouter"),
+    ("openai-codex", "OpenAI Codex"),
     ("ollama", "Ollama (local)"),
     (
         "advanced",
@@ -4337,7 +4337,7 @@ mod tests {
             .collect();
         assert_eq!(
             ids,
-            vec!["openai-codex", "openrouter", "ollama", "advanced"]
+            vec!["openrouter", "openai-codex", "ollama", "advanced"]
         );
     }
 

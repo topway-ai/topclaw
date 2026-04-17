@@ -153,6 +153,10 @@ mod tests {
     #[test]
     fn parse_runtime_command_allows_approval_commands_on_non_model_channels() {
         assert_eq!(
+            parse_runtime_command("telegram", "/reset"),
+            Some(ChannelRuntimeCommand::NewSession)
+        );
+        assert_eq!(
             parse_runtime_command("slack", "/approve-request shell"),
             Some(ChannelRuntimeCommand::RequestToolApproval(
                 "shell".to_string()
@@ -4736,6 +4740,65 @@ Done reminder set for 1:38 AM."#;
         assert!(plan.message.contains("/approve-confirm"));
     }
 
+    #[test]
+    fn infer_capability_recovery_plan_flags_desktop_requests_for_computer_use_approval() {
+        let tools: Vec<Box<dyn Tool>> = vec![Box::new(NamedTestTool("computer_use"))];
+        let approval_manager = Arc::new(ApprovalManager::from_config(
+            &crate::config::AutonomyConfig {
+                always_ask: vec!["computer_use".to_string()],
+                ..crate::config::AutonomyConfig::default()
+            },
+        ));
+        let runtime_ctx = ChannelRuntimeContext {
+            channels_by_name: Arc::new(HashMap::new()),
+            provider: Arc::new(DummyProvider),
+            default_provider: Arc::new("test-provider".to_string()),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(tools),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("system".to_string()),
+            model: Arc::new("test-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            provider_cache: Arc::new(Mutex::new(HashMap::new())),
+            route_overrides: Arc::new(Mutex::new(HashMap::new())),
+            api_key: None,
+            api_url: None,
+            reliability: Arc::new(crate::config::ReliabilityConfig::default()),
+            provider_runtime_options: providers::ProviderRuntimeOptions::default(),
+            workspace_dir: Arc::new(std::env::temp_dir()),
+            message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
+            interrupt_on_new_message: false,
+            multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
+            non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
+            approval_manager,
+        };
+        let msg = traits::ChannelMessage {
+            id: "msg-desktop".to_string(),
+            sender: "topclaw_user".to_string(),
+            reply_target: "chat-1".to_string(),
+            content: "Open Google Chrome to https://example.com and scroll to the bottom."
+                .to_string(),
+            channel: "telegram".to_string(),
+            timestamp: 0,
+            thread_ts: None,
+        };
+
+        let plan = infer_capability_recovery_plan(&runtime_ctx, &msg, &[])
+            .expect("desktop requests should produce a capability recovery plan");
+
+        assert_eq!(plan.tool_name, "computer_use");
+        assert_eq!(plan.state, CapabilityState::NeedsApproval);
+        assert!(plan.reason.contains("desktop automation"));
+        assert!(plan.message.contains("/approve-confirm"));
+    }
+
     #[tokio::test]
     async fn process_channel_message_remote_repo_url_without_web_tools_uses_local_agent_path() {
         let temp = TempDir::new().unwrap();
@@ -5238,6 +5301,190 @@ BTC is currently around $65,000 based on latest tool output."#;
     fn maybe_restart_daemon_openrc_args_regression() {
         assert_eq!(OPENRC_STATUS_ARGS, ["topclaw", "status"]);
         assert_eq!(OPENRC_RESTART_ARGS, ["topclaw", "restart"]);
+    }
+
+    #[test]
+    fn local_capability_response_explains_audio_transcription_support() {
+        let system_prompt = r#"
+<available_skills>
+<skill><name>skill-creator</name></skill>
+</available_skills>
+"#;
+
+        let response = build_local_capability_response(
+            "[Audio: recording.m4a] /tmp/recording.m4a\n\nAre you able to read this file?",
+            system_prompt,
+            "openrouter",
+            "model-x",
+        )
+        .expect("audio questions should be answered locally");
+
+        assert!(response.contains("audio file"));
+        assert!(response.contains("transcribe supported audio uploads"));
+        assert!(response.contains("m4a"));
+        assert!(response.contains("`skill-creator`"));
+    }
+
+    #[test]
+    fn local_capability_response_guides_skill_workflow_before_skills_sh() {
+        let system_prompt = r#"
+<available_skills>
+<skill><name>skill-creator</name></skill>
+</available_skills>
+"#;
+
+        let response = build_local_capability_response(
+            "Create a skill that can transcribe m4a audio file, but do not write files yet. Tell me whether you would use local curated skills or skill-creator first, and whether you need skills.sh.",
+            system_prompt,
+            "openrouter",
+            "model-x",
+        )
+        .expect("meta skill-workflow questions should be answered locally");
+
+        assert!(response.contains("curated local skills first"));
+        assert!(response.contains("`skill-creator`"));
+        assert!(response.contains("`skills.sh`"));
+        assert!(response.contains("desktop/browser tool"));
+    }
+
+    #[tokio::test]
+    async fn process_channel_message_audio_capability_question_answers_locally_without_provider() {
+        let temp = make_workspace();
+        let channel_impl = Arc::new(TelegramRecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let provider_impl = Arc::new(HistoryCaptureProvider::default());
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            channels_by_name: Arc::new(channels_by_name),
+            provider: provider_impl.clone(),
+            default_provider: Arc::new("test-provider".to_string()),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("system".to_string()),
+            model: Arc::new("test-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            provider_cache: Arc::new(Mutex::new(HashMap::new())),
+            route_overrides: Arc::new(Mutex::new(HashMap::new())),
+            api_key: None,
+            api_url: None,
+            reliability: Arc::new(crate::config::ReliabilityConfig::default()),
+            provider_runtime_options: providers::ProviderRuntimeOptions::default(),
+            workspace_dir: Arc::new(temp.path().to_path_buf()),
+            message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
+            interrupt_on_new_message: false,
+            multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
+            non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
+            approval_manager: Arc::new(ApprovalManager::from_config(
+                &crate::config::AutonomyConfig::default(),
+            )),
+        });
+
+        let msg = traits::ChannelMessage {
+            id: "msg-audio".to_string(),
+            sender: "frank".to_string(),
+            reply_target: "chat-1".to_string(),
+            content: "[Audio: recording.m4a] /tmp/recording.m4a\n\nCan you read or transcribe an m4a audio file if I upload it here?".to_string(),
+            channel: "telegram".to_string(),
+            timestamp: 0,
+            thread_ts: None,
+        };
+
+        process_channel_message(Arc::clone(&runtime_ctx), msg, CancellationToken::new()).await;
+
+        let sent = channel_impl.sent_messages.lock().await.clone();
+        assert_eq!(
+            provider_impl
+                .calls
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .len(),
+            0
+        );
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].contains("transcribe supported audio uploads"));
+    }
+
+    #[tokio::test]
+    async fn process_channel_message_skill_workflow_advisory_answers_locally_without_provider() {
+        let temp = make_workspace();
+        let channel_impl = Arc::new(TelegramRecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let provider_impl = Arc::new(HistoryCaptureProvider::default());
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            channels_by_name: Arc::new(channels_by_name),
+            provider: provider_impl.clone(),
+            default_provider: Arc::new("test-provider".to_string()),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new(
+                "<available_skills><skill><name>skill-creator</name></skill></available_skills>"
+                    .to_string(),
+            ),
+            model: Arc::new("test-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            provider_cache: Arc::new(Mutex::new(HashMap::new())),
+            route_overrides: Arc::new(Mutex::new(HashMap::new())),
+            api_key: None,
+            api_url: None,
+            reliability: Arc::new(crate::config::ReliabilityConfig::default()),
+            provider_runtime_options: providers::ProviderRuntimeOptions::default(),
+            workspace_dir: Arc::new(temp.path().to_path_buf()),
+            message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
+            interrupt_on_new_message: false,
+            multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
+            non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
+            approval_manager: Arc::new(ApprovalManager::from_config(
+                &crate::config::AutonomyConfig::default(),
+            )),
+        });
+
+        let msg = traits::ChannelMessage {
+            id: "msg-skill".to_string(),
+            sender: "frank".to_string(),
+            reply_target: "chat-1".to_string(),
+            content: "Create a skill that can transcribe m4a audio file, but do not write files yet. Tell me whether you would use local curated skills or skill-creator first, and whether you need skills.sh.".to_string(),
+            channel: "telegram".to_string(),
+            timestamp: 0,
+            thread_ts: None,
+        };
+
+        process_channel_message(Arc::clone(&runtime_ctx), msg, CancellationToken::new()).await;
+
+        let sent = channel_impl.sent_messages.lock().await.clone();
+        assert_eq!(
+            provider_impl
+                .calls
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .len(),
+            0
+        );
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].contains("curated local skills first"));
+        assert!(sent[0].contains("`skill-creator`"));
     }
 
     // ── E2E: photo [IMAGE:] marker rejected by non-vision provider ───

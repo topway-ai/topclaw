@@ -1,7 +1,8 @@
 //! Shared helper functions for channel runtime.
 
 use super::capability_detection::{
-    looks_like_current_model_question, looks_like_loaded_skills_question,
+    looks_like_audio_capability_question, looks_like_current_model_question,
+    looks_like_loaded_skills_question, looks_like_skill_workflow_advisory_question,
 };
 use crate::memory;
 use crate::providers::{self, ChatMessage, Provider};
@@ -304,7 +305,56 @@ pub(super) fn build_local_capability_response(
         ));
     }
 
+    if looks_like_audio_capability_question(content) {
+        let skill_names = extract_loaded_skill_names_from_system_prompt(system_prompt);
+        let skill_creator_suffix = if skill_names
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case("skill-creator"))
+        {
+            " If you want a reusable workflow around local audio files, I can also use `skill-creator` to help scaffold one."
+        } else {
+            ""
+        };
+
+        let attachment_prefix = if content.to_ascii_lowercase().contains("[audio:") {
+            "That looks like an attached audio file, not a plain-text document. "
+        } else {
+            "An m4a/audio file is not plain text. "
+        };
+
+        return Some(format!(
+            "{attachment_prefix}I can’t read it the way I would a `.txt` or `.md` file. \
+             If channel transcription is enabled, I can transcribe supported audio uploads \
+             such as m4a, mp3, wav, flac, ogg, opus, and webm, then summarize or analyze the transcript. \
+             If transcription is not enabled, I need a transcription tool or service first.{skill_creator_suffix}"
+        ));
+    }
+
+    if looks_like_skill_workflow_advisory_question(content) {
+        let skill_names = extract_loaded_skill_names_from_system_prompt(system_prompt);
+        let has_skill_creator = skill_names
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case("skill-creator"));
+        let skill_creator_step = if has_skill_creator {
+            "If no installed or curated local skill fits, I would use `skill-creator` next."
+        } else {
+            "If no installed or curated local skill fits, I would scaffold the new skill directly in the workspace."
+        };
+
+        return Some(format!(
+            "I would check installed and curated local skills first, not `skills.sh` and not any desktop/browser tool. {skill_creator_step} \
+             For a planning-only question like this, I do not need `skills.sh` as the first step."
+        ));
+    }
+
     None
+}
+
+pub(super) fn should_answer_local_capability_response_immediately(content: &str) -> bool {
+    looks_like_current_model_question(content)
+        || looks_like_loaded_skills_question(content)
+        || looks_like_audio_capability_question(content)
+        || looks_like_skill_workflow_advisory_question(content)
 }
 
 pub(super) fn is_heartbeat_ok_sentinel(output: &str) -> bool {

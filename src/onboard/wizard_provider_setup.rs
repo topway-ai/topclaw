@@ -61,15 +61,9 @@ pub(super) async fn setup_simple_named_provider(
 pub(super) fn advanced_provider_choices(tier_idx: usize) -> Vec<(&'static str, &'static str)> {
     match tier_idx {
         0 => vec![
-            (
-                "openai-codex",
-                "OpenAI Codex — primary path (ChatGPT OAuth, no API key)",
-            ),
-            (
-                "openrouter",
-                "OpenRouter — secondary path (broad hosted model access)",
-            ),
-            ("ollama", "Ollama — tertiary local path (no API key)"),
+            ("openrouter", "OpenRouter — broad hosted model access"),
+            ("openai-codex", "OpenAI Codex — ChatGPT OAuth (no API key)"),
+            ("ollama", "Ollama — local path (no API key)"),
             ("anthropic", "Anthropic — Claude Sonnet & Opus (direct)"),
             ("openai", "OpenAI — GPT-5 direct API"),
             ("gemini", "Google Gemini — supports CLI auth"),
@@ -125,6 +119,21 @@ pub(super) fn advanced_provider_choices(tier_idx: usize) -> Vec<(&'static str, &
         ],
         4 => local_provider_choices(),
         _ => vec![],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::advanced_provider_choices;
+
+    #[test]
+    fn recommended_advanced_provider_menu_starts_with_openrouter() {
+        let ids: Vec<&str> = advanced_provider_choices(0)
+            .iter()
+            .map(|(provider, _)| *provider)
+            .collect();
+
+        assert_eq!(ids[..3], ["openrouter", "openai-codex", "ollama"]);
     }
 }
 
