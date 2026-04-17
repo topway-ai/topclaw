@@ -221,6 +221,7 @@ impl Tool for ComputerUseTool {
 
     fn description(&self) -> &str {
         "Desktop automation: launch applications, open URLs in a visible browser window, list/focus/close windows, take screenshots, click, drag, type, or press keys. \
+         Standalone tool: use it directly for OS-level desktop tasks; it does NOT require `browser.enabled=true` or `browser.backend='computer_use'`. \
          IMPORTANT: When the user says 'open Chrome', 'open <app>', 'open this link in Chrome', or 'navigate to <URL> on the computer', use action=app_launch with the app name and args=[\"<URL>\"]. \
          Do NOT use web_fetch for these — web_fetch only downloads HTML text, it does NOT open a visible window or interact with the desktop. \
          Do NOT use browser_open for launching apps — browser_open only opens URLs and cannot launch arbitrary applications. \
