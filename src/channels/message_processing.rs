@@ -19,6 +19,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
+use super::capability_detection::should_try_llm_capability_recovery;
 use super::capability_recovery::{
     infer_capability_recovery_plan, should_expose_internal_tool_details,
     try_llm_capability_recovery_plan, CapabilityRecoveryPlan, CapabilityState,
@@ -27,7 +28,7 @@ use super::command_handler::handle_runtime_command_if_needed;
 use super::context::*;
 use super::dispatch::{spawn_progress_heartbeat_task, spawn_scoped_typing_task};
 use super::helpers::*;
-use super::prompt::build_channel_system_prompt;
+use super::prompt::{build_channel_system_prompt, build_current_turn_routing_hint};
 use super::route_state::{
     append_sender_turn, compact_sender_history, get_route_selection, rollback_orphan_user_turn,
     set_sender_history,
@@ -89,6 +90,18 @@ async fn dispatch_capability_recovery(
         };
         let _ = send_result;
     }
+}
+
+fn should_run_llm_capability_classifier(
+    skip_pre_tool_turn_routing: bool,
+    channel_name: &str,
+    has_tools: bool,
+    user_message: &str,
+) -> bool {
+    !skip_pre_tool_turn_routing
+        && channel_name != "cli"
+        && has_tools
+        && should_try_llm_capability_recovery(user_message)
 }
 
 #[allow(clippy::large_futures)]
@@ -312,12 +325,16 @@ pub(super) async fn process_channel_message_with_options(
     };
 
     let skip_pre_tool_turn_routing = options.approved_auto_resume;
-    // Only the capability-recovery classifier is left; the turn-intent classifier
-    // was removed because (post the tool-registry-suppression fix) its only
-    // effect was adding a prompt hint, while costing a full serial LLM
-    // round-trip (~20–30s) on every non-CLI turn.
-    let will_run_classifiers =
-        !skip_pre_tool_turn_routing && msg.channel != "cli" && !ctx.tools_registry.is_empty();
+    // Only the capability-recovery classifier is left, and it should run only
+    // when the user is actually talking about a missing capability/skill. Do
+    // not show "Analyzing the request..." for normal work turns that go
+    // straight to the main tool loop.
+    let will_run_classifiers = should_run_llm_capability_classifier(
+        skip_pre_tool_turn_routing,
+        &msg.channel,
+        !ctx.tools_registry.is_empty(),
+        &msg.content,
+    );
 
     // Start typing indicator before the classifier LLM calls so the user
     // sees immediate feedback while we decide the turn intent.
@@ -412,48 +429,50 @@ pub(super) async fn process_channel_message_with_options(
         msg.channel == "cli" || should_expose_internal_tool_details(&msg.content);
 
     if msg.channel != "cli" && !skip_pre_tool_turn_routing {
-        if let Some(plan) = try_llm_capability_recovery_plan(
-            active_provider.as_ref(),
-            ctx.as_ref(),
-            &msg,
-            route.model.as_str(),
-            runtime_defaults.temperature,
-            &excluded_tools_snapshot,
-        )
-        .await
-        {
-            if matches!(plan.state, CapabilityState::NeedsApproval) {
-                if let Err(err) =
-                    lossless_context.record_raw_message(&ChatMessage::user(&timestamped_content))
-                {
-                    tracing::warn!(
-                        channel = %msg.channel,
-                        sender = %msg.sender,
-                        "failed to persist blocked channel user turn before approval prompt: {err}"
+        if will_run_classifiers {
+            if let Some(plan) = try_llm_capability_recovery_plan(
+                active_provider.as_ref(),
+                ctx.as_ref(),
+                &msg,
+                route.model.as_str(),
+                runtime_defaults.temperature,
+                &excluded_tools_snapshot,
+            )
+            .await
+            {
+                if matches!(plan.state, CapabilityState::NeedsApproval) {
+                    if let Err(err) = lossless_context
+                        .record_raw_message(&ChatMessage::user(&timestamped_content))
+                    {
+                        tracing::warn!(
+                            channel = %msg.channel,
+                            sender = %msg.sender,
+                            "failed to persist blocked channel user turn before approval prompt: {err}"
+                        );
+                    }
+                    append_sender_turn(
+                        ctx.as_ref(),
+                        &history_key,
+                        ChatMessage::user(&timestamped_content),
                     );
                 }
-                append_sender_turn(
-                    ctx.as_ref(),
-                    &history_key,
-                    ChatMessage::user(&timestamped_content),
-                );
+                dispatch_capability_recovery(
+                    &plan,
+                    &msg,
+                    target_channel.as_ref(),
+                    Some("llm_classifier"),
+                )
+                .await;
+                if let Some(token) = early_typing_cancellation.as_ref() {
+                    token.cancel();
+                }
+                if let (Some(channel), Some(ref draft_id)) =
+                    (target_channel.as_ref(), &early_draft_message_id)
+                {
+                    let _ = channel.cancel_draft(&msg.reply_target, draft_id).await;
+                }
+                return;
             }
-            dispatch_capability_recovery(
-                &plan,
-                &msg,
-                target_channel.as_ref(),
-                Some("llm_classifier"),
-            )
-            .await;
-            if let Some(token) = early_typing_cancellation.as_ref() {
-                token.cancel();
-            }
-            if let (Some(channel), Some(ref draft_id)) =
-                (target_channel.as_ref(), &early_draft_message_id)
-            {
-                let _ = channel.cancel_draft(&msg.reply_target, draft_id).await;
-            }
-            return;
         }
 
         if let Some(plan) =
@@ -496,6 +515,20 @@ pub(super) async fn process_channel_message_with_options(
         &msg.reply_target,
         expose_internal_tool_details,
     );
+    let visible_tool_names: Vec<&str> = effective_tools_registry
+        .iter()
+        .filter(|tool| {
+            !excluded_tools_snapshot
+                .iter()
+                .any(|excluded| excluded.eq_ignore_ascii_case(tool.name()))
+        })
+        .map(|tool| tool.name())
+        .collect();
+    if let Some(turn_hint) = build_current_turn_routing_hint(&msg.content, &visible_tool_names) {
+        system_prompt.push_str("\n\n## Turn Routing Hint\n\n");
+        system_prompt.push_str(&turn_hint);
+        system_prompt.push('\n');
+    }
     system_prompt.push_str(&build_runtime_tool_visibility_prompt(
         effective_tools_registry,
         &excluded_tools_snapshot,
@@ -1468,4 +1501,41 @@ fn strip_think_blocks_streaming(s: &str) -> String {
         }
     }
     result.trim().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_run_llm_capability_classifier;
+
+    #[test]
+    fn llm_capability_classifier_skips_normal_work_turns() {
+        assert!(!should_run_llm_capability_classifier(
+            false,
+            "telegram",
+            true,
+            "What is the BTC price now?"
+        ));
+        assert!(!should_run_llm_capability_classifier(
+            false,
+            "telegram",
+            true,
+            "How many lines of code does this repo have? https://github.com/topway-ai/topclaw"
+        ));
+    }
+
+    #[test]
+    fn llm_capability_classifier_runs_for_capability_questions() {
+        assert!(should_run_llm_capability_classifier(
+            false,
+            "telegram",
+            true,
+            "why can't you use that desktop skill?"
+        ));
+        assert!(!should_run_llm_capability_classifier(
+            false,
+            "cli",
+            true,
+            "why can't you use that desktop skill?"
+        ));
+    }
 }

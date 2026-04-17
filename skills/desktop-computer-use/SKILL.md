@@ -1,6 +1,6 @@
 ---
 name: desktop-computer-use
-description: "Trigger only when the user explicitly asks TopClaw to drive real desktop applications or OS windows (not just browse the web) on macOS, Windows, or Linux. If browser.enabled is false or browser.backend is not 'computer_use', do NOT refuse — instead call config_patch to set browser.enabled=true and browser.backend='computer_use' (both are approval-gated). If the sidecar endpoint is unreachable, call computer_use_sidecar_start (approval-gated) to spawn the built-in sidecar. Only refuse if the user denies approval. For each task: list candidate windows, focus the intended one, capture the screen, plan the smallest reversible step, execute one mouse or keyboard action, then re-capture and verify. Stop immediately on password, MFA, wallet, payment, privileged admin, system-settings, or unbounded file-deletion prompts. Treat app_launch and app_terminate as higher-risk than focus or capture. Prefer safe-web-search, web_fetch, or agent-browser-extension before reaching for OS-level control. Read skills/desktop-computer-use/SKILL.md for the full action surface and the one-tap enablement flow."
+description: "Trigger only when the user explicitly asks TopClaw to drive real desktop applications or OS windows (not just browse the web) on macOS, Windows, or Linux. Prefer the standalone `computer_use` tool first — it can launch apps, open URLs in a visible browser window, and interact with the desktop without requiring `browser.enabled=true` or `browser.backend='computer_use'`. If the sidecar endpoint is unreachable and the standalone tool cannot auto-start it, call `computer_use_sidecar_start` (approval-gated). Only use `config_patch` to flip browser settings when the user explicitly wants OS-level actions through the `browser` tool instead of the standalone `computer_use` tool. Only refuse if the user denies approval. For each task: list candidate windows, focus the intended one, capture the screen, plan the smallest reversible step, execute one mouse or keyboard action, then re-capture and verify. Stop immediately on password, MFA, wallet, payment, privileged admin, system-settings, or unbounded file-deletion prompts. Treat app_launch and app_terminate as higher-risk than focus or capture. Prefer safe-web-search, web_fetch, or agent-browser-extension before reaching for OS-level control."
 ---
 
 # Desktop Computer Use
@@ -21,14 +21,21 @@ If preconditions are missing, **do not refuse**. Propose the enablement flow
 below — each step is approval-gated, so the user has final say, but a single
 approved sequence gets the skill working end-to-end.
 
+In current TopClaw builds, the preferred path is the standalone
+`computer_use` tool. It can launch apps, open URLs in a visible browser, and
+interact with the desktop directly. Do not assume `browser.enabled=true` or
+`browser.backend='computer_use'` is required just to open Chrome or drive a
+desktop window.
+
 This skill is designed for:
 
 - macOS
 - Windows
 - Linux
 
-It assumes the sidecar exposes TopClaw's computer-use action surface through the
-`browser` tool, including:
+It assumes the sidecar exposes TopClaw's computer-use action surface through
+either the standalone `computer_use` tool or the `browser` tool when its
+backend is `computer_use`, including:
 
 - `screen_capture`
 - `mouse_move`
@@ -44,18 +51,30 @@ It assumes the sidecar exposes TopClaw's computer-use action surface through the
 
 ## Enablement flow (one tap per gate)
 
-When a precondition is not yet satisfied, call these tools in order. Each one
-emits an approval prompt the user taps Approve on — nothing runs unattended.
+When a precondition is not yet satisfied, do the smallest thing that unblocks
+the current task. Each gated tool emits an approval prompt the user taps
+Approve on — nothing runs unattended.
 
-1. `config_patch` with `{path: "browser.enabled", value: true}` — flips the
-   top-level browser gate.
-2. `config_patch` with `{path: "browser.backend", value: "computer_use"}` —
-   routes the browser tool through the computer-use sidecar.
-3. `computer_use_sidecar_start` with `{bind: "127.0.0.1:8787"}` — spawns the
-   built-in sidecar (Linux only at present; see below). Idempotent: if a
-   healthy sidecar is already listening, the tool returns success without
-   spawning a duplicate.
-4. Optionally `config_patch` with
+Preferred direct path:
+
+1. Use the standalone `computer_use` tool directly for OS-level actions.
+   It does not depend on `browser.enabled=true` or
+   `browser.backend='computer_use'`.
+2. If the sidecar endpoint is unreachable and the standalone tool could not
+   auto-start it, call `computer_use_sidecar_start` with
+   `{bind: "127.0.0.1:8787"}`. This spawns the built-in sidecar (Linux only at
+   present; see below). It is idempotent: if a healthy sidecar is already
+   listening, the tool returns success without spawning a duplicate.
+
+Optional browser-tool routing path:
+
+3. Only if the user explicitly wants OS-level actions through the `browser`
+   tool instead of the standalone `computer_use` tool, call `config_patch`
+   with `{path: "browser.enabled", value: true}`.
+4. Then call `config_patch` with
+   `{path: "browser.backend", value: "computer_use"}` so the `browser` tool
+   routes through the sidecar.
+5. Optionally call `config_patch` with
    `{path: "browser.computer_use.window_allowlist", value: [...]}` to narrow
    the allowed window titles for the task at hand.
 
@@ -79,6 +98,9 @@ Before proposing the flow, confirm the user understands:
 ## Guardrails
 
 - Prefer `safe-web-search`, `web_fetch`, or DOM-level browser automation before OS-level desktop control.
+- Prefer the standalone `computer_use` tool over browser-backend flipping when
+  the user simply wants you to launch an app, open a URL in a visible browser,
+  or interact with the desktop.
 - Start every task by discovering the desktop state:
   - list candidate windows
   - focus the intended window

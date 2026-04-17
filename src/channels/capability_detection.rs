@@ -33,19 +33,7 @@ pub(crate) fn looks_like_remote_repo_review_request(user_message: &str) -> bool 
         return true;
     }
 
-    let cjk_review_hints = [
-        "代码库",
-        "仓库",
-        "源码",
-        "看看",
-        "检查",
-        "审查",
-        "评审",
-        "缺陷",
-        "问题",
-        "有什么明显",
-    ];
-    cjk_review_hints.iter().any(|hint| trimmed.contains(hint))
+    false
 }
 
 fn message_contains_url(user_message: &str) -> bool {
@@ -89,23 +77,7 @@ pub(crate) fn looks_like_web_task(user_message: &str) -> bool {
         return true;
     }
 
-    let cjk_hints = [
-        "看看",
-        "检查",
-        "审查",
-        "评审",
-        "读",
-        "读取",
-        "总结",
-        "打开",
-        "访问",
-        "搜索",
-        "查一下",
-        "网页",
-        "链接",
-        "网址",
-    ];
-    cjk_hints.iter().any(|hint| trimmed.contains(hint))
+    false
 }
 
 pub(crate) fn looks_like_shell_task(user_message: &str) -> bool {
@@ -133,17 +105,72 @@ pub(crate) fn looks_like_shell_task(user_message: &str) -> bool {
         return true;
     }
 
-    let cjk_hints = [
-        "运行命令",
-        "执行命令",
-        "终端",
-        "命令行",
-        "编译",
-        "构建",
-        "测试",
-        "跑一下",
+    false
+}
+
+pub(crate) fn looks_like_repo_metrics_task(user_message: &str) -> bool {
+    let trimmed = user_message.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let metric_hints = [
+        "lines of code",
+        "line count",
+        "count the lines",
+        "count lines",
+        "cloc",
+        "tokei",
     ];
-    cjk_hints.iter().any(|hint| trimmed.contains(hint))
+    if !metric_hints.iter().any(|hint| lower.contains(hint)) {
+        return false;
+    }
+
+    message_contains_url(trimmed)
+        || ["repo", "repository", "codebase", "source tree"]
+            .iter()
+            .any(|hint| lower.contains(hint))
+}
+
+pub(crate) fn looks_like_desktop_computer_use_task(user_message: &str) -> bool {
+    let trimmed = user_message.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let explicit_app_hints = [
+        "open chrome",
+        "open google chrome",
+        "launch chrome",
+        "launch google chrome",
+        "open firefox",
+        "launch firefox",
+        "open the chrome application",
+        "open the google chrome application",
+    ];
+    if explicit_app_hints.iter().any(|hint| lower.contains(hint)) {
+        return true;
+    }
+
+    let control_hints = [
+        "open ", "launch ", "focus ", "click", "scroll", "type ", "press ", "drag ", "capture",
+    ];
+    let desktop_hints = [
+        "on the computer",
+        "on my computer",
+        "desktop",
+        "application",
+        "app ",
+        "window",
+        "screen",
+        "mouse",
+        "keyboard",
+    ];
+
+    control_hints.iter().any(|hint| lower.contains(hint))
+        && desktop_hints.iter().any(|hint| lower.contains(hint))
 }
 
 fn contains_make_command_hint(lower: &str) -> bool {
@@ -176,10 +203,7 @@ pub(crate) fn looks_like_file_read_task(user_message: &str) -> bool {
         return true;
     }
 
-    mentions_path
-        && ["读取文件", "打开文件", "查看文件", "看看文件"]
-            .iter()
-            .any(|hint| trimmed.contains(hint))
+    false
 }
 
 pub(crate) fn looks_like_file_write_task(user_message: &str) -> bool {
@@ -203,10 +227,7 @@ pub(crate) fn looks_like_file_write_task(user_message: &str) -> bool {
         return true;
     }
 
-    mentions_path
-        && ["修改文件", "更新文件", "编辑文件", "创建文件", "写入文件"]
-            .iter()
-            .any(|hint| trimmed.contains(hint))
+    false
 }
 
 pub(crate) fn looks_like_current_model_question(user_message: &str) -> bool {
@@ -229,14 +250,7 @@ pub(crate) fn looks_like_current_model_question(user_message: &str) -> bool {
         return true;
     }
 
-    let cjk_hints = [
-        "哪个模型",
-        "什么模型",
-        "当前模型",
-        "具体模型",
-        "你在用什么模型",
-    ];
-    cjk_hints.iter().any(|hint| trimmed.contains(hint))
+    false
 }
 
 pub(crate) fn looks_like_loaded_skills_question(user_message: &str) -> bool {
@@ -257,14 +271,7 @@ pub(crate) fn looks_like_loaded_skills_question(user_message: &str) -> bool {
         return true;
     }
 
-    let cjk_hints = [
-        "哪些技能",
-        "什么技能",
-        "你有什么技能",
-        "可用技能",
-        "已加载技能",
-    ];
-    cjk_hints.iter().any(|hint| trimmed.contains(hint))
+    false
 }
 
 pub(crate) fn should_try_llm_capability_recovery(user_message: &str) -> bool {
@@ -274,40 +281,49 @@ pub(crate) fn should_try_llm_capability_recovery(user_message: &str) -> bool {
     }
 
     let lower = trimmed.to_ascii_lowercase();
-    let english_hints = [
+    let english_problem_hints = [
         "can't",
         "cannot",
         "unable",
+        "couldn't",
+        "could not",
         "failed",
         "failure",
-        "fix",
-        "solve",
-        "handle",
-        "recover",
         "blocked",
-        "why",
-        "how",
+        "missing",
+        "unavailable",
+        "denied",
+        "refused",
+    ];
+    let english_capability_hints = [
         "capability",
         "skill",
+        "tool",
+        "access",
+        "permission",
+        "approval",
+        "browser",
+        "channel",
     ];
-    if english_hints.iter().any(|hint| lower.contains(hint)) {
+    let english_repair_hints = ["fix", "solve", "recover", "restore", "unblock", "enable"];
+    let english_diagnostic_hints = ["why", "how"];
+
+    let has_problem = english_problem_hints
+        .iter()
+        .any(|hint| lower.contains(hint));
+    let has_capability_context = english_capability_hints
+        .iter()
+        .any(|hint| lower.contains(hint));
+    let has_repair = english_repair_hints.iter().any(|hint| lower.contains(hint));
+    let has_diagnostic = english_diagnostic_hints
+        .iter()
+        .any(|hint| lower.contains(hint));
+
+    if has_problem || has_capability_context && (has_repair || has_diagnostic) {
         return true;
     }
 
-    let cjk_hints = [
-        "不能",
-        "无法",
-        "失败",
-        "修复",
-        "解决",
-        "处理",
-        "恢复",
-        "为什么",
-        "怎么",
-        "能力",
-        "技能",
-    ];
-    cjk_hints.iter().any(|hint| trimmed.contains(hint))
+    false
 }
 
 pub(crate) fn extract_json_object(text: &str) -> Option<&str> {
@@ -332,7 +348,10 @@ pub(crate) fn extract_json_object(text: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{contains_make_command_hint, looks_like_shell_task};
+    use super::{
+        contains_make_command_hint, looks_like_desktop_computer_use_task,
+        looks_like_repo_metrics_task, looks_like_shell_task, should_try_llm_capability_recovery,
+    };
 
     #[test]
     fn shell_detection_keeps_real_make_command_requests() {
@@ -347,6 +366,34 @@ mod tests {
         ));
         assert!(!looks_like_shell_task(
             "https://github.com/topway-ai/topclaw This is your codebase, tell me what improvements you can do make yourself better and smarter?"
+        ));
+    }
+
+    #[test]
+    fn repo_metrics_detection_flags_remote_repo_line_count_requests() {
+        assert!(looks_like_repo_metrics_task(
+            "How many lines of code does this repo have? https://github.com/topway-ai/topclaw"
+        ));
+    }
+
+    #[test]
+    fn desktop_detection_flags_open_chrome_requests() {
+        assert!(looks_like_desktop_computer_use_task(
+            "open the Google Chrome application on the computer, then go to https://github.com/topway-ai/topagent"
+        ));
+    }
+
+    #[test]
+    fn llm_capability_recovery_detection_ignores_normal_how_questions() {
+        assert!(!should_try_llm_capability_recovery(
+            "How many lines of code does this repo have? https://github.com/topway-ai/topclaw"
+        ));
+    }
+
+    #[test]
+    fn llm_capability_recovery_detection_keeps_real_capability_questions() {
+        assert!(should_try_llm_capability_recovery(
+            "why can't you use that desktop skill?"
         ));
     }
 }

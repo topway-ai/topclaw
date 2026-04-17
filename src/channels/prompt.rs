@@ -1,3 +1,6 @@
+use super::capability_detection::{
+    looks_like_desktop_computer_use_task, looks_like_repo_metrics_task,
+};
 use super::BOOTSTRAP_MAX_CHARS;
 use crate::config::{Config, IdentityConfig, SkillsPromptInjectionMode};
 use std::fmt::Write;
@@ -150,7 +153,7 @@ pub(crate) fn build_channel_tool_descriptions(
         // ── Shell & processes ──
         (
             "shell",
-            "Execute terminal commands. Use when: running builds, tests, diagnostics, or any task not covered by a dedicated tool. Has 60-second timeout. Don't use when: a safer dedicated tool exists (prefer file_read over cat, content_search over grep, git_operations over raw git).",
+            "Execute terminal commands. Use when: running builds, tests, diagnostics, exact repo metrics (`cloc`, `tokei`), or any task not covered by a dedicated tool. Has 60-second timeout. Don't use when: a safer dedicated tool exists (prefer file_read over cat, content_search over grep, git_operations over raw git).",
         ),
         (
             "process",
@@ -159,7 +162,7 @@ pub(crate) fn build_channel_tool_descriptions(
         // ── Git ──
         (
             "git_operations",
-            "Structured git operations (status, diff, log, add, commit, branch, etc.) with parsed JSON output. Use when: performing git tasks — safer than raw git via shell because it sanitizes inputs and blocks dangerous flags. Don't use when: you need advanced git features not supported by the structured interface.",
+            "Structured git operations (status, diff, log, add, commit, branch, clone, etc.) with parsed JSON output. Use when: performing git tasks, including cloning a repo for local analysis — safer than raw git via shell because it sanitizes inputs and blocks dangerous flags. Don't use when: you need advanced git features not supported by the structured interface.",
         ),
         (
             "apply_patch",
@@ -249,6 +252,7 @@ pub(crate) fn build_channel_tool_descriptions(
         tool_descs.push((
             "computer_use",
             "Desktop automation: launch applications, open URLs in a visible browser window, list/focus/close windows, take screenshots, click, drag, type, or press keys. \
+             This is a standalone desktop tool — it does NOT require `browser.enabled=true` or `browser.backend='computer_use'`. \
              IMPORTANT: When the user says 'open Chrome', 'open <app>', 'open this link in Chrome', or 'navigate to <URL> on the computer', use action=app_launch with the app name and args=[\"URL\"]. \
              Do NOT use web_fetch for these — web_fetch only downloads HTML text, it does NOT open a visible window or interact with the desktop. \
              Do NOT use browser_open for launching apps — browser_open only opens URLs and cannot launch arbitrary applications. \
@@ -268,7 +272,7 @@ pub(crate) fn build_channel_tool_descriptions(
     if config.web_fetch.enabled {
         tool_descs.push((
             "web_fetch",
-            "Fetch a web page and convert to readable text/markdown. Use when: user provides a URL to read, or you need to retrieve specific web content. Don't use when: you just need search results — use web_search. Don't use when: user wants to open a URL in a browser — use computer_use.",
+            "Fetch a web page and convert to readable text/markdown. Use when: user provides a URL to read, or you need to retrieve specific web content. Don't use when: you just need search results — use web_search. Don't use when: user wants to open a URL in a browser — use computer_use. Don't use when: user wants exact repository metrics or line counts — prefer local repo analysis via shell/git tools.",
         ));
     }
     if config.http_request.enabled {
@@ -323,6 +327,39 @@ pub(crate) fn build_channel_tool_descriptions(
     }
 
     tool_descs
+}
+
+pub(crate) fn build_current_turn_routing_hint(
+    user_message: &str,
+    available_tools: &[&str],
+) -> Option<String> {
+    let has_tool = |name: &str| {
+        available_tools
+            .iter()
+            .any(|tool| tool.eq_ignore_ascii_case(name))
+    };
+
+    if has_tool("computer_use") && looks_like_desktop_computer_use_task(user_message) {
+        return Some(
+            "This request is OS-level desktop automation. Use `computer_use` directly. \
+             The standalone `computer_use` tool does NOT require `browser.enabled=true` or \
+             `browser.backend=\"computer_use\"`. Do NOT route this through `web_fetch`, \
+             `browser_open`, or a browser-domain grant just to open Chrome or interact with \
+             the visible desktop."
+                .to_string(),
+        );
+    }
+
+    if has_tool("shell") && looks_like_repo_metrics_task(user_message) {
+        return Some(
+            "This request asks for exact repository metrics. Prefer local analysis via `shell` \
+             (and `git_operations` for cloning when useful) with tools like `cloc` or `tokei` \
+             instead of `web_fetch`; web pages only provide estimates."
+                .to_string(),
+        );
+    }
+
+    None
 }
 
 /// Load workspace identity files and build a system prompt.
@@ -388,6 +425,7 @@ fn append_desktop_automation_section(
              - The user says 'open Chrome', 'open <app>', or 'launch <program>'\n\
              - The user says 'open this link in Chrome/the browser' or 'navigate to <URL> on the computer'\n\
              - The user wants to see what's on screen, click, type, or interact with the desktop\n\
+             The standalone `computer_use` tool does NOT require `browser.enabled=true` or `browser.backend=\"computer_use\"`.\n\
              Do NOT use web_fetch for these — web_fetch only downloads HTML text and does NOT open a visible window.\n\
              Do NOT use browser_open to launch apps — browser_open only opens URLs and cannot launch arbitrary applications.\n\
              To open a URL in Chrome: computer_use with action=app_launch, app=\"google-chrome\", args=[\"<URL>\"].\n\
@@ -655,7 +693,7 @@ mod self_config_tests {
 
 #[cfg(test)]
 mod tool_description_tests {
-    use super::build_channel_tool_descriptions;
+    use super::{build_channel_tool_descriptions, build_current_turn_routing_hint};
     use crate::config::Config;
 
     #[test]
@@ -715,6 +753,32 @@ mod tool_description_tests {
         let names: Vec<&str> = descs.iter().map(|(n, _)| *n).collect();
 
         assert!(!names.contains(&"computer_use"));
+    }
+
+    #[test]
+    fn current_turn_routing_hint_prefers_computer_use_for_desktop_tasks() {
+        let hint = build_current_turn_routing_hint(
+            "open the Google Chrome application on the computer, then go to https://github.com/topway-ai/topagent",
+            &["computer_use", "web_fetch", "browser_open"],
+        )
+        .expect("desktop task should produce a routing hint");
+
+        assert!(hint.contains("Use `computer_use` directly"));
+        assert!(hint.contains("does NOT require"));
+        assert!(hint.contains("Do NOT route this through `web_fetch`"));
+    }
+
+    #[test]
+    fn current_turn_routing_hint_prefers_local_repo_metrics() {
+        let hint = build_current_turn_routing_hint(
+            "How many lines of code does this repo have? https://github.com/topway-ai/topclaw",
+            &["shell", "git_operations", "web_fetch"],
+        )
+        .expect("repo metrics task should produce a routing hint");
+
+        assert!(hint.contains("exact repository metrics"));
+        assert!(hint.contains("`shell`"));
+        assert!(hint.contains("`cloc` or `tokei`"));
     }
 }
 
