@@ -1283,6 +1283,118 @@ BTC is currently around $65,000 based on latest tool output."#
         delay: Duration,
     }
 
+    struct DirectRepoMetricsShellTool {
+        calls: Arc<Mutex<Vec<String>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Tool for DirectRepoMetricsShellTool {
+        fn name(&self) -> &str {
+            "shell"
+        }
+
+        fn description(&self) -> &str {
+            "Deterministic shell stub for direct repo metrics tests"
+        }
+
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "command": { "type": "string" },
+                    "approved": { "type": "boolean" }
+                },
+                "required": ["command"]
+            })
+        }
+
+        async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
+            assert_eq!(
+                args.get("approved").and_then(serde_json::Value::as_bool),
+                Some(true)
+            );
+            let command = args
+                .get("command")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            self.calls
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(command.clone());
+
+            if command.contains("git clone") {
+                return Ok(ToolResult {
+                    success: true,
+                    output: "clone ok".to_string(),
+                    error: None,
+                });
+            }
+            if command.contains("cloc --json") {
+                return Ok(ToolResult {
+                    success: true,
+                    output: r#"{"Rust":{"code":90},"Shell":{"code":10},"SUM":{"nFiles":2,"blank":8,"comment":5,"code":100}}"#.to_string(),
+                    error: None,
+                });
+            }
+
+            Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("unexpected command: {command}")),
+            })
+        }
+    }
+
+    struct DirectDesktopComputerUseTool {
+        actions: Arc<Mutex<Vec<String>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Tool for DirectDesktopComputerUseTool {
+        fn name(&self) -> &str {
+            "computer_use"
+        }
+
+        fn description(&self) -> &str {
+            "Deterministic desktop stub for direct auto-resume tests"
+        }
+
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string" }
+                },
+                "required": ["action"]
+            })
+        }
+
+        async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
+            let action = args
+                .get("action")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            self.actions
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(action.clone());
+
+            let output = if action == "screen_capture" {
+                "Screenshot saved: /tmp/direct-desktop-test.png (100x100). Sidecar data: {}"
+                    .to_string()
+            } else {
+                format!("{action} ok. {{}}")
+            };
+            Ok(ToolResult {
+                success: true,
+                output,
+                error: None,
+            })
+        }
+    }
+
     #[async_trait::async_trait]
     impl Tool for MockEchoTool {
         fn name(&self) -> &str {
@@ -5316,6 +5428,7 @@ BTC is currently around $65,000 based on latest tool output."#;
             system_prompt,
             "openrouter",
             "model-x",
+            &[],
         )
         .expect("audio questions should be answered locally");
 
@@ -5338,6 +5451,7 @@ BTC is currently around $65,000 based on latest tool output."#;
             system_prompt,
             "openrouter",
             "model-x",
+            &[],
         )
         .expect("meta skill-workflow questions should be answered locally");
 
@@ -5485,6 +5599,243 @@ BTC is currently around $65,000 based on latest tool output."#;
         assert_eq!(sent.len(), 1);
         assert!(sent[0].contains("curated local skills first"));
         assert!(sent[0].contains("`skill-creator`"));
+    }
+
+    #[tokio::test]
+    async fn process_channel_message_direct_repo_metrics_handler_finishes_after_approval_resume() {
+        let temp = make_workspace();
+        let channel_impl = Arc::new(TelegramRecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let provider_impl = Arc::new(HistoryCaptureProvider::default());
+        let shell_calls = Arc::new(Mutex::new(Vec::new()));
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            channels_by_name: Arc::new(channels_by_name),
+            provider: provider_impl.clone(),
+            default_provider: Arc::new("test-provider".to_string()),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![Box::new(DirectRepoMetricsShellTool {
+                calls: Arc::clone(&shell_calls),
+            })]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("system".to_string()),
+            model: Arc::new("test-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            provider_cache: Arc::new(Mutex::new(HashMap::new())),
+            route_overrides: Arc::new(Mutex::new(HashMap::new())),
+            api_key: None,
+            api_url: None,
+            reliability: Arc::new(crate::config::ReliabilityConfig::default()),
+            provider_runtime_options: providers::ProviderRuntimeOptions::default(),
+            workspace_dir: Arc::new(temp.path().to_path_buf()),
+            message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
+            interrupt_on_new_message: false,
+            multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
+            non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
+            approval_manager: Arc::new(ApprovalManager::from_config(
+                &crate::config::AutonomyConfig::default(),
+            )),
+        });
+
+        let msg = traits::ChannelMessage {
+            id: "msg-repo-metrics".to_string(),
+            sender: "frank".to_string(),
+            reply_target: "chat-1".to_string(),
+            content:
+                "How many lines of code does this repo have? https://github.com/topway-ai/topagent"
+                    .to_string(),
+            channel: "telegram".to_string(),
+            timestamp: 0,
+            thread_ts: None,
+        };
+
+        process_channel_message_with_options(
+            Arc::clone(&runtime_ctx),
+            msg,
+            CancellationToken::new(),
+            ProcessChannelMessageOptions {
+                resume_existing_user_turn: true,
+                approved_auto_resume: true,
+            },
+        )
+        .await;
+
+        let sent = channel_impl.sent_messages.lock().await.clone();
+        assert_eq!(
+            provider_impl
+                .calls
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .len(),
+            0
+        );
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].contains("measured it with `cloc`"));
+        assert!(sent[0].contains("Code lines: `100`"));
+
+        let calls = shell_calls
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        assert_eq!(calls.len(), 2);
+        assert!(calls[0].contains("git clone"));
+        assert!(calls[1].contains("cloc --json"));
+    }
+
+    #[tokio::test]
+    async fn process_channel_message_direct_desktop_handler_finishes_after_approval_resume() {
+        let temp = make_workspace();
+        let channel_impl = Arc::new(TelegramRecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let provider_impl = Arc::new(HistoryCaptureProvider::default());
+        let actions = Arc::new(Mutex::new(Vec::new()));
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            channels_by_name: Arc::new(channels_by_name),
+            provider: provider_impl.clone(),
+            default_provider: Arc::new("test-provider".to_string()),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![Box::new(DirectDesktopComputerUseTool {
+                actions: Arc::clone(&actions),
+            })]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("system".to_string()),
+            model: Arc::new("test-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            provider_cache: Arc::new(Mutex::new(HashMap::new())),
+            route_overrides: Arc::new(Mutex::new(HashMap::new())),
+            api_key: None,
+            api_url: None,
+            reliability: Arc::new(crate::config::ReliabilityConfig::default()),
+            provider_runtime_options: providers::ProviderRuntimeOptions::default(),
+            workspace_dir: Arc::new(temp.path().to_path_buf()),
+            message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
+            interrupt_on_new_message: false,
+            multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
+            non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
+            approval_manager: Arc::new(ApprovalManager::from_config(
+                &crate::config::AutonomyConfig::default(),
+            )),
+        });
+
+        let msg = traits::ChannelMessage {
+            id: "msg-desktop-direct".to_string(),
+            sender: "frank".to_string(),
+            reply_target: "chat-1".to_string(),
+            content: "open Google Chrome application on the computer, and open this link in the application: https://github.com/topway-ai/topagent, then scroll to the bottom".to_string(),
+            channel: "telegram".to_string(),
+            timestamp: 0,
+            thread_ts: None,
+        };
+
+        process_channel_message_with_options(
+            Arc::clone(&runtime_ctx),
+            msg,
+            CancellationToken::new(),
+            ProcessChannelMessageOptions {
+                resume_existing_user_turn: true,
+                approved_auto_resume: true,
+            },
+        )
+        .await;
+
+        let sent = channel_impl.sent_messages.lock().await.clone();
+        assert_eq!(
+            provider_impl
+                .calls
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .len(),
+            0
+        );
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].contains("injected a direct scroll-to-bottom command"));
+
+        let actions = actions.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        assert!(actions.contains(&"app_launch".to_string()));
+        assert!(actions.contains(&"window_focus".to_string()));
+        assert!(actions.contains(&"mouse_click".to_string()));
+        assert!(
+            actions
+                .iter()
+                .filter(|action| *action == "key_type")
+                .count()
+                >= 2
+        );
+        assert!(
+            actions
+                .iter()
+                .filter(|action| *action == "screen_capture")
+                .count()
+                >= 3
+        );
+        assert!(
+            actions
+                .iter()
+                .filter(|action| *action == "key_press")
+                .count()
+                >= 4
+        );
+    }
+
+    #[test]
+    fn local_capability_response_reports_authoritative_tools_and_skills() {
+        let system_prompt = r#"
+<available_skills>
+<skill><name>skill-creator</name></skill>
+<skill><name>desktop-computer-use</name></skill>
+</available_skills>
+"#;
+        let visible_tool_names = vec!["computer_use".to_string(), "shell".to_string()];
+
+        let response = build_local_capability_response(
+            "list out all the tools and skills you have",
+            system_prompt,
+            "openrouter",
+            "model-x",
+            &visible_tool_names,
+        )
+        .expect("inventory questions should be answered locally");
+
+        assert!(response.contains("`computer_use`"));
+        assert!(response.contains("`shell`"));
+        assert!(response.contains("`desktop-computer-use`"));
+        assert!(response.contains("tool when compiled and allowed"));
+    }
+
+    #[test]
+    fn local_capability_response_explains_computer_use_is_a_tool() {
+        let response = build_local_capability_response(
+            "You are supposed to have computer_use skill too, why didn't you mention it?",
+            "system",
+            "openrouter",
+            "model-x",
+            &[],
+        )
+        .expect("computer_use availability question should be answered locally");
+
+        assert!(response.contains("tool, not a skill"));
+        assert!(response.contains("not currently loaded"));
     }
 
     // ── E2E: photo [IMAGE:] marker rejected by non-vision provider ───

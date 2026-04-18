@@ -160,7 +160,7 @@ pub async fn run_desktop_helpers(config: &Config, install: bool) -> Result<()> {
 
     if install {
         println!("📦 Installing missing desktop helpers…");
-        let result = crate::tools::computer_use::install_desktop_helpers().await;
+        let result = crate::tools::computer_use::install_desktop_helpers_for_user_request().await;
         println!("{result}");
 
         // Re-check after install attempt

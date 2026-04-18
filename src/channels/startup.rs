@@ -555,7 +555,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
         )),
         query_classification: config.query_classification.clone(),
         model_routes: config.model_routes.clone(),
-        approval_manager: Arc::new(ApprovalManager::from_config(&config.autonomy)),
+        approval_manager: Arc::new(ApprovalManager::from_non_cli_config(&config.autonomy)),
     });
 
     run_message_dispatch_loop(rx, runtime_ctx, max_in_flight_messages).await;

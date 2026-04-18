@@ -119,6 +119,21 @@ pub struct ApprovalManager {
 }
 
 impl ApprovalManager {
+    const NON_CLI_FORCE_PROMPT_TOOLS: [&'static str; 3] =
+        ["shell", "git_operations", "computer_use"];
+
+    fn sanitize_non_cli_auto_approve(entries: &[String]) -> HashSet<String> {
+        entries
+            .iter()
+            .filter(|tool_name| {
+                !Self::NON_CLI_FORCE_PROMPT_TOOLS
+                    .iter()
+                    .any(|forced| forced.eq_ignore_ascii_case(tool_name))
+            })
+            .cloned()
+            .collect()
+    }
+
     fn normalize_non_cli_approvers(entries: &[String]) -> HashSet<String> {
         entries
             .iter()
@@ -167,6 +182,18 @@ impl ApprovalManager {
             resolved_non_cli_requests: Mutex::new(HashMap::new()),
             audit_log: Mutex::new(Vec::new()),
         }
+    }
+
+    /// Create a channel/non-CLI approval manager from runtime config.
+    ///
+    /// Channel bots should keep execution-capable tools supervised even if an
+    /// older persisted config still contains them in `auto_approve`.
+    pub fn from_non_cli_config(config: &AutonomyConfig) -> Self {
+        let mut sanitized = config.clone();
+        sanitized.auto_approve = Self::sanitize_non_cli_auto_approve(&sanitized.auto_approve)
+            .into_iter()
+            .collect();
+        Self::from_config(&sanitized)
     }
 
     /// Check whether a tool call requires interactive approval.
@@ -388,7 +415,7 @@ impl ApprovalManager {
     ) {
         {
             let mut auto = self.auto_approve.write();
-            *auto = auto_approve.iter().cloned().collect();
+            *auto = Self::sanitize_non_cli_auto_approve(auto_approve);
         }
         {
             let mut always = self.always_ask.write();
@@ -766,6 +793,26 @@ mod tests {
         let mgr = ApprovalManager::from_config(&supervised_config());
         assert!(mgr.needs_approval("file_write"));
         assert!(mgr.needs_approval("http_request"));
+    }
+
+    #[test]
+    fn non_cli_config_forces_shell_git_and_computer_use_back_to_prompted() {
+        let config = AutonomyConfig {
+            level: AutonomyLevel::Supervised,
+            auto_approve: vec![
+                "file_read".into(),
+                "shell".into(),
+                "git_operations".into(),
+                "computer_use".into(),
+            ],
+            ..AutonomyConfig::default()
+        };
+
+        let mgr = ApprovalManager::from_non_cli_config(&config);
+        assert!(!mgr.needs_approval("file_read"));
+        assert!(mgr.needs_approval("shell"));
+        assert!(mgr.needs_approval("git_operations"));
+        assert!(mgr.needs_approval("computer_use"));
     }
 
     #[test]
@@ -1177,7 +1224,7 @@ mod tests {
         );
 
         mgr.replace_runtime_non_cli_policy(
-            &["mock_price".to_string()],
+            &["mock_price".to_string(), "computer_use".to_string()],
             &["shell".to_string()],
             &["telegram:alice".to_string()],
             NonCliNaturalLanguageApprovalMode::Direct,
@@ -1186,6 +1233,7 @@ mod tests {
 
         assert!(!mgr.needs_approval("mock_price"));
         assert!(mgr.needs_approval("shell"));
+        assert!(mgr.needs_approval("computer_use"));
         assert!(mgr.is_non_cli_approval_actor_allowed("telegram", "alice"));
         assert!(!mgr.is_non_cli_approval_actor_allowed("telegram", "bob"));
         assert_eq!(

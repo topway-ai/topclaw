@@ -1,8 +1,10 @@
 //! Shared helper functions for channel runtime.
 
 use super::capability_detection::{
-    looks_like_audio_capability_question, looks_like_current_model_question,
-    looks_like_loaded_skills_question, looks_like_skill_workflow_advisory_question,
+    looks_like_audio_capability_question, looks_like_computer_use_availability_question,
+    looks_like_current_model_question, looks_like_loaded_skills_question,
+    looks_like_skill_workflow_advisory_question, looks_like_tool_inventory_question,
+    looks_like_tools_and_skills_question,
 };
 use crate::memory;
 use crate::providers::{self, ChatMessage, Provider};
@@ -269,10 +271,79 @@ pub(super) fn build_local_capability_response(
     system_prompt: &str,
     provider_name: &str,
     model_name: &str,
+    visible_tool_names: &[String],
 ) -> Option<String> {
     if looks_like_current_model_question(content) {
         return Some(format!(
             "I'm currently using provider `{provider_name}` with model `{model_name}`."
+        ));
+    }
+
+    if looks_like_tools_and_skills_question(content) {
+        let skill_names = extract_loaded_skill_names_from_system_prompt(system_prompt);
+        let tool_section = if visible_tool_names.is_empty() {
+            "Visible tools in this runtime turn: (none).".to_string()
+        } else {
+            format!(
+                "Visible tools in this runtime turn ({}): {}.",
+                visible_tool_names.len(),
+                visible_tool_names
+                    .iter()
+                    .map(|name| format!("`{name}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+        let skill_section = if skill_names.is_empty() {
+            "Loaded skills in the current prompt: (none).".to_string()
+        } else {
+            format!(
+                "Loaded skills in the current prompt ({}): {}.",
+                skill_names.len(),
+                skill_names
+                    .iter()
+                    .map(|name| format!("`{name}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+
+        return Some(format!(
+            "{tool_section}\n{skill_section}\n`computer_use` is a runtime tool when compiled and allowed, not a marketplace skill."
+        ));
+    }
+
+    if looks_like_tool_inventory_question(content) {
+        if visible_tool_names.is_empty() {
+            return Some(
+                "Visible tools in this runtime turn: (none). I can still answer from chat context, but I should not claim tool access that is not actually loaded."
+                    .to_string(),
+            );
+        }
+
+        return Some(format!(
+            "Visible tools in this runtime turn ({}): {}.",
+            visible_tool_names.len(),
+            visible_tool_names
+                .iter()
+                .map(|name| format!("`{name}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+
+    if looks_like_computer_use_availability_question(content) {
+        let has_computer_use = visible_tool_names
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case("computer_use"));
+        let availability = if has_computer_use {
+            "`computer_use` is currently loaded as a runtime tool in this turn."
+        } else {
+            "`computer_use` is not currently loaded in this runtime turn."
+        };
+
+        return Some(format!(
+            "{availability} `computer_use` is a tool, not a skill. A separate curated skill such as `desktop-computer-use` can document workflows around that tool, but it does not replace the compiled runtime tool itself."
         ));
     }
 
@@ -352,6 +423,9 @@ pub(super) fn build_local_capability_response(
 
 pub(super) fn should_answer_local_capability_response_immediately(content: &str) -> bool {
     looks_like_current_model_question(content)
+        || looks_like_tools_and_skills_question(content)
+        || looks_like_tool_inventory_question(content)
+        || looks_like_computer_use_availability_question(content)
         || looks_like_loaded_skills_question(content)
         || looks_like_audio_capability_question(content)
         || looks_like_skill_workflow_advisory_question(content)

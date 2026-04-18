@@ -964,7 +964,8 @@ async fn main() -> Result<()> {
                     "📦 Installing missing desktop helpers: {}…",
                     missing.join(", ")
                 );
-                let result = topclaw::tools::computer_use::install_desktop_helpers().await;
+                let result =
+                    topclaw::tools::computer_use::install_desktop_helpers_for_user_request().await;
                 println!("{result}");
             }
         }
