@@ -1093,8 +1093,10 @@ fn detect_high_risk_snippet(content: &str) -> Option<&'static str> {
                 "browser-persistent-profile",
             ),
             (
-                Regex::new(r"(?im)\b(?:osascript|xdotool|ydotool|pyautogui|autohotkey|accessibility)\b")
-                    .expect("regex"),
+                Regex::new(
+                    r"(?im)(?:^\s*(?:osascript|xdotool|ydotool|autohotkey)\b|(?:^|\n)\s*import\s+pyautogui\b|\bpyautogui\.)",
+                )
+                .expect("regex"),
                 "gui-automation-escalation",
             ),
             (Regex::new(r"(?im)\bdd\s+if=").expect("regex"), "disk-overwrite-dd"),
@@ -1271,6 +1273,44 @@ command = "agent-browser --no-sandbox --user-data-dir /tmp/profile"
         assert!(has_finding(
             &report.static_audit,
             "external-installer-guidance"
+        ));
+    }
+
+    #[test]
+    fn vet_allows_prose_mentions_of_desktop_helper_tools() {
+        let dir = tempfile::tempdir().unwrap();
+        let skill_dir = dir.path().join("desktop-prose");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "# Desktop Skill\nThis skill may shell out to `xdotool`, `wmctrl`, and `scrot` on Linux when the runtime tool requests it.\n",
+        )
+        .unwrap();
+
+        let report = vet_skill_directory(&skill_dir).unwrap();
+        assert!(report.install_allowed);
+        assert!(!has_finding(
+            &report.static_audit,
+            "gui-automation-escalation"
+        ));
+    }
+
+    #[test]
+    fn vet_rejects_explicit_gui_automation_commands() {
+        let dir = tempfile::tempdir().unwrap();
+        let skill_dir = dir.path().join("desktop-command");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "# Desktop Skill\n```bash\nxdotool key Return\n```\n",
+        )
+        .unwrap();
+
+        let report = vet_skill_directory(&skill_dir).unwrap();
+        assert!(!report.install_allowed);
+        assert!(has_finding(
+            &report.static_audit,
+            "gui-automation-escalation"
         ));
     }
 }

@@ -1379,9 +1379,9 @@ fn print_bullet(text: &str) {
 }
 
 /// After skill selection, if the user chose "desktop-computer-use" on Linux,
-/// proactively check for and offer to install missing desktop helpers.
-/// This eliminates the frustrating experience of selecting the skill only
-/// to discover missing packages at first runtime.
+/// proactively probe the helper readiness and auto-install only the missing
+/// packages right away. This eliminates the frustrating experience of
+/// selecting the skill only to discover missing packages at first runtime.
 #[cfg(feature = "computer-use-sidecar")]
 async fn maybe_install_desktop_helpers(skill_selection: &SkillOnboardingSelection) {
     let wants_desktop = skill_selection
@@ -1392,8 +1392,8 @@ async fn maybe_install_desktop_helpers(skill_selection: &SkillOnboardingSelectio
         return;
     }
 
-    let missing = crate::tools::computer_use::missing_linux_helpers();
-    if missing.is_empty() {
+    let probe = crate::tools::computer_use::probe_desktop_helpers();
+    if probe.missing_helpers.is_empty() {
         println!(
             "  {} Desktop helpers: {}",
             style("✓").green().bold(),
@@ -1402,46 +1402,40 @@ async fn maybe_install_desktop_helpers(skill_selection: &SkillOnboardingSelectio
         return;
     }
 
-    // Non-Linux platforms always return empty, so this only fires on Linux.
     println!();
     println!(
-        "  {} Desktop automation needs: {}",
+        "  {} Desktop automation self-test found missing helpers: {}",
         style("⚠").yellow().bold(),
-        style(missing.join(", ")).yellow()
+        style(probe.missing_helpers.join(", ")).yellow()
     );
-    print_bullet("These packages are required to control desktop applications.");
+    print_bullet(&format!("Checked: {}", probe.checked_helpers.join(", ")));
+    if !probe.packages_to_install.is_empty() {
+        print_bullet(&format!(
+            "Installing only what is needed: {}",
+            probe.packages_to_install.join(", ")
+        ));
+    }
+    if std::io::stdin().is_terminal() {
+        print_bullet("TopClaw will now try to install those desktop helpers and may prompt for your sudo password.");
+    }
 
-    let should_install = if std::io::stdin().is_terminal() {
-        Confirm::new()
-            .with_prompt("  Install missing desktop helpers now? (requires sudo -n)")
-            .default(true)
-            .interact()
-            .unwrap_or(false)
-    } else {
-        // Non-interactive: auto-install silently (e.g. `topclaw bootstrap`)
-        true
-    };
-
-    if should_install {
-        let result = crate::tools::computer_use::install_desktop_helpers().await;
-        if result.contains("already installed") || result.contains("Installed") {
-            println!(
-                "  {} Desktop helpers: {}",
-                style("✓").green().bold(),
-                style("installed").green()
-            );
-        } else {
-            println!(
-                "  {} Desktop helpers: {}",
-                style("!").yellow().bold(),
-                style(&result).yellow()
-            );
-            print_bullet("You can install them later with: sudo apt-get install xdotool wmctrl scrot xdg-utils");
-        }
-    } else {
-        print_bullet(
-            "Skipped. Install later with: sudo apt-get install xdotool wmctrl scrot xdg-utils",
+    let result = crate::tools::computer_use::install_desktop_helpers_for_user_request().await;
+    let final_probe = crate::tools::computer_use::probe_desktop_helpers();
+    if final_probe.missing_helpers.is_empty() {
+        println!(
+            "  {} Desktop helpers: {}",
+            style("✓").green().bold(),
+            style("ready").green()
         );
+    } else {
+        println!(
+            "  {} Desktop helpers: {}",
+            style("!").yellow().bold(),
+            style(&result).yellow()
+        );
+        if let Some(command) = final_probe.install_command {
+            print_bullet(&format!("If needed, rerun manually: {command}"));
+        }
     }
 }
 

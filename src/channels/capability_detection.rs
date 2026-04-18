@@ -257,6 +257,26 @@ pub(crate) fn looks_like_current_model_question(user_message: &str) -> bool {
     false
 }
 
+pub(crate) fn looks_like_tool_inventory_question(user_message: &str) -> bool {
+    let trimmed = user_message.trim();
+    if trimmed.is_empty() || trimmed.starts_with('/') {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let english_hints = [
+        "which tools",
+        "what tools",
+        "tools do you have",
+        "available tools",
+        "loaded tools",
+        "tool list",
+        "list out all the tools",
+        "list all the tools",
+    ];
+    english_hints.iter().any(|hint| lower.contains(hint))
+}
+
 pub(crate) fn looks_like_loaded_skills_question(user_message: &str) -> bool {
     let trimmed = user_message.trim();
     if trimmed.is_empty() || trimmed.starts_with('/') {
@@ -276,6 +296,59 @@ pub(crate) fn looks_like_loaded_skills_question(user_message: &str) -> bool {
     }
 
     false
+}
+
+pub(crate) fn looks_like_tools_and_skills_question(user_message: &str) -> bool {
+    let trimmed = user_message.trim();
+    if trimmed.is_empty() || trimmed.starts_with('/') {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let explicit_hints = [
+        "what tools/skills do you have",
+        "what tools and skills do you have",
+        "list out all the tools and skills you have",
+        "list all the tools and skills you have",
+        "tools/skills",
+        "tools and skills",
+    ];
+    if explicit_hints.iter().any(|hint| lower.contains(hint)) {
+        return true;
+    }
+
+    lower.contains("tool")
+        && lower.contains("skill")
+        && ["have", "list", "available"]
+            .iter()
+            .any(|hint| lower.contains(hint))
+}
+
+pub(crate) fn looks_like_computer_use_availability_question(user_message: &str) -> bool {
+    let trimmed = user_message.trim();
+    if trimmed.is_empty() || trimmed.starts_with('/') {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    if !(lower.contains("computer_use") || lower.contains("computer use")) {
+        return false;
+    }
+
+    [
+        "why didn't you mention",
+        "why didnt you mention",
+        "supposed to have",
+        "do you have",
+        "is it available",
+        "isn't it available",
+        "isnt it available",
+        "currently loaded",
+        "currently available",
+        "why wasn't it mentioned",
+    ]
+    .iter()
+    .any(|hint| lower.contains(hint))
 }
 
 pub(crate) fn looks_like_audio_file_question(user_message: &str) -> bool {
@@ -462,9 +535,10 @@ pub(crate) fn extract_json_object(text: &str) -> Option<&str> {
 mod tests {
     use super::{
         contains_make_command_hint, looks_like_audio_capability_question,
-        looks_like_audio_file_question, looks_like_desktop_computer_use_task,
-        looks_like_repo_metrics_task, looks_like_shell_task,
+        looks_like_audio_file_question, looks_like_computer_use_availability_question,
+        looks_like_desktop_computer_use_task, looks_like_repo_metrics_task, looks_like_shell_task,
         looks_like_skill_workflow_advisory_question, looks_like_skill_workflow_request,
+        looks_like_tool_inventory_question, looks_like_tools_and_skills_question,
         looks_like_web_task, should_try_llm_capability_recovery,
     };
 
@@ -554,6 +628,29 @@ mod tests {
         ));
         assert!(!looks_like_skill_workflow_advisory_question(
             "Create a skill that can transcribe m4a audio file."
+        ));
+    }
+
+    #[test]
+    fn tools_and_skills_detection_flags_inventory_prompts() {
+        assert!(looks_like_tools_and_skills_question(
+            "list out all the tools and skills you have"
+        ));
+        assert!(looks_like_tool_inventory_question(
+            "what tools do you have?"
+        ));
+        assert!(!looks_like_tool_inventory_question(
+            "what skills do you have?"
+        ));
+    }
+
+    #[test]
+    fn computer_use_availability_detection_flags_runtime_question() {
+        assert!(looks_like_computer_use_availability_question(
+            "You are supposed to have computer_use skill too, why didn't you mention it?"
+        ));
+        assert!(!looks_like_computer_use_availability_question(
+            "Open Google Chrome with computer_use."
         ));
     }
 }

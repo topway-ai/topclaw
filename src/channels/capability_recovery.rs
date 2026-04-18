@@ -221,7 +221,7 @@ pub(super) fn infer_capability_recovery_plan(
             CapabilityRecoveryKind::DesktopAccess,
             &[CapabilityToolCandidate {
                 tool_name: "computer_use",
-                setup_hint: "I can’t drive the visible desktop from this chat right now.\nEnable `computer_use` for channel use, or switch to the local workspace flow.",
+                setup_hint: "I can’t drive the visible desktop from this chat right now because the `computer_use` tool is not loaded in this runtime build.\nLoad a build/runtime that includes `computer_use`, or switch to the local workspace flow.",
             }],
             "user request appears to require OS-level desktop automation in a non-CLI channel",
         );

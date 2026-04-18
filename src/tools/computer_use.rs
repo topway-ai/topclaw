@@ -14,6 +14,7 @@ use crate::config::BrowserComputerUseConfig;
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use serde_json::{json, Value};
+use std::io::IsTerminal;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -42,6 +43,16 @@ const ACTIONS: &[&str] = &[
 /// Linux desktop helpers the sidecar shells out to.
 #[cfg(target_os = "linux")]
 const LINUX_HELPERS: &[&str] = &["xdotool", "wmctrl", "scrot", "xdg-open"];
+
+/// Probe result for Linux desktop helper readiness.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DesktopHelperProbe {
+    pub checked_helpers: Vec<&'static str>,
+    pub missing_helpers: Vec<&'static str>,
+    pub package_manager: Option<&'static str>,
+    pub packages_to_install: Vec<&'static str>,
+    pub install_command: Option<String>,
+}
 
 /// Which helpers each action requires. Actions not listed (bootstrap, app_launch,
 /// app_terminate) don't need any helpers — they run directly or use kill/pkill.
@@ -571,11 +582,61 @@ pub fn missing_linux_helpers() -> Vec<&'static str> {
     Vec::new()
 }
 
-/// Install missing Linux desktop helpers using the detected package manager.
-/// Returns a human-readable summary string suitable for onboarding display.
-/// Non-Linux platforms report "no-op".
+pub fn probe_desktop_helpers() -> DesktopHelperProbe {
+    #[cfg(target_os = "linux")]
+    {
+        let missing_helpers = missing_linux_helpers();
+        let package_manager = detect_package_manager().map(|(manager, _)| manager);
+        let packages_to_install = package_manager
+            .map(|manager| packages_for_missing(&missing_helpers, manager))
+            .unwrap_or_default();
+        let install_command = package_manager.map(|manager| {
+            format!(
+                "sudo {}",
+                install_command_string(manager, &packages_to_install)
+            )
+        });
+
+        DesktopHelperProbe {
+            checked_helpers: LINUX_HELPERS.to_vec(),
+            missing_helpers,
+            package_manager,
+            packages_to_install,
+            install_command,
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        DesktopHelperProbe {
+            checked_helpers: Vec::new(),
+            missing_helpers: Vec::new(),
+            package_manager: None,
+            packages_to_install: Vec::new(),
+            install_command: None,
+        }
+    }
+}
+
+/// Install missing Linux desktop helpers using a daemon-safe, non-interactive
+/// path. Non-Linux platforms report "no-op".
 pub async fn install_desktop_helpers() -> String {
-    let result = run_bootstrap_impl().await;
+    summarize_bootstrap_result(run_bootstrap_impl_with_mode(false).await)
+}
+
+/// Install missing Linux desktop helpers for an explicit user-driven setup
+/// flow. When a real terminal is available, this may prompt for the user's
+/// sudo password instead of requiring `sudo -n`.
+pub async fn install_desktop_helpers_for_user_request() -> String {
+    summarize_bootstrap_result(run_bootstrap_impl_with_mode(true).await)
+}
+
+/// Internal bootstrap implementation returning a ToolResult.
+async fn run_bootstrap() -> ToolResult {
+    run_bootstrap_impl_with_mode(false).await
+}
+
+fn summarize_bootstrap_result(result: ToolResult) -> String {
     if result.success {
         result.output
     } else {
@@ -583,93 +644,86 @@ pub async fn install_desktop_helpers() -> String {
     }
 }
 
-/// Internal bootstrap implementation returning a ToolResult.
-async fn run_bootstrap() -> ToolResult {
-    run_bootstrap_impl().await
-}
-
 #[cfg(target_os = "linux")]
-async fn run_bootstrap_impl() -> ToolResult {
-    let missing = missing_linux_helpers();
-    if missing.is_empty() {
+async fn run_bootstrap_impl_with_mode(allow_interactive_sudo: bool) -> ToolResult {
+    let probe = probe_desktop_helpers();
+    if probe.missing_helpers.is_empty() {
         return ToolResult {
             success: true,
             output: "All Linux desktop helpers (xdotool, wmctrl, scrot, xdg-open) are already installed.".into(),
             error: None,
         };
     }
-    let (manager, _packages) = match detect_package_manager() {
-        Some(pair) => pair,
+    let manager = match probe.package_manager {
+        Some(manager) => manager,
         None => {
             return fail(&format!(
                 "missing helpers ({}) but no supported package manager (apt-get, dnf, pacman, zypper, apk) was found. Install manually: xdotool wmctrl scrot xdg-utils",
-                missing.join(", ")
+                probe.missing_helpers.join(", ")
             ));
         }
     };
+    let pkgs = probe.packages_to_install;
 
-    // Map helper binary names to distro packages.
-    let pkgs = packages_for_missing(&missing, manager);
-
-    // Sanity-check sudo is available and non-interactive.
+    // Sanity-check sudo is available before attempting an install.
     if which::which("sudo").is_err() {
         return fail("'sudo' not found. Install manually as root: xdotool wmctrl scrot xdg-utils");
     }
-    if !sudo_noninteractive_ok().await {
+
+    let interactive_sudo = allow_interactive_sudo
+        && std::io::stdin().is_terminal()
+        && std::io::stdout().is_terminal()
+        && std::io::stderr().is_terminal();
+
+    if !interactive_sudo && !sudo_noninteractive_ok().await {
         return fail(&format!(
             "sudo requires a password (sudo -n failed). Either configure passwordless sudo for desktop package installs, or run manually: sudo {manager_install}",
             manager_install = install_command_string(manager, &pkgs)
         ));
     }
 
-    // Run the install. Capture combined output so the model can show it.
-    let mut argv = vec!["-n".to_string()];
+    let mut argv = Vec::new();
+    if !interactive_sudo {
+        argv.push("-n".to_string());
+    }
     argv.extend(install_argv(manager, &pkgs));
-    let out = tokio::process::Command::new("sudo")
-        .args(&argv)
-        .stdin(Stdio::null())
-        .output()
-        .await;
-    match out {
-        Ok(o) if o.status.success() => {
-            let still_missing = missing_linux_helpers();
-            if still_missing.is_empty() {
-                info!(
-                    target: "topclaw::audit",
-                    event = "computer_use_bootstrap",
-                    manager = manager,
-                    packages = ?pkgs,
-                    "installed Linux desktop helpers"
-                );
-                ToolResult {
-                    success: true,
-                    output: format!(
-                        "Installed {} via {manager}. Desktop helpers ready.",
-                        pkgs.join(" ")
-                    ),
-                    error: None,
-                }
-            } else {
+
+    if interactive_sudo {
+        match tokio::process::Command::new("sudo")
+            .args(&argv)
+            .status()
+            .await
+        {
+            Ok(status) if status.success() => bootstrap_install_success(manager, &pkgs),
+            Ok(status) => fail(&format!(
+                "{manager} install failed (exit {:?}).",
+                status.code()
+            )),
+            Err(e) => fail(&format!("failed to run sudo {manager}: {e}")),
+        }
+    } else {
+        let out = tokio::process::Command::new("sudo")
+            .args(&argv)
+            .stdin(Stdio::null())
+            .output()
+            .await;
+        match out {
+            Ok(o) if o.status.success() => bootstrap_install_success(manager, &pkgs),
+            Ok(o) => {
+                let stderr = String::from_utf8_lossy(&o.stderr);
                 fail(&format!(
-                    "{manager} reported success but {} still missing. Try reinstalling manually.",
-                    still_missing.join(", ")
+                    "{manager} install failed (exit {:?}): {}",
+                    o.status.code(),
+                    stderr.trim()
                 ))
             }
+            Err(e) => fail(&format!("failed to run sudo {manager}: {e}")),
         }
-        Ok(o) => {
-            let stderr = String::from_utf8_lossy(&o.stderr);
-            fail(&format!(
-                "{manager} install failed (exit {:?}): {}",
-                o.status.code(),
-                stderr.trim()
-            ))
-        }
-        Err(e) => fail(&format!("failed to run sudo {manager}: {e}")),
     }
 }
 
 #[cfg(not(target_os = "linux"))]
-async fn run_bootstrap_impl() -> ToolResult {
+async fn run_bootstrap_impl_with_mode(_allow_interactive_sudo: bool) -> ToolResult {
     ToolResult {
         success: true,
         output: format!(
@@ -677,6 +731,33 @@ async fn run_bootstrap_impl() -> ToolResult {
             std::env::consts::OS
         ),
         error: None,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn bootstrap_install_success(manager: &str, pkgs: &[&str]) -> ToolResult {
+    let still_missing = missing_linux_helpers();
+    if still_missing.is_empty() {
+        info!(
+            target: "topclaw::audit",
+            event = "computer_use_bootstrap",
+            manager = manager,
+            packages = ?pkgs,
+            "installed Linux desktop helpers"
+        );
+        ToolResult {
+            success: true,
+            output: format!(
+                "Installed {} via {manager}. Desktop helpers ready.",
+                pkgs.join(" ")
+            ),
+            error: None,
+        }
+    } else {
+        fail(&format!(
+            "{manager} reported success but {} still missing. Try reinstalling manually.",
+            still_missing.join(", ")
+        ))
     }
 }
 
@@ -978,6 +1059,32 @@ mod tests {
     fn packages_for_missing_maps_xdg_open_to_xdg_utils() {
         let pkgs = packages_for_missing(&["xdg-open", "xdotool"], "apt-get");
         assert_eq!(pkgs, vec!["xdg-utils", "xdotool"]);
+    }
+
+    #[test]
+    fn desktop_helper_probe_is_structured() {
+        let probe = probe_desktop_helpers();
+        #[cfg(target_os = "linux")]
+        {
+            assert_eq!(probe.checked_helpers, LINUX_HELPERS.to_vec());
+            assert!(probe
+                .missing_helpers
+                .iter()
+                .all(|helper| probe.checked_helpers.contains(helper)));
+            if probe.package_manager.is_some() && !probe.missing_helpers.is_empty() {
+                assert!(!probe.packages_to_install.is_empty());
+                assert!(probe.install_command.is_some());
+            }
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            assert!(probe.checked_helpers.is_empty());
+            assert!(probe.missing_helpers.is_empty());
+            assert!(probe.package_manager.is_none());
+            assert!(probe.packages_to_install.is_empty());
+            assert!(probe.install_command.is_none());
+        }
     }
 
     #[cfg(target_os = "linux")]

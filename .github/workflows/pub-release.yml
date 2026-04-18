@@ -209,7 +209,7 @@ jobs:
             CARGO_HOME: ${{ github.workspace }}/.ci-rust/${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.target }}/cargo
             RUSTUP_HOME: ${{ github.workspace }}/.ci-rust/${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.target }}/rustup
             CARGO_TARGET_DIR: ${{ github.workspace }}/target
-            RELEASE_FEATURES: channel-telegram,channel-discord,web-fetch-html2md
+            RELEASE_FEATURES: channel-telegram,channel-discord,web-fetch-html2md,computer-use-sidecar
         strategy:
             fail-fast: false
             matrix:

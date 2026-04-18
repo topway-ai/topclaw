@@ -15,11 +15,15 @@ use crate::tools::channel_runtime_context::{
     with_channel_runtime_context, ChannelRuntimeContext as ToolChannelRuntimeContext,
 };
 use crate::util::truncate_with_ellipsis;
+use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
-use super::capability_detection::should_try_llm_capability_recovery;
+use super::capability_detection::{
+    looks_like_desktop_computer_use_task, looks_like_repo_metrics_task,
+    should_try_llm_capability_recovery,
+};
 use super::capability_recovery::{
     infer_capability_recovery_plan, should_expose_internal_tool_details,
     try_llm_capability_recovery_plan, CapabilityRecoveryPlan, CapabilityState,
@@ -102,6 +106,475 @@ fn should_run_llm_capability_classifier(
         && channel_name != "cli"
         && has_tools
         && should_try_llm_capability_recovery(user_message)
+}
+
+struct DirectTaskReply {
+    response: String,
+    trace_reason: &'static str,
+}
+
+fn runtime_tool_visible(visible_tool_names: &[String], tool_name: &str) -> bool {
+    visible_tool_names
+        .iter()
+        .any(|visible| visible.eq_ignore_ascii_case(tool_name))
+}
+
+fn first_http_url(user_message: &str) -> Option<String> {
+    user_message
+        .split_whitespace()
+        .map(|token| {
+            token.trim_matches(|ch: char| {
+                matches!(
+                    ch,
+                    '"' | '\'' | '(' | ')' | '[' | ']' | '<' | '>' | ',' | '.'
+                )
+            })
+        })
+        .find(|token| token.starts_with("http://") || token.starts_with("https://"))
+        .map(ToString::to_string)
+}
+
+fn repo_slug_from_url(url: &str) -> Option<String> {
+    let parsed = reqwest::Url::parse(url).ok()?;
+    let host = parsed.host_str()?.replace('.', "-");
+    let mut segments = parsed
+        .path_segments()?
+        .filter(|segment| !segment.is_empty())
+        .map(|segment| segment.trim_end_matches(".git"))
+        .map(|segment| {
+            segment
+                .chars()
+                .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
+                .collect::<String>()
+        })
+        .filter(|segment| !segment.is_empty())
+        .take(2)
+        .collect::<Vec<_>>();
+    if segments.is_empty() {
+        return None;
+    }
+    segments.insert(0, host);
+    Some(segments.join("-"))
+}
+
+fn shell_quote(raw: &str) -> String {
+    format!("'{}'", raw.replace('\'', "'\"'\"'"))
+}
+
+fn compact_count(value: u64) -> String {
+    let digits = value.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (idx, ch) in digits.chars().rev().enumerate() {
+        if idx != 0 && idx % 3 == 0 {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out.chars().rev().collect()
+}
+
+fn parse_cloc_report(raw: &str) -> Option<String> {
+    let parsed: Value = serde_json::from_str(raw).ok()?;
+    let sum = parsed.get("SUM")?;
+    let files = sum.get("nFiles").and_then(Value::as_u64).unwrap_or(0);
+    let code = sum.get("code").and_then(Value::as_u64).unwrap_or(0);
+    let comments = sum.get("comment").and_then(Value::as_u64).unwrap_or(0);
+    let blanks = sum.get("blank").and_then(Value::as_u64).unwrap_or(0);
+
+    let mut languages = parsed
+        .as_object()?
+        .iter()
+        .filter_map(|(language, stats)| {
+            if language == "header" || language == "SUM" {
+                return None;
+            }
+            let code = stats.get("code").and_then(Value::as_u64)?;
+            Some((language.clone(), code))
+        })
+        .collect::<Vec<_>>();
+    languages.sort_by(|a, b| b.1.cmp(&a.1));
+
+    let top_languages = languages
+        .into_iter()
+        .take(5)
+        .map(|(language, code)| format!("`{language}` {}", compact_count(code)))
+        .collect::<Vec<_>>();
+    let language_line = if top_languages.is_empty() {
+        String::new()
+    } else {
+        format!("\nTop languages by code: {}.", top_languages.join(", "))
+    };
+
+    Some(format!(
+        "Cloned the repository locally and measured it with `cloc`.\nCode lines: `{}` across `{}` files.\nComments: `{}`. Blank lines: `{}`.{language_line}",
+        compact_count(code),
+        compact_count(files),
+        compact_count(comments),
+        compact_count(blanks),
+    ))
+}
+
+fn extract_capture_path(output: &str) -> Option<String> {
+    let prefix = "Screenshot saved: ";
+    let rest = output.strip_prefix(prefix)?;
+    let path = rest.split(". Sidecar data:").next()?.trim();
+    let path = path.split(" (").next().unwrap_or(path).trim();
+    (!path.is_empty()).then(|| path.to_string())
+}
+
+fn find_tool<'a>(
+    tools_registry: &'a [Box<dyn crate::tools::Tool>],
+    tool_name: &str,
+) -> Option<&'a dyn crate::tools::Tool> {
+    tools_registry
+        .iter()
+        .find(|tool| tool.name() == tool_name)
+        .map(|tool| tool.as_ref())
+}
+
+async fn run_direct_tool(
+    ctx: &ChannelRuntimeContext,
+    tool_name: &str,
+    args: Value,
+) -> Result<crate::tools::ToolResult, String> {
+    let tool = find_tool(ctx.tools_registry.as_ref(), tool_name)
+        .ok_or_else(|| format!("tool `{tool_name}` is not loaded"))?;
+    tool.execute(args)
+        .await
+        .map_err(|err| scrub_credentials(&err.to_string()))
+}
+
+async fn try_handle_direct_repo_metrics_reply(
+    ctx: &ChannelRuntimeContext,
+    msg: &traits::ChannelMessage,
+) -> Option<DirectTaskReply> {
+    if !looks_like_repo_metrics_task(&msg.content) {
+        return None;
+    }
+
+    let repo_url = match first_http_url(&msg.content) {
+        Some(url) => url,
+        None => {
+            return Some(DirectTaskReply {
+                response: "I need the repository URL to measure exact line counts locally."
+                    .to_string(),
+                trace_reason: "direct repo metrics handler could not extract a repository URL",
+            });
+        }
+    };
+    let repo_slug = repo_slug_from_url(&repo_url).unwrap_or_else(|| "repo".to_string());
+    let clone_root = ctx.workspace_dir.join("state").join("channel_repo_metrics");
+    if let Err(err) = tokio::fs::create_dir_all(&clone_root).await {
+        return Some(DirectTaskReply {
+            response: format!(
+                "I couldn’t prepare a local measurement workspace: {}",
+                scrub_credentials(&err.to_string())
+            ),
+            trace_reason: "direct repo metrics handler failed to create clone workspace",
+        });
+    }
+
+    let unique = chrono::Utc::now().timestamp_millis();
+    let destination = format!("state/channel_repo_metrics/{repo_slug}-{unique}");
+    let clone_command = format!(
+        "git clone --depth 1 {} {}",
+        shell_quote(&repo_url),
+        shell_quote(&destination),
+    );
+    let clone_result = match run_direct_tool(
+        ctx,
+        "shell",
+        json!({
+            "command": clone_command,
+            "approved": true
+        }),
+    )
+    .await
+    {
+        Ok(result) if result.success => result,
+        Ok(result) => {
+            let detail = result
+                .error
+                .or_else(|| (!result.output.trim().is_empty()).then_some(result.output))
+                .unwrap_or_else(|| "clone failed without stderr".to_string());
+            return Some(DirectTaskReply {
+                response: format!(
+                    "I couldn’t clone the repository locally for exact measurement: {}",
+                    scrub_credentials(&detail)
+                ),
+                trace_reason: "direct repo metrics handler failed during clone",
+            });
+        }
+        Err(err) => {
+            return Some(DirectTaskReply {
+                response: format!(
+                    "I couldn’t clone the repository locally for exact measurement: {err}"
+                ),
+                trace_reason: "direct repo metrics handler hit a clone transport error",
+            });
+        }
+    };
+    let _ = clone_result;
+
+    let cloc_command = format!(
+        "cloc --json --quiet --exclude-dir=.git {}",
+        shell_quote(&destination),
+    );
+    let cloc_result = match run_direct_tool(
+        ctx,
+        "shell",
+        json!({
+            "command": cloc_command,
+            "approved": true
+        }),
+    )
+    .await
+    {
+        Ok(result) if result.success => result,
+        Ok(result) => {
+            let detail = result
+                .error
+                .or_else(|| (!result.output.trim().is_empty()).then_some(result.output))
+                .unwrap_or_else(|| "cloc failed without stderr".to_string());
+            return Some(DirectTaskReply {
+                response: format!(
+                    "I cloned the repository, but exact measurement with `cloc` failed: {}",
+                    scrub_credentials(&detail)
+                ),
+                trace_reason: "direct repo metrics handler failed during cloc",
+            });
+        }
+        Err(err) => {
+            return Some(DirectTaskReply {
+                response: format!(
+                    "I cloned the repository, but exact measurement with `cloc` failed: {err}"
+                ),
+                trace_reason: "direct repo metrics handler hit a cloc transport error",
+            });
+        }
+    };
+
+    Some(DirectTaskReply {
+        response: parse_cloc_report(&cloc_result.output).unwrap_or_else(|| {
+            format!(
+                "I cloned the repository and ran `cloc`, but I couldn’t parse the report cleanly.\nRaw output:\n```json\n{}\n```",
+                cloc_result.output
+            )
+        }),
+        trace_reason: "handled approved repo metrics request with direct local clone and cloc",
+    })
+}
+
+async fn try_handle_direct_desktop_reply(
+    ctx: &ChannelRuntimeContext,
+    msg: &traits::ChannelMessage,
+) -> Option<DirectTaskReply> {
+    if !looks_like_desktop_computer_use_task(&msg.content) {
+        return None;
+    }
+
+    let lower = msg.content.to_ascii_lowercase();
+    let scroll_to_bottom = lower.contains("scroll to the bottom")
+        || lower.contains("scroll to bottom")
+        || lower.contains("go to the bottom");
+    let url = first_http_url(&msg.content);
+    let app = if lower.contains("firefox") {
+        "firefox"
+    } else {
+        "google-chrome"
+    };
+
+    let mut launch_args = json!({
+        "action": "app_launch",
+        "app": app,
+    });
+    if let Some(ref target_url) = url {
+        launch_args["args"] = json!([target_url]);
+    }
+    match run_direct_tool(ctx, "computer_use", launch_args).await {
+        Ok(result) if result.success => {}
+        Ok(result) => {
+            let detail = result
+                .error
+                .or_else(|| (!result.output.trim().is_empty()).then_some(result.output))
+                .unwrap_or_else(|| "desktop launch failed without stderr".to_string());
+            return Some(DirectTaskReply {
+                response: format!(
+                    "I couldn’t launch the requested desktop application: {}",
+                    scrub_credentials(&detail)
+                ),
+                trace_reason: "direct desktop handler failed during app launch",
+            });
+        }
+        Err(err) => {
+            return Some(DirectTaskReply {
+                response: format!("I couldn’t launch the requested desktop application: {err}"),
+                trace_reason: "direct desktop handler hit an app-launch transport error",
+            });
+        }
+    }
+
+    let _ = run_direct_tool(ctx, "computer_use", json!({"action": "screen_capture"})).await;
+    let _ = run_direct_tool(
+        ctx,
+        "computer_use",
+        json!({
+            "action": "window_focus",
+            "app": app,
+        }),
+    )
+    .await;
+    let _ = run_direct_tool(
+        ctx,
+        "computer_use",
+        json!({
+            "action": "mouse_click",
+            "x": 520,
+            "y": 420,
+        }),
+    )
+    .await;
+
+    if scroll_to_bottom {
+        let scroll_script = "javascript:(()=>{const root=document.scrollingElement||document.documentElement||document.body;const max=Math.max(root.scrollHeight||0,document.body.scrollHeight||0,document.documentElement.scrollHeight||0);root.scrollTop=max;window.scrollTo(0,max);void 0;})()";
+        for attempt in 0..2 {
+            let _ = run_direct_tool(
+                ctx,
+                "computer_use",
+                json!({
+                    "action": "key_press",
+                    "key": "ctrl+l",
+                }),
+            )
+            .await;
+            let _ = run_direct_tool(
+                ctx,
+                "computer_use",
+                json!({
+                    "action": "key_type",
+                    "text": scroll_script,
+                }),
+            )
+            .await;
+            let _ = run_direct_tool(
+                ctx,
+                "computer_use",
+                json!({
+                    "action": "key_press",
+                    "key": "Return",
+                }),
+            )
+            .await;
+
+            if attempt == 0 {
+                let _ =
+                    run_direct_tool(ctx, "computer_use", json!({"action": "screen_capture"})).await;
+            }
+        }
+    }
+
+    let final_capture = run_direct_tool(ctx, "computer_use", json!({"action": "screen_capture"}))
+        .await
+        .ok()
+        .filter(|result| result.success)
+        .and_then(|result| extract_capture_path(&result.output));
+    let capture_suffix = final_capture
+        .map(|path| format!(" Final screen capture: `{path}`."))
+        .unwrap_or_default();
+    let response = if let Some(target_url) = url {
+        if scroll_to_bottom {
+            format!(
+                "Opened `{app}` with `{target_url}`, focused the page, injected a direct scroll-to-bottom command in Chrome, and captured the final screen.{capture_suffix}"
+            )
+        } else {
+            format!(
+                "Opened `{app}` with `{target_url}` and captured the final screen.{capture_suffix}"
+            )
+        }
+    } else if scroll_to_bottom {
+        format!(
+            "Opened `{app}`, focused the page, injected a direct scroll-to-bottom command in Chrome, and captured the final screen.{capture_suffix}"
+        )
+    } else {
+        format!("Opened `{app}` and captured the final screen.{capture_suffix}")
+    };
+
+    Some(DirectTaskReply {
+        response,
+        trace_reason:
+            "handled approved desktop automation request with direct computer_use actions",
+    })
+}
+
+async fn try_handle_direct_approved_task(
+    ctx: &ChannelRuntimeContext,
+    msg: &traits::ChannelMessage,
+    visible_tool_names: &[String],
+    approved_auto_resume: bool,
+) -> Option<DirectTaskReply> {
+    if !approved_auto_resume {
+        return None;
+    }
+
+    if runtime_tool_visible(visible_tool_names, "shell") {
+        if let Some(reply) = try_handle_direct_repo_metrics_reply(ctx, msg).await {
+            return Some(reply);
+        }
+    }
+
+    if runtime_tool_visible(visible_tool_names, "computer_use") {
+        if let Some(reply) = try_handle_direct_desktop_reply(ctx, msg).await {
+            return Some(reply);
+        }
+    }
+
+    None
+}
+
+async fn send_local_reply(
+    ctx: &ChannelRuntimeContext,
+    msg: &traits::ChannelMessage,
+    target_channel: Option<&Arc<dyn traits::Channel>>,
+    history_key: &str,
+    timestamped_content: &str,
+    provider_name: &str,
+    model_name: &str,
+    response: &str,
+    trace_reason: &str,
+) {
+    runtime_trace::record_event(
+        "channel_message_local_capability_response",
+        Some(msg.channel.as_str()),
+        Some(provider_name),
+        Some(model_name),
+        None,
+        Some(true),
+        Some(trace_reason),
+        serde_json::json!({
+            "sender": msg.sender,
+            "message_id": msg.id,
+        }),
+    );
+
+    append_sender_turn(ctx, history_key, ChatMessage::user(timestamped_content));
+    append_sender_turn(ctx, history_key, ChatMessage::assistant(response));
+
+    if let Ok(mut lossless_context) = LosslessContext::for_session(
+        ctx.workspace_dir.as_path(),
+        "channel",
+        history_key,
+        ctx.system_prompt.as_str(),
+    ) {
+        let _ = lossless_context.record_raw_message(&ChatMessage::user(timestamped_content));
+        let _ = lossless_context.record_raw_message(&ChatMessage::assistant(response));
+    }
+
+    println!("  🤖 Reply (0ms): {}", truncate_with_ellipsis(response, 80));
+    if let Some(channel) = target_channel {
+        let _ = channel
+            .send(&SendMessage::new(response, &msg.reply_target).in_thread(msg.thread_ts.clone()))
+            .await;
+    }
 }
 
 #[allow(clippy::large_futures)]
@@ -275,66 +748,70 @@ pub(super) async fn process_channel_message_with_options(
     // Try classification first, fall back to sender/default route
     let route = classify_message_route(ctx.as_ref(), &msg.content)
         .unwrap_or_else(|| get_route_selection(ctx.as_ref(), &history_key));
+    let excluded_tools_snapshot = if msg.channel == "cli" {
+        Vec::new()
+    } else {
+        snapshot_non_cli_excluded_tools(ctx.as_ref())
+    };
+    let effective_tools_registry: &[Box<dyn crate::tools::Tool>] = ctx.tools_registry.as_ref();
+    let visible_tool_names: Vec<String> = effective_tools_registry
+        .iter()
+        .filter(|tool| {
+            !excluded_tools_snapshot
+                .iter()
+                .any(|excluded| excluded.eq_ignore_ascii_case(tool.name()))
+        })
+        .map(|tool| tool.name().to_string())
+        .collect();
     let local_capability_response = build_local_capability_response(
         &msg.content,
         ctx.system_prompt.as_str(),
         &route.provider,
         &route.model,
+        &visible_tool_names,
     );
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S %Z");
     let timestamped_content = format!("[{now}] {}", msg.content);
+
+    if let Some(direct_reply) = try_handle_direct_approved_task(
+        ctx.as_ref(),
+        &msg,
+        &visible_tool_names,
+        options.approved_auto_resume,
+    )
+    .await
+    {
+        send_local_reply(
+            ctx.as_ref(),
+            &msg,
+            target_channel.as_ref(),
+            &history_key,
+            &timestamped_content,
+            &route.provider,
+            &route.model,
+            &direct_reply.response,
+            direct_reply.trace_reason,
+        )
+        .await;
+        return;
+    }
 
     if let Some(local_response) = local_capability_response
         .as_ref()
         .filter(|_| should_answer_local_capability_response_immediately(&msg.content))
     {
-        runtime_trace::record_event(
-            "channel_message_local_capability_response",
-            Some(msg.channel.as_str()),
-            Some(route.provider.as_str()),
-            Some(route.model.as_str()),
-            None,
-            Some(true),
-            Some("answered capability/workflow question locally before provider execution"),
-            serde_json::json!({
-                "sender": msg.sender,
-                "message_id": msg.id,
-            }),
-        );
-
-        append_sender_turn(
+        send_local_reply(
             ctx.as_ref(),
+            &msg,
+            target_channel.as_ref(),
             &history_key,
-            ChatMessage::user(&timestamped_content),
-        );
-        append_sender_turn(
-            ctx.as_ref(),
-            &history_key,
-            ChatMessage::assistant(local_response),
-        );
-
-        if let Ok(mut lossless_context) = LosslessContext::for_session(
-            ctx.workspace_dir.as_path(),
-            "channel",
-            &history_key,
-            ctx.system_prompt.as_str(),
-        ) {
-            let _ = lossless_context.record_raw_message(&ChatMessage::user(&timestamped_content));
-            let _ = lossless_context.record_raw_message(&ChatMessage::assistant(local_response));
-        }
-
-        println!(
-            "  \u{1F916} Reply (0ms): {}",
-            truncate_with_ellipsis(local_response, 80)
-        );
-        if let Some(channel) = target_channel.as_ref() {
-            let _ = channel
-                .send(
-                    &SendMessage::new(local_response, &msg.reply_target)
-                        .in_thread(msg.thread_ts.clone()),
-                )
-                .await;
-        }
+            &timestamped_content,
+            &route.provider,
+            &route.model,
+            local_response,
+            "answered capability/workflow question locally before provider execution",
+        )
+        .await;
         return;
     }
 
@@ -375,12 +852,6 @@ pub(super) async fn process_channel_message_with_options(
             return;
         }
     };
-    let excluded_tools_snapshot = if msg.channel == "cli" {
-        Vec::new()
-    } else {
-        snapshot_non_cli_excluded_tools(ctx.as_ref())
-    };
-
     let skip_pre_tool_turn_routing = options.approved_auto_resume;
     // Only the capability-recovery classifier is left, and it should run only
     // when the user is actually talking about a missing capability/skill. Do
@@ -559,22 +1030,15 @@ pub(super) async fn process_channel_message_with_options(
         }
     }
 
-    let effective_tools_registry: &[Box<dyn crate::tools::Tool>] = ctx.tools_registry.as_ref();
-
     let mut system_prompt = build_channel_system_prompt(
         ctx.system_prompt.as_str(),
         &msg.channel,
         &msg.reply_target,
         expose_internal_tool_details,
     );
-    let visible_tool_names: Vec<&str> = effective_tools_registry
+    let visible_tool_names: Vec<&str> = visible_tool_names
         .iter()
-        .filter(|tool| {
-            !excluded_tools_snapshot
-                .iter()
-                .any(|excluded| excluded.eq_ignore_ascii_case(tool.name()))
-        })
-        .map(|tool| tool.name())
+        .map(std::string::String::as_str)
         .collect();
     if let Some(turn_hint) = build_current_turn_routing_hint(&msg.content, &visible_tool_names) {
         system_prompt.push_str("\n\n## Turn Routing Hint\n\n");
