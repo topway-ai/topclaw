@@ -111,6 +111,50 @@ pub fn handle_command(
     }
 }
 
+/// Restart the daemon service only when a service unit/task is already
+/// installed on this machine. Returns `true` when a restart was performed.
+pub fn restart_if_installed(config: &Config, init_system: InitSystem) -> Result<bool> {
+    if cfg!(target_os = "macos") {
+        let plist = macos_service_file()?;
+        if !plist.exists() {
+            return Ok(false);
+        }
+        restart(config, init_system)?;
+        return Ok(true);
+    }
+
+    if cfg!(target_os = "linux") {
+        let resolved = match init_system.resolve() {
+            Ok(resolved) => resolved,
+            Err(_) => return Ok(false),
+        };
+        let installed = match resolved {
+            InitSystem::Systemd => linux_service_file(config)?.exists(),
+            InitSystem::Openrc => Path::new("/etc/init.d/topclaw").exists(),
+            InitSystem::Auto => false,
+        };
+        if !installed {
+            return Ok(false);
+        }
+        restart(config, resolved)?;
+        return Ok(true);
+    }
+
+    if cfg!(target_os = "windows") {
+        let task_name = windows_task_name();
+        let installed =
+            run_capture(Command::new("schtasks").args(["/Query", "/TN", task_name, "/FO", "LIST"]))
+                .is_ok();
+        if !installed {
+            return Ok(false);
+        }
+        restart(config, init_system)?;
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
 fn install(config: &Config, init_system: InitSystem) -> Result<()> {
     if cfg!(target_os = "macos") {
         install_macos(config)
