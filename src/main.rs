@@ -119,9 +119,8 @@ Most common tasks:
   topclaw status                   # quick readiness summary
   topclaw status --diagnose        # include full diagnostic report
   topclaw doctor                   # run diagnostics
-  topclaw update --check           # check for a new release
-  topclaw update                   # install latest release
-  topclaw service restart          # restart background service after update
+  topclaw upgrade --check          # check for a new release
+  topclaw upgrade                  # install latest release and restart service if needed
 
 Background operation:
   topclaw service install
@@ -339,27 +338,31 @@ Examples:
         diagnose: bool,
     },
 
-    /// Update TopClaw to the latest release
-    #[command(long_about = "\
-Self-update TopClaw to the latest release from GitHub.
+    /// Upgrade TopClaw to the latest release
+    #[command(
+        name = "upgrade",
+        alias = "update",
+        long_about = "\
+Upgrade TopClaw to the latest release from GitHub.
 
 Downloads the appropriate pre-built binary for your platform and
-replaces the current executable. Requires write permissions to
-the binary location.
+replaces the current executable. If TopClaw is installed as a background
+service, the command restarts that service automatically after a successful
+upgrade. Requires write permissions to the binary location.
 
-Safe update flow:
-  1. Run `topclaw update --check` to see whether a newer version exists.
-  2. Run `topclaw update` to install it.
-  3. If TopClaw is running as a background service, run `topclaw service restart`.
-  4. Verify with `topclaw --version`.
+Safe upgrade flow:
+  1. Run `topclaw upgrade --check` to see whether a newer version exists.
+  2. Run `topclaw upgrade` to install it and restart the service if present.
+  3. Verify with `topclaw --version`.
 
 If the binary location is not writable, TopClaw prints a recovery path
 instead of replacing the binary unsafely.
 
 Examples:
-  topclaw update              # Update to latest version
-  topclaw update --check      # Check for updates without installing
-  topclaw update --force      # Reinstall even if already up to date")]
+  topclaw upgrade              # Upgrade to latest version
+  topclaw upgrade --check      # Check for upgrades without installing
+  topclaw upgrade --force      # Reinstall even if already up to date"
+    )]
     Update {
         /// Check for updates without installing
         #[arg(long)]
@@ -1288,7 +1291,25 @@ async fn main() -> Result<()> {
         }
 
         Commands::Update { check, force } => {
-            update::self_update(force, check).await?;
+            let installed = update::self_update(force, check).await?;
+            if installed {
+                match service::restart_if_installed(&config, service::InitSystem::Auto) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        println!(
+                            "ℹ️  No installed TopClaw service detected; skipping service restart."
+                        );
+                    }
+                    Err(err) => {
+                        eprintln!(
+                            "⚠️  Upgrade completed, but automatic service restart failed: {err}"
+                        );
+                        eprintln!(
+                            "   You can still restart it manually with: topclaw service restart"
+                        );
+                    }
+                }
+            }
             Ok(())
         }
 
@@ -1703,6 +1724,34 @@ mod tests {
         match cli.command {
             Commands::Doctor { .. } => {}
             other => panic!("expected doctor command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn upgrade_cli_parses_check_flag() {
+        let cli = Cli::try_parse_from(["topclaw", "upgrade", "--check"])
+            .expect("upgrade --check should parse");
+
+        match cli.command {
+            Commands::Update { check, force } => {
+                assert!(check);
+                assert!(!force);
+            }
+            other => panic!("expected upgrade command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn update_alias_still_parses() {
+        let cli = Cli::try_parse_from(["topclaw", "update", "--force"])
+            .expect("update alias should parse");
+
+        match cli.command {
+            Commands::Update { check, force } => {
+                assert!(!check);
+                assert!(force);
+            }
+            other => panic!("expected update alias to map to upgrade command, got {other:?}"),
         }
     }
 

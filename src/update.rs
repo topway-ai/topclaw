@@ -340,7 +340,7 @@ fn print_update_recovery_hint(current_exe: &Path) {
     if cfg!(target_os = "linux") {
         println!("  1. Re-run the official release installer:");
         println!("     curl -fsSL https://raw.githubusercontent.com/{GITHUB_REPO}/main/scripts/install-release.sh | bash");
-        println!("  2. Or run `topclaw update` again from a user-writable install location.");
+        println!("  2. Or run `topclaw upgrade` again from a user-writable install location.");
     } else if cfg!(target_os = "macos") {
         println!("  1. If installed from a repo checkout, run:");
         println!("     ./bootstrap.sh --prefer-prebuilt");
@@ -375,9 +375,12 @@ pub async fn check_for_update() -> Result<Option<String>> {
     }
 }
 
-/// Perform the self-update
-pub async fn self_update(force: bool, check_only: bool) -> Result<()> {
-    println!("🦀 TopClaw Self-Update");
+/// Perform the self-upgrade from the latest GitHub release.
+///
+/// Returns `true` when the binary was replaced successfully and `false` when
+/// the command was a no-op (already current or check-only).
+pub async fn self_update(force: bool, check_only: bool) -> Result<bool> {
+    println!("🦀 TopClaw Upgrade");
     println!();
 
     let current_exe = get_current_exe()?;
@@ -395,7 +398,7 @@ pub async fn self_update(force: bool, check_only: bool) -> Result<()> {
     if latest_version == current_version() && !force {
         println!();
         println!("✅ Already up to date!");
-        return Ok(());
+        return Ok(false);
     }
 
     if check_only {
@@ -405,8 +408,8 @@ pub async fn self_update(force: bool, check_only: bool) -> Result<()> {
             current_version(),
             latest_version
         );
-        println!("Run `topclaw update` to install the update.");
-        return Ok(());
+        println!("Run `topclaw upgrade` to install the update.");
+        return Ok(false);
     }
 
     println!();
@@ -429,7 +432,7 @@ pub async fn self_update(force: bool, check_only: bool) -> Result<()> {
     // Download and extract
     let new_binary = download_binary(asset, &expected_sha256, temp_dir.path()).await?;
 
-    println!("Installing update...");
+    println!("Installing upgrade...");
 
     // Replace the binary
     if let Err(err) = replace_binary(&new_binary, &current_exe) {
@@ -440,11 +443,11 @@ pub async fn self_update(force: bool, check_only: bool) -> Result<()> {
     }
 
     println!();
-    println!("✅ Successfully updated to {}!", release.tag_name);
+    println!("✅ Successfully upgraded to {}!", release.tag_name);
     println!();
     println!("Restart TopClaw to use the new version.");
 
-    Ok(())
+    Ok(true)
 }
 
 #[cfg(test)]
