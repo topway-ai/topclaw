@@ -73,6 +73,7 @@ const STREAM_TOOL_MARKER_WINDOW_CHARS: usize = 512;
 /// Default maximum agentic tool-use iterations per user message to prevent runaway loops.
 /// Used as a safe fallback when `max_tool_iterations` is unset or configured as zero.
 const DEFAULT_MAX_TOOL_ITERATIONS: usize = 100;
+const MAX_CONSECUTIVE_WEB_TOOL_FAILURES: usize = 2;
 
 /// Minimum user-message length (in chars) for auto-save to memory.
 /// Matches the channel-side constant in `channels/mod.rs`.
@@ -194,6 +195,28 @@ pub(crate) fn is_tool_iteration_limit_error(err: &anyhow::Error) -> bool {
             .to_string()
             .contains("Agent exceeded maximum tool iterations")
     })
+}
+
+fn is_web_lookup_tool(tool_name: &str) -> bool {
+    matches!(
+        tool_name,
+        "web_search" | "web_search_tool" | "web_fetch" | "http_request"
+    )
+}
+
+fn repeated_web_tool_failure_response(failure_count: usize, last_error: Option<&str>) -> String {
+    let mut response = format!(
+        "I couldn't retrieve the current web data because the web tools failed {failure_count} times in this turn. I stopped instead of continuing to retry the same failing path."
+    );
+    if let Some(error) = last_error.map(str::trim).filter(|error| !error.is_empty()) {
+        let _ = write!(
+            response,
+            "\nLast tool error: {}",
+            truncate_with_ellipsis(error, 240)
+        );
+    }
+    response.push_str("\nPlease retry later or check the web search/fetch configuration.");
+    response
 }
 
 /// Execute a single turn of the agent loop: send messages, parse tool calls,
@@ -350,6 +373,8 @@ pub(crate) async fn run_tool_call_loop(
     let mut seen_tool_signatures: HashSet<(String, String)> = HashSet::new();
     let mut missing_tool_call_retry_used = false;
     let mut missing_tool_call_retry_prompt: Option<String> = None;
+    let mut consecutive_web_tool_failures = 0usize;
+    let mut last_web_tool_error: Option<String> = None;
     let approved_turn_grant = approval.and_then(|mgr| {
         if channel_name == "cli" {
             None
@@ -1141,6 +1166,39 @@ pub(crate) async fn run_tool_call_loop(
             .await?
         };
 
+        let web_only_iteration = !executable_calls.is_empty()
+            && executable_calls
+                .iter()
+                .all(|call| is_web_lookup_tool(&call.name));
+        let failed_web_tools_this_iteration = executable_calls
+            .iter()
+            .zip(executed_outcomes.iter())
+            .filter(|(call, outcome)| is_web_lookup_tool(&call.name) && !outcome.success)
+            .count();
+        let any_tool_succeeded = executed_outcomes.iter().any(|outcome| outcome.success);
+        if web_only_iteration && failed_web_tools_this_iteration > 0 {
+            consecutive_web_tool_failures += failed_web_tools_this_iteration;
+            last_web_tool_error = executable_calls
+                .iter()
+                .zip(executed_outcomes.iter())
+                .rev()
+                .find_map(|(call, outcome)| {
+                    if is_web_lookup_tool(&call.name) && !outcome.success {
+                        outcome
+                            .error_reason
+                            .clone()
+                            .or_else(|| Some(outcome.output.clone()))
+                    } else {
+                        None
+                    }
+                });
+        } else if any_tool_succeeded {
+            consecutive_web_tool_failures = 0;
+            last_web_tool_error = None;
+        }
+        let should_stop_repeated_web_failures =
+            consecutive_web_tool_failures >= MAX_CONSECUTIVE_WEB_TOOL_FAILURES;
+
         for ((idx, call), outcome) in executable_indices
             .iter()
             .zip(executable_calls.iter())
@@ -1235,6 +1293,27 @@ pub(crate) async fn run_tool_call_loop(
                 });
                 history.push(ChatMessage::tool(tool_msg.to_string()));
             }
+        }
+
+        if should_stop_repeated_web_failures {
+            let response = repeated_web_tool_failure_response(
+                consecutive_web_tool_failures,
+                last_web_tool_error.as_deref(),
+            );
+            runtime_trace::record_event(
+                "tool_loop_stopped_repeated_web_failures",
+                Some(channel_name),
+                Some(provider_name),
+                Some(model),
+                Some(&turn_id),
+                Some(false),
+                Some("repeated web tool failures"),
+                serde_json::json!({
+                    "failure_count": consecutive_web_tool_failures,
+                    "last_error": last_web_tool_error,
+                }),
+            );
+            return Ok(response);
         }
     }
 
@@ -2379,6 +2458,52 @@ mod tests {
         }
     }
 
+    struct FailingTool {
+        name: String,
+        invocations: Arc<AtomicUsize>,
+        error: &'static str,
+    }
+
+    impl FailingTool {
+        fn new(name: &str, invocations: Arc<AtomicUsize>, error: &'static str) -> Self {
+            Self {
+                name: name.to_string(),
+                invocations,
+                error,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Tool for FailingTool {
+        fn name(&self) -> &str {
+            &self.name
+        }
+
+        fn description(&self) -> &str {
+            "Fails executions for loop-stability tests"
+        }
+
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": {}
+            })
+        }
+
+        async fn execute(
+            &self,
+            _args: serde_json::Value,
+        ) -> anyhow::Result<crate::tools::ToolResult> {
+            self.invocations.fetch_add(1, Ordering::SeqCst);
+            Ok(crate::tools::ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(self.error.to_string()),
+            })
+        }
+    }
+
     struct DelayTool {
         name: String,
         delay_ms: u64,
@@ -3461,6 +3586,78 @@ mod tests {
         );
         assert_eq!(shell_calls.load(Ordering::SeqCst), 0);
         assert_eq!(web_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn repeated_web_tool_failures_stop_before_iteration_limit() {
+        let provider = ScriptedProvider::from_text_responses(vec![
+            r#"<tool_call>
+{"name":"web_search_tool","arguments":{"query":"current weather Montreal"}}
+</tool_call>"#,
+            r#"<tool_call>
+{"name":"web_fetch","arguments":{}}
+</tool_call>"#,
+            r#"<tool_call>
+{"name":"web_search_tool","arguments":{"query":"Montreal weather today"}}
+</tool_call>"#,
+        ]);
+
+        let search_calls = Arc::new(AtomicUsize::new(0));
+        let fetch_calls = Arc::new(AtomicUsize::new(0));
+        let tools_registry: Vec<Box<dyn Tool>> = vec![
+            Box::new(FailingTool::new(
+                "web_search_tool",
+                Arc::clone(&search_calls),
+                "simulated search outage",
+            )),
+            Box::new(FailingTool::new(
+                "web_fetch",
+                Arc::clone(&fetch_calls),
+                "missing url",
+            )),
+        ];
+
+        let mut history = vec![
+            ChatMessage::system("test-system"),
+            ChatMessage::user("what's current weather in Montreal?"),
+        ];
+        let observer = NoopObserver;
+
+        let result = run_tool_call_loop(
+            &provider,
+            &mut history,
+            &tools_registry,
+            &observer,
+            "mock-provider",
+            "mock-model",
+            0.0,
+            true,
+            None,
+            "telegram",
+            &crate::config::MultimodalConfig::default(),
+            6,
+            None,
+            None,
+            None,
+            &[],
+        )
+        .await
+        .expect("repeated web tool failures should produce a graceful answer");
+
+        assert!(
+            result.contains("web tools failed 2 times"),
+            "result should explain why the loop stopped: {result}"
+        );
+        assert!(
+            result.contains("stopped instead of continuing"),
+            "result should avoid silent iteration-limit exhaustion: {result}"
+        );
+        assert!(
+            result.contains("missing url"),
+            "result should include the latest useful tool error: {result}"
+        );
+        assert_eq!(search_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(fetch_calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

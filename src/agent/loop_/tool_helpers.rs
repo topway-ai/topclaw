@@ -16,6 +16,7 @@ pub(super) fn truncate_tool_args_for_progress(
     let hint = match name {
         "shell" => args.get("command").and_then(|v| v.as_str()),
         "file_read" | "file_write" => args.get("path").and_then(|v| v.as_str()),
+        "web_fetch" | "browser_open" => args.get("url").and_then(|v| v.as_str()),
         _ => args
             .get("action")
             .and_then(|v| v.as_str())

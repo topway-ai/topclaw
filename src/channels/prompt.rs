@@ -273,7 +273,7 @@ pub(crate) fn build_channel_tool_descriptions(
     if config.web_fetch.enabled {
         tool_descs.push((
             "web_fetch",
-            "Fetch a web page and convert to readable text/markdown. Use when: user provides a URL to read, or you need to retrieve specific web content. Don't use when: you just need search results — use web_search. Don't use when: user wants to open a URL in a browser — use computer_use. Don't use when: user wants exact repository metrics or line counts — prefer local repo analysis via shell/git tools.",
+            "Fetch a web page and convert to readable text/markdown. Use only with a concrete HTTP/HTTPS URL from the user or a successful search result. Don't use when you only have a search query or when web_search failed — report the failure instead of guessing a URL. Don't use when: you just need search results — use web_search. Don't use when: user wants to open a URL in a browser — use computer_use. Don't use when: user wants exact repository metrics or line counts — prefer local repo analysis via shell/git tools.",
         ));
     }
     if config.http_request.enabled {

@@ -32,11 +32,12 @@ pub(super) fn summarize_internal_progress_delta(delta: &str) -> Option<String> {
         Some(format!("{trimmed}\n"))
     } else if trimmed == "🤔 Thinking..." {
         Some("Analyzing the request...\n".to_string())
-    } else if let Some(round) = trimmed
+    } else if trimmed
         .strip_prefix("🤔 Thinking (round ")
         .and_then(|rest| rest.strip_suffix(")..."))
+        .is_some()
     {
-        Some(format!("Analyzing the request (round {round})...\n"))
+        None
     } else if trimmed.contains("Thinking") {
         Some("Analyzing the request...\n".to_string())
     } else if trimmed.starts_with('↻') || trimmed.contains("Retrying:") {
@@ -55,7 +56,7 @@ pub(super) fn summarize_internal_progress_delta(delta: &str) -> Option<String> {
             Some(format!("Using `{tool_name}`...\n"))
         }
     } else if trimmed.contains("tool call") {
-        Some("Using tools...\n".to_string())
+        None
     } else if trimmed.starts_with('✅') || trimmed.starts_with('❌') {
         let status = if trimmed.starts_with('✅') {
             "Finished"

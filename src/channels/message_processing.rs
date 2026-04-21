@@ -16,6 +16,7 @@ use crate::tools::channel_runtime_context::{
 };
 use crate::util::truncate_with_ellipsis;
 use serde_json::{json, Value};
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
@@ -45,6 +46,8 @@ use super::runtime_helpers::{
 };
 use super::sanitize::sanitize_channel_response;
 use super::traits::{self, SendMessage};
+
+const INTERNAL_PROGRESS_MAX_LINES: usize = 5;
 
 /// Trace + send a capability recovery plan. Returns `true` if a plan was dispatched.
 async fn dispatch_capability_recovery(
@@ -1135,11 +1138,13 @@ pub(super) async fn process_channel_message_with_options(
         let suppress_internal_progress = !expose_internal_tool_details;
         Some(tokio::spawn(async move {
             let mut accumulated = String::new();
+            let mut internal_progress_lines = VecDeque::<String>::new();
             let mut last_sanitized_progress: Option<String> = None;
             let mut last_meaningful_progress: Option<String> = None;
             while let Some(delta) = rx.recv().await {
                 if delta == crate::agent::loop_::DRAFT_CLEAR_SENTINEL {
                     accumulated.clear();
+                    internal_progress_lines.clear();
                     last_sanitized_progress = None;
                     last_meaningful_progress = None;
                     continue;
@@ -1159,10 +1164,15 @@ pub(super) async fn process_channel_message_with_options(
                     if !is_generic_progress_heartbeat(&summary) {
                         last_meaningful_progress = Some(summary.clone());
                     }
-                    accumulated.push_str(&summary);
+                    internal_progress_lines.push_back(summary.clone());
+                    while internal_progress_lines.len() > INTERNAL_PROGRESS_MAX_LINES {
+                        internal_progress_lines.pop_front();
+                    }
+                    accumulated = internal_progress_lines.iter().cloned().collect::<String>();
                     last_sanitized_progress = Some(summary);
                 } else {
                     accumulated.push_str(visible_delta);
+                    internal_progress_lines.clear();
                     last_sanitized_progress = None;
                 }
 

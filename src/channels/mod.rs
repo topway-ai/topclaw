@@ -5060,6 +5060,26 @@ Done reminder set for 1:38 AM."#;
         );
     }
 
+    #[test]
+    fn internal_progress_summary_suppresses_noisy_rounds_and_generic_tool_counts() {
+        assert_eq!(
+            summarize_internal_progress_delta("🤔 Thinking..."),
+            Some("Analyzing the request...\n".to_string())
+        );
+        assert_eq!(
+            summarize_internal_progress_delta("🤔 Thinking (round 3)..."),
+            None
+        );
+        assert_eq!(
+            summarize_internal_progress_delta("💬 Got 1 tool call(s) (0s)"),
+            None
+        );
+        assert_eq!(
+            summarize_internal_progress_delta("⏳ web_search_tool: current weather Montreal"),
+            Some("Using `web_search_tool`: current weather Montreal\n".to_string())
+        );
+    }
+
     #[tokio::test]
     async fn process_channel_message_streaming_contextualizes_heartbeat_for_telegram_channel() {
         let temp = TempDir::new().unwrap();

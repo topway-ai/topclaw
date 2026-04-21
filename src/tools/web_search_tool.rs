@@ -529,7 +529,7 @@ impl Tool for WebSearchTool {
     }
 
     fn description(&self) -> &str {
-        "Search the web for information. Returns relevant search results with titles, URLs, and descriptions. Use this to find current information, news, or research topics."
+        "Search the web for information. Returns relevant search results with titles, URLs, and descriptions. Use this to find current information, news, or research topics. If this fails, do not keep retrying equivalent web searches in the same turn."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {

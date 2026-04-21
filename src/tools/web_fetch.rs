@@ -436,7 +436,7 @@ impl Tool for WebFetchTool {
     }
 
     fn description(&self) -> &str {
-        "Fetch a web page and return markdown/text content for LLM consumption. Providers: fast_html2md, nanohtml2text, firecrawl, tavily. Security: allowlist-only domains, blocked_domains, and no local/private hosts."
+        "Fetch a concrete HTTP/HTTPS URL and return markdown/text content for LLM consumption. Do not use this with a search query or without a URL from the user/search results. Providers: fast_html2md, nanohtml2text, firecrawl, tavily. Security: allowlist-only domains, blocked_domains, and no local/private hosts."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
