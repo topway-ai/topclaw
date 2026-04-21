@@ -668,26 +668,24 @@ impl Tool for GitOperationsTool {
         };
 
         // Check if we're in a git repository (skip for clone — it creates one)
-        if operation != "clone" {
-            if !self.workspace_dir.join(".git").exists() {
-                // Try to find .git in parent directories
-                let mut current_dir = self.workspace_dir.as_path();
-                let mut found_git = false;
-                while current_dir.parent().is_some() {
-                    if current_dir.join(".git").exists() {
-                        found_git = true;
-                        break;
-                    }
-                    current_dir = current_dir.parent().unwrap();
+        if operation != "clone" && !self.workspace_dir.join(".git").exists() {
+            // Try to find .git in parent directories
+            let mut current_dir = self.workspace_dir.as_path();
+            let mut found_git = false;
+            while current_dir.parent().is_some() {
+                if current_dir.join(".git").exists() {
+                    found_git = true;
+                    break;
                 }
+                current_dir = current_dir.parent().unwrap();
+            }
 
-                if !found_git {
-                    return Ok(ToolResult {
-                        success: false,
-                        output: String::new(),
-                        error: Some("Not in a git repository".into()),
-                    });
-                }
+            if !found_git {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("Not in a git repository".into()),
+                });
             }
         }
 

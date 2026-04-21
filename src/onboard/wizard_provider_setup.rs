@@ -122,21 +122,6 @@ pub(super) fn advanced_provider_choices(tier_idx: usize) -> Vec<(&'static str, &
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::advanced_provider_choices;
-
-    #[test]
-    fn recommended_advanced_provider_menu_starts_with_openrouter() {
-        let ids: Vec<&str> = advanced_provider_choices(0)
-            .iter()
-            .map(|(provider, _)| *provider)
-            .collect();
-
-        assert_eq!(ids[..3], ["openrouter", "openai-codex", "ollama"]);
-    }
-}
-
 pub(super) async fn setup_advanced_custom_provider(
     config_path: &Path,
     encrypt_secrets: bool,
@@ -554,4 +539,19 @@ pub(super) async fn prompt_advanced_provider_credentials(
     };
 
     Ok((api_key, provider_api_url))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::advanced_provider_choices;
+
+    #[test]
+    fn recommended_advanced_provider_menu_starts_with_openrouter() {
+        let ids: Vec<&str> = advanced_provider_choices(0)
+            .iter()
+            .map(|(provider, _)| *provider)
+            .collect();
+
+        assert_eq!(ids[..3], ["openrouter", "openai-codex", "ollama"]);
+    }
 }

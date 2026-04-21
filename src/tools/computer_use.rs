@@ -55,18 +55,14 @@ pub struct DesktopHelperProbe {
 }
 
 /// Which helpers each action requires. Actions not listed (bootstrap, app_launch,
-/// app_terminate) don't need any helpers — they run directly or use kill/pkill.
+/// app_terminate, screen_capture) don't need pre-flight helpers. screen_capture
+/// falls back inside the sidecar, so blocking on scrot would false-reject when
+/// only gnome-screenshot is installed.
 #[cfg(target_os = "linux")]
 fn required_helpers(action: &str) -> &'static [&'static str] {
     match action {
-        // screen_capture falls back from scrot to gnome-screenshot in the
-        // sidecar, so skip the pre-flight — let the sidecar's own fallback
-        // logic handle it. Blocking on scrot alone would false-reject when
-        // only gnome-screenshot is installed.
-        "screen_capture" => &[],
         "window_list" | "window_focus" | "window_close" => &["wmctrl"],
-        "mouse_move" | "mouse_click" | "mouse_drag" => &["xdotool"],
-        "key_type" | "key_press" => &["xdotool"],
+        "mouse_move" | "mouse_click" | "mouse_drag" | "key_type" | "key_press" => &["xdotool"],
         _ => &[],
     }
 }
