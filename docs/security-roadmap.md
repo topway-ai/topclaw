@@ -137,7 +137,7 @@ allowed_commands = ["git", "ls", "cat", "grep", "find"]
 forbidden_paths = ["/etc", "/root", "~/.ssh"]
 require_approval_for_medium_risk = true
 block_high_risk_commands = true
-max_actions_per_hour = 20
+max_actions_per_hour = 200
 ```
 
 ---

@@ -151,7 +151,7 @@ impl Default for SecurityPolicy {
             allowed_commands: vec![],
             forbidden_paths: default_forbidden_paths(),
             allowed_roots: Vec::new(),
-            max_actions_per_hour: 20,
+            max_actions_per_hour: 200,
             max_cost_per_day_cents: 500,
             require_approval_for_medium_risk: true,
             block_high_risk_commands: true,
@@ -2117,7 +2117,7 @@ mod tests {
         assert!(p.workspace_only);
         assert!(p.allowed_commands.is_empty());
         assert!(p.forbidden_paths.iter().any(|p| p == "/etc"));
-        assert_eq!(p.max_actions_per_hour, 20);
+        assert_eq!(p.max_actions_per_hour, 200);
         assert_eq!(p.max_cost_per_day_cents, 500);
         assert!(p.require_approval_for_medium_risk);
         assert!(p.block_high_risk_commands);

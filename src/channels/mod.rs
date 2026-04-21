@@ -2269,6 +2269,107 @@ BTC is currently around $65,000 based on latest tool output."#
     }
 
     #[tokio::test]
+    async fn process_channel_message_confirm_always_grants_requested_tool() {
+        let channel_impl = Arc::new(TelegramRecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let provider_impl = Arc::new(ModelCaptureProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            channels_by_name: Arc::new(channels_by_name),
+            provider: Arc::clone(&provider),
+            default_provider: Arc::new("test-provider".to_string()),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![Box::new(MockPriceTool)]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test-system-prompt".to_string()),
+            model: Arc::new("default-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            provider_cache: Arc::new(Mutex::new(HashMap::new())),
+            route_overrides: Arc::new(Mutex::new(HashMap::new())),
+            api_key: None,
+            api_url: None,
+            reliability: Arc::new(crate::config::ReliabilityConfig::default()),
+            provider_runtime_options: providers::ProviderRuntimeOptions::default(),
+            workspace_dir: Arc::new(std::env::temp_dir()),
+            message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
+            interrupt_on_new_message: false,
+            multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
+            non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
+            approval_manager: Arc::new(ApprovalManager::from_config(
+                &crate::config::AutonomyConfig::default(),
+            )),
+        });
+
+        Box::pin(process_channel_message(
+            runtime_ctx.clone(),
+            traits::ChannelMessage {
+                id: "msg-always-1".to_string(),
+                sender: "alice".to_string(),
+                reply_target: "chat-1".to_string(),
+                content: "/approve-request mock_price".to_string(),
+                channel: "telegram".to_string(),
+                timestamp: 1,
+                thread_ts: None,
+            },
+            CancellationToken::new(),
+        ))
+        .await;
+
+        let request_id = {
+            let sent = channel_impl.sent_messages.lock().await;
+            assert_eq!(sent.len(), 1);
+            let request_line = sent[0]
+                .lines()
+                .find(|line| line.starts_with("Request ID: `"))
+                .expect("request line");
+            request_line
+                .trim_start_matches("Request ID: `")
+                .trim_end_matches('`')
+                .to_string()
+        };
+
+        Box::pin(process_channel_message(
+            runtime_ctx.clone(),
+            traits::ChannelMessage {
+                id: "msg-always-2".to_string(),
+                sender: "alice".to_string(),
+                reply_target: "chat-1".to_string(),
+                content: format!("/approve-confirm-always {request_id}"),
+                channel: "telegram".to_string(),
+                timestamp: 2,
+                thread_ts: None,
+            },
+            CancellationToken::new(),
+        ))
+        .await;
+
+        let sent = channel_impl.sent_messages.lock().await;
+        assert_eq!(sent.len(), 2);
+        assert!(sent[1].contains("Approved supervised execution for `mock_price`"));
+        assert!(runtime_ctx
+            .approval_manager
+            .is_non_cli_session_granted("mock_price"));
+        assert!(!runtime_ctx.approval_manager.needs_approval("mock_price"));
+        assert!(!runtime_ctx
+            .approval_manager
+            .is_non_cli_session_granted("shell"));
+        assert!(runtime_ctx.approval_manager.needs_approval("shell"));
+        assert_eq!(provider_impl.call_count.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
     async fn process_channel_message_confirm_auto_resumes_original_request() {
         let channel_impl = Arc::new(TelegramRecordingChannel::default());
         let channel: Arc<dyn Channel> = channel_impl.clone();
@@ -5789,33 +5890,99 @@ BTC is currently around $65,000 based on latest tool output."#;
             0
         );
         assert_eq!(sent.len(), 1);
-        assert!(sent[0].contains("injected a direct scroll-to-bottom command"));
+        assert!(sent[0].contains("sent the page-end key"));
 
         let actions = actions.lock().unwrap_or_else(|e| e.into_inner()).clone();
         assert!(actions.contains(&"app_launch".to_string()));
         assert!(actions.contains(&"window_focus".to_string()));
-        assert!(actions.contains(&"mouse_click".to_string()));
-        assert!(
-            actions
-                .iter()
-                .filter(|action| *action == "key_type")
-                .count()
-                >= 2
-        );
-        assert!(
-            actions
-                .iter()
-                .filter(|action| *action == "screen_capture")
-                .count()
-                >= 3
-        );
         assert!(
             actions
                 .iter()
                 .filter(|action| *action == "key_press")
                 .count()
-                >= 4
+                == 1
         );
+        assert!(!actions.contains(&"screen_capture".to_string()));
+        assert!(!actions.contains(&"mouse_click".to_string()));
+        assert!(!actions.contains(&"key_type".to_string()));
+    }
+
+    #[tokio::test]
+    async fn process_channel_message_complex_desktop_request_uses_agent_loop() {
+        let temp = make_workspace();
+        let channel_impl = Arc::new(TelegramRecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let provider_impl = Arc::new(HistoryCaptureProvider::default());
+        let actions = Arc::new(Mutex::new(Vec::new()));
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            channels_by_name: Arc::new(channels_by_name),
+            provider: provider_impl.clone(),
+            default_provider: Arc::new("test-provider".to_string()),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![Box::new(DirectDesktopComputerUseTool {
+                actions: Arc::clone(&actions),
+            })]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("system".to_string()),
+            model: Arc::new("test-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            provider_cache: Arc::new(Mutex::new(HashMap::new())),
+            route_overrides: Arc::new(Mutex::new(HashMap::new())),
+            api_key: None,
+            api_url: None,
+            reliability: Arc::new(crate::config::ReliabilityConfig::default()),
+            provider_runtime_options: providers::ProviderRuntimeOptions::default(),
+            workspace_dir: Arc::new(temp.path().to_path_buf()),
+            message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
+            interrupt_on_new_message: false,
+            multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
+            non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
+            approval_manager: Arc::new(ApprovalManager::from_config(
+                &crate::config::AutonomyConfig::default(),
+            )),
+        });
+
+        let msg = traits::ChannelMessage {
+            id: "msg-desktop-complex".to_string(),
+            sender: "frank".to_string(),
+            reply_target: "chat-1".to_string(),
+            content: "open Chrome at https://www.google.com/, search weather forecast for Montreal, and click the first result".to_string(),
+            channel: "telegram".to_string(),
+            timestamp: 0,
+            thread_ts: None,
+        };
+
+        process_channel_message_with_options(
+            Arc::clone(&runtime_ctx),
+            msg,
+            CancellationToken::new(),
+            ProcessChannelMessageOptions {
+                resume_existing_user_turn: true,
+                approved_auto_resume: true,
+            },
+        )
+        .await;
+
+        assert_eq!(
+            provider_impl
+                .calls
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .len(),
+            1
+        );
+        assert!(actions.lock().unwrap_or_else(|e| e.into_inner()).is_empty());
     }
 
     #[test]
@@ -5856,6 +6023,21 @@ BTC is currently around $65,000 based on latest tool output."#;
 
         assert!(response.contains("tool, not a skill"));
         assert!(response.contains("not currently loaded"));
+    }
+
+    #[test]
+    fn local_capability_response_answers_rate_limit_questions() {
+        let response = build_local_capability_response(
+            "what's your current rate limit?",
+            "system",
+            "openrouter",
+            "model-x",
+            &[],
+        )
+        .expect("rate-limit questions should be answered locally");
+
+        assert!(response.contains("200 actions per hour"));
+        assert!(response.contains("`autonomy.max_actions_per_hour`"));
     }
 
     // ── E2E: photo [IMAGE:] marker rejected by non-vision provider ───

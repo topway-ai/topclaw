@@ -3,8 +3,8 @@
 use super::capability_detection::{
     looks_like_audio_capability_question, looks_like_computer_use_availability_question,
     looks_like_current_model_question, looks_like_loaded_skills_question,
-    looks_like_skill_workflow_advisory_question, looks_like_tool_inventory_question,
-    looks_like_tools_and_skills_question,
+    looks_like_rate_limit_question, looks_like_skill_workflow_advisory_question,
+    looks_like_tool_inventory_question, looks_like_tools_and_skills_question,
 };
 use crate::memory;
 use crate::providers::{self, ChatMessage, Provider};
@@ -277,6 +277,13 @@ pub(super) fn build_local_capability_response(
     if looks_like_current_model_question(content) {
         return Some(format!(
             "I'm currently using provider `{provider_name}` with model `{model_name}`."
+        ));
+    }
+
+    if looks_like_rate_limit_question(content) {
+        return Some(format!(
+            "The default action budget is {} actions per hour, configured by `autonomy.max_actions_per_hour`.",
+            crate::config::AutonomyConfig::default().max_actions_per_hour
         ));
     }
 

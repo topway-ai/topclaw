@@ -642,7 +642,7 @@ trusted_proxy_cidrs = ["10.0.0.0/8", "192.168.0.0/16"]
 | `allowed_commands` | _required for shell execution_ | allowlist of executable names, explicit executable paths, or `"*"` |
 | `forbidden_paths` | built-in protected list | explicit path denylist (system paths + sensitive dotdirs by default) |
 | `allowed_roots` | `[]` | additional roots allowed outside workspace after canonicalization |
-| `max_actions_per_hour` | `20` | per-policy action budget |
+| `max_actions_per_hour` | `200` | per-policy action budget |
 | `max_cost_per_day_cents` | `500` | per-policy spend guardrail |
 | `require_approval_for_medium_risk` | `true` | approval gate for medium-risk commands |
 | `block_high_risk_commands` | `true` | hard block for high-risk commands |

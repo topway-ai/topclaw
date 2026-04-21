@@ -45,6 +45,7 @@ Telegram/Discord sender-scoped model routing:
 Supervised tool approvals (all non-CLI channels):
 - `/approve-request <tool-name>` — create a pending approval request
 - `/approve-confirm <request-id>` — confirm pending request (same sender + same chat/channel only)
+- `/approve-confirm-always <request-id>` — confirm pending request and approve that tool for the current daemon session
 - `/approve-pending` — list pending requests for your current sender+chat/channel scope
 - `/approve <tool-name>` — direct one-step approve + persist (`autonomy.auto_approve`, compatibility path)
 - `/unapprove <tool-name>` — revoke and remove persisted approval

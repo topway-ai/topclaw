@@ -257,6 +257,19 @@ pub(crate) fn looks_like_current_model_question(user_message: &str) -> bool {
     false
 }
 
+pub(crate) fn looks_like_rate_limit_question(user_message: &str) -> bool {
+    let trimmed = user_message.trim();
+    if trimmed.is_empty() || trimmed.starts_with('/') {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    lower.contains("rate limit")
+        || lower.contains("action budget")
+        || lower.contains("max actions per hour")
+        || lower.contains("max_actions_per_hour")
+}
+
 pub(crate) fn looks_like_tool_inventory_question(user_message: &str) -> bool {
     let trimmed = user_message.trim();
     if trimmed.is_empty() || trimmed.starts_with('/') {

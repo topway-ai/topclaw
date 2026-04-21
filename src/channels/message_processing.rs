@@ -217,14 +217,6 @@ fn parse_cloc_report(raw: &str) -> Option<String> {
     ))
 }
 
-fn extract_capture_path(output: &str) -> Option<String> {
-    let prefix = "Screenshot saved: ";
-    let rest = output.strip_prefix(prefix)?;
-    let path = rest.split(". Sidecar data:").next()?.trim();
-    let path = path.split(" (").next().unwrap_or(path).trim();
-    (!path.is_empty()).then(|| path.to_string())
-}
-
 fn find_tool<'a>(
     tools_registry: &'a [Box<dyn crate::tools::Tool>],
     tool_name: &str,
@@ -377,6 +369,15 @@ async fn try_handle_direct_desktop_reply(
     }
 
     let lower = msg.content.to_ascii_lowercase();
+    if lower.contains("search")
+        || lower.contains("click")
+        || lower.contains("type ")
+        || lower.contains("select ")
+        || lower.contains("fill ")
+    {
+        return None;
+    }
+
     let scroll_to_bottom = lower.contains("scroll to the bottom")
         || lower.contains("scroll to bottom")
         || lower.contains("go to the bottom");
@@ -417,7 +418,6 @@ async fn try_handle_direct_desktop_reply(
         }
     }
 
-    let _ = run_direct_tool(ctx, "computer_use", json!({"action": "screen_capture"})).await;
     let _ = run_direct_tool(
         ctx,
         "computer_use",
@@ -427,79 +427,32 @@ async fn try_handle_direct_desktop_reply(
         }),
     )
     .await;
-    let _ = run_direct_tool(
-        ctx,
-        "computer_use",
-        json!({
-            "action": "mouse_click",
-            "x": 520,
-            "y": 420,
-        }),
-    )
-    .await;
-
     if scroll_to_bottom {
-        let scroll_script = "javascript:(()=>{const root=document.scrollingElement||document.documentElement||document.body;const max=Math.max(root.scrollHeight||0,document.body.scrollHeight||0,document.documentElement.scrollHeight||0);root.scrollTop=max;window.scrollTo(0,max);void 0;})()";
-        for attempt in 0..2 {
-            let _ = run_direct_tool(
-                ctx,
-                "computer_use",
-                json!({
-                    "action": "key_press",
-                    "key": "ctrl+l",
-                }),
-            )
-            .await;
-            let _ = run_direct_tool(
-                ctx,
-                "computer_use",
-                json!({
-                    "action": "key_type",
-                    "text": scroll_script,
-                }),
-            )
-            .await;
-            let _ = run_direct_tool(
-                ctx,
-                "computer_use",
-                json!({
-                    "action": "key_press",
-                    "key": "Return",
-                }),
-            )
-            .await;
-
-            if attempt == 0 {
-                let _ =
-                    run_direct_tool(ctx, "computer_use", json!({"action": "screen_capture"})).await;
-            }
-        }
+        let _ = run_direct_tool(
+            ctx,
+            "computer_use",
+            json!({
+                "action": "key_press",
+                "key": "End",
+            }),
+        )
+        .await;
     }
 
-    let final_capture = run_direct_tool(ctx, "computer_use", json!({"action": "screen_capture"}))
-        .await
-        .ok()
-        .filter(|result| result.success)
-        .and_then(|result| extract_capture_path(&result.output));
-    let capture_suffix = final_capture
-        .map(|path| format!(" Final screen capture: `{path}`."))
-        .unwrap_or_default();
     let response = if let Some(target_url) = url {
         if scroll_to_bottom {
             format!(
-                "Opened `{app}` with `{target_url}`, focused the page, injected a direct scroll-to-bottom command in Chrome, and captured the final screen.{capture_suffix}"
+                "Opened `{app}` with `{target_url}`, focused the page, and sent the page-end key to scroll to the bottom."
             )
         } else {
-            format!(
-                "Opened `{app}` with `{target_url}` and captured the final screen.{capture_suffix}"
-            )
+            format!("Opened `{app}` with `{target_url}`.")
         }
     } else if scroll_to_bottom {
         format!(
-            "Opened `{app}`, focused the page, injected a direct scroll-to-bottom command in Chrome, and captured the final screen.{capture_suffix}"
+            "Opened `{app}`, focused the page, and sent the page-end key to scroll to the bottom."
         )
     } else {
-        format!("Opened `{app}` and captured the final screen.{capture_suffix}")
+        format!("Opened `{app}`.")
     };
 
     Some(DirectTaskReply {

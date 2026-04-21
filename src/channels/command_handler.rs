@@ -624,6 +624,7 @@ pub(super) async fn handle_runtime_command_if_needed(
                                 &request_id,
                                 ApprovalResponse::Yes,
                             );
+                            let tool_name = req.tool_name.clone();
                             let resume_request = req.resume_request.clone();
 
                             // Turn grant so the current request executes immediately
@@ -635,8 +636,11 @@ pub(super) async fn handle_runtime_command_if_needed(
                                 },
                             );
 
-                            // Session grant so future shell calls skip approval
-                            ctx.approval_manager.grant_non_cli_session("shell");
+                            if tool_name != APPROVAL_ALL_TOOLS_ONCE_TOKEN {
+                                ctx.approval_manager.grant_non_cli_session(&tool_name);
+                                ctx.approval_manager
+                                    .apply_persistent_runtime_grant(&tool_name);
+                            }
 
                             runtime_trace::record_event(
                                 "approval_request_confirmed_always",
@@ -648,7 +652,7 @@ pub(super) async fn handle_runtime_command_if_needed(
                                 Some("pending request confirmed with session-level grant"),
                                 serde_json::json!({
                                     "request_id": request_id,
-                                    "tool_name": "shell",
+                                    "tool_name": tool_name,
                                     "sender": sender,
                                     "channel": source_channel,
                                 }),
@@ -679,9 +683,13 @@ pub(super) async fn handle_runtime_command_if_needed(
 
                             if has_resume {
                                 String::new()
+                            } else if tool_name == APPROVAL_ALL_TOOLS_ONCE_TOKEN {
+                                format!(
+                                    "Approved one-time all-tools bypass from request `{request_id}`.\nApplies to the next non-CLI agent tool-execution turn only.\nThis bypass is runtime-only and does not persist to config."
+                                )
                             } else {
                                 format!(
-                                    "Approved shell execution for this session from request `{request_id}`.\nFuture shell commands will not require approval until the daemon restarts."
+                                    "Approved supervised execution for `{tool_name}` for this daemon session from request `{request_id}`.\nFuture `{tool_name}` calls will not require approval until the daemon restarts."
                                 )
                             }
                         }
