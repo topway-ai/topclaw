@@ -171,16 +171,6 @@ pub(crate) async fn persist_active_workspace_config_dir(config_dir: &Path) -> Re
     // layouts self-contained and writable in restricted environments.
     write_active_workspace_marker(config_dir, config_dir).await?;
 
-    // Mirror into the default HOME-scoped root as a best-effort pointer for
-    // later auto-discovery. Failure here must not break onboarding/update flows.
-    if let Err(error) = write_active_workspace_marker(&default_config_dir, config_dir).await {
-        tracing::warn!(
-            selected_config_dir = %config_dir.display(),
-            default_config_dir = %default_config_dir.display(),
-            "Failed to mirror active workspace marker to default HOME config root; continuing with selected-root marker only: {error}"
-        );
-    }
-
     Ok(())
 }
 

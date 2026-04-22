@@ -2178,7 +2178,7 @@ default_model = "workspace-model"
     }
 
     #[test]
-    async fn persist_active_workspace_marker_is_written_to_selected_config_root() {
+    async fn persist_active_workspace_marker_is_written_to_selected_config_root_only() {
         let _env_guard = env_override_lock().await;
         let temp_home =
             std::env::temp_dir().join(format!("topclaw_test_home_{}", uuid::Uuid::new_v4()));
@@ -2194,16 +2194,19 @@ default_model = "workspace-model"
             .await
             .unwrap();
 
-        assert!(custom_marker_path.exists());
-        assert!(default_marker_path.exists());
+        // Marker is written ONLY to the selected config root (no dual-mirror).
+        assert!(
+            custom_marker_path.exists(),
+            "marker should exist at custom config dir"
+        );
+        assert!(
+            !default_marker_path.exists(),
+            "marker should NOT be mirrored to default config dir"
+        );
 
         let custom_state: ActiveWorkspaceState =
             toml::from_str(&fs::read_to_string(&custom_marker_path).await.unwrap()).unwrap();
         assert_eq!(PathBuf::from(custom_state.config_dir), custom_config_dir);
-
-        let default_state: ActiveWorkspaceState =
-            toml::from_str(&fs::read_to_string(&default_marker_path).await.unwrap()).unwrap();
-        assert_eq!(PathBuf::from(default_state.config_dir), custom_config_dir);
 
         if let Some(home) = original_home {
             std::env::set_var("HOME", home);
@@ -2261,7 +2264,8 @@ default_model = "workspace-model"
         persist_active_workspace_config_dir(&custom_config_dir)
             .await
             .unwrap();
-        assert!(marker_path.exists());
+        // Only custom marker exists (no dual-mirror to default).
+        assert!(!marker_path.exists());
         assert!(custom_marker_path.exists());
 
         persist_active_workspace_config_dir(&default_config_dir)
