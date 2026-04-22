@@ -9,15 +9,14 @@
 //! spawn the built-in sidecar (same binary, `computer-use-sidecar` subcommand)
 //! and poll until ready. This keeps the happy path one tool call, not two.
 
+use super::bootstrap;
 use super::sidecar_client;
 use super::traits::{Tool, ToolResult};
 use crate::config::BrowserComputerUseConfig;
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::info;
@@ -36,20 +35,6 @@ const ACTIONS: &[&str] = &[
     "key_press",
     "bootstrap",
 ];
-
-/// Linux desktop helpers the sidecar shells out to.
-#[cfg(target_os = "linux")]
-const LINUX_HELPERS: &[&str] = &["xdotool", "wmctrl", "scrot", "xdg-open"];
-
-/// Probe result for Linux desktop helper readiness.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DesktopHelperProbe {
-    pub checked_helpers: Vec<&'static str>,
-    pub missing_helpers: Vec<&'static str>,
-    pub package_manager: Option<&'static str>,
-    pub packages_to_install: Vec<&'static str>,
-    pub install_command: Option<String>,
-}
 
 /// Which helpers each action requires. Actions not listed (bootstrap, app_launch,
 /// app_terminate, screen_capture) don't need pre-flight helpers. screen_capture
@@ -282,7 +267,7 @@ impl Tool for ComputerUseTool {
 
         // Bootstrap runs entirely locally (no sidecar needed) so handle it up-front.
         if action == "bootstrap" {
-            return Ok(run_bootstrap().await);
+            return Ok(bootstrap::run_bootstrap().await);
         }
 
         // Build action-specific params and any pre-flight validation.
@@ -421,10 +406,10 @@ impl Tool for ComputerUseTool {
                 info!(
                     target: "topclaw::audit",
                     event = "computer_use_auto_bootstrap",
-                    missing = %missing.join(","),
+                    missing = %missing.join(", "),
                     "auto-bootstrapping missing desktop helpers"
                 );
-                let _ = run_bootstrap().await;
+                let _ = bootstrap::run_bootstrap().await;
                 // Re-check after bootstrap attempt.
                 let still_missing: Vec<&str> = needed
                     .iter()
@@ -435,7 +420,7 @@ impl Tool for ComputerUseTool {
                     // Bootstrap succeeded — continue to the action.
                 } else {
                     return Ok(fail(&format!(
-                        "action '{}' requires {} but {} still not installed after auto-bootstrap. Install manually: sudo apt-get install xdotool wmctrl scrot xdg-utils",
+                        "action '{}' requires {} but {} still not installed after auto-bootstrap. Install manually: sudo apt-get install xdotool wmctrl scrot",
                         action,
                         still_missing.join(", "),
                         if still_missing.len() == 1 { "it is" } else { "they are" }
@@ -517,276 +502,27 @@ fn compact_json(v: &Value) -> String {
     serde_json::to_string(v).unwrap_or_else(|_| "{}".into())
 }
 
-/// Detect missing Linux desktop helpers by probing `PATH` with `which`.
-#[cfg(target_os = "linux")]
+/// Re-export bootstrap types for external callers (doctor, etc.).
+pub use bootstrap::{DesktopHelperProbe, LINUX_HELPERS};
+
+/// Detect which Linux desktop helpers are missing.
 pub fn missing_linux_helpers() -> Vec<&'static str> {
-    LINUX_HELPERS
-        .iter()
-        .copied()
-        .filter(|bin| which::which(bin).is_err())
-        .collect()
+    bootstrap::missing_helpers()
 }
 
-#[cfg(not(target_os = "linux"))]
-#[allow(dead_code)]
-pub fn missing_linux_helpers() -> Vec<&'static str> {
-    Vec::new()
-}
-
+/// Probe desktop helper readiness.
 pub fn probe_desktop_helpers() -> DesktopHelperProbe {
-    #[cfg(target_os = "linux")]
-    {
-        let missing_helpers = missing_linux_helpers();
-        let package_manager = detect_package_manager().map(|(manager, _)| manager);
-        let packages_to_install = package_manager
-            .map(|manager| packages_for_missing(&missing_helpers, manager))
-            .unwrap_or_default();
-        let install_command = package_manager.map(|manager| {
-            format!(
-                "sudo {}",
-                install_command_string(manager, &packages_to_install)
-            )
-        });
-
-        DesktopHelperProbe {
-            checked_helpers: LINUX_HELPERS.to_vec(),
-            missing_helpers,
-            package_manager,
-            packages_to_install,
-            install_command,
-        }
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    {
-        DesktopHelperProbe {
-            checked_helpers: Vec::new(),
-            missing_helpers: Vec::new(),
-            package_manager: None,
-            packages_to_install: Vec::new(),
-            install_command: None,
-        }
-    }
+    bootstrap::probe_desktop_helpers()
 }
 
-/// Install missing Linux desktop helpers using a daemon-safe, non-interactive
-/// path. Non-Linux platforms report "no-op".
+/// Install missing Linux desktop helpers (daemon-safe).
 pub async fn install_desktop_helpers() -> String {
-    summarize_bootstrap_result(run_bootstrap_impl_with_mode(false).await)
+    bootstrap::install_desktop_helpers().await
 }
 
-/// Install missing Linux desktop helpers for an explicit user-driven setup
-/// flow. When a real terminal is available, this may prompt for the user's
-/// sudo password instead of requiring `sudo -n`.
+/// Install missing Linux desktop helpers (user-driven, may prompt).
 pub async fn install_desktop_helpers_for_user_request() -> String {
-    summarize_bootstrap_result(run_bootstrap_impl_with_mode(true).await)
-}
-
-/// Internal bootstrap implementation returning a ToolResult.
-async fn run_bootstrap() -> ToolResult {
-    run_bootstrap_impl_with_mode(false).await
-}
-
-fn summarize_bootstrap_result(result: ToolResult) -> String {
-    if result.success {
-        result.output
-    } else {
-        format!("Bootstrap failed: {}", result.error.unwrap_or_default())
-    }
-}
-
-#[cfg(target_os = "linux")]
-async fn run_bootstrap_impl_with_mode(allow_interactive_sudo: bool) -> ToolResult {
-    let probe = probe_desktop_helpers();
-    if probe.missing_helpers.is_empty() {
-        return ToolResult {
-            success: true,
-            output: "All Linux desktop helpers (xdotool, wmctrl, scrot, xdg-open) are already installed.".into(),
-            error: None,
-        };
-    }
-    let manager = match probe.package_manager {
-        Some(manager) => manager,
-        None => {
-            return fail(&format!(
-                "missing helpers ({}) but no supported package manager (apt-get, dnf, pacman, zypper, apk) was found. Install manually: xdotool wmctrl scrot xdg-utils",
-                probe.missing_helpers.join(", ")
-            ));
-        }
-    };
-    let pkgs = probe.packages_to_install;
-
-    // Sanity-check sudo is available before attempting an install.
-    if which::which("sudo").is_err() {
-        return fail("'sudo' not found. Install manually as root: xdotool wmctrl scrot xdg-utils");
-    }
-
-    let interactive_sudo = allow_interactive_sudo
-        && std::io::stdin().is_terminal()
-        && std::io::stdout().is_terminal()
-        && std::io::stderr().is_terminal();
-
-    if !interactive_sudo && !sudo_noninteractive_ok().await {
-        return fail(&format!(
-            "sudo requires a password (sudo -n failed). Either configure passwordless sudo for desktop package installs, or run manually: sudo {manager_install}",
-            manager_install = install_command_string(manager, &pkgs)
-        ));
-    }
-
-    let mut argv = Vec::new();
-    if !interactive_sudo {
-        argv.push("-n".to_string());
-    }
-    argv.extend(install_argv(manager, &pkgs));
-
-    if interactive_sudo {
-        match tokio::process::Command::new("sudo")
-            .args(&argv)
-            .status()
-            .await
-        {
-            Ok(status) if status.success() => bootstrap_install_success(manager, &pkgs),
-            Ok(status) => fail(&format!(
-                "{manager} install failed (exit {:?}).",
-                status.code()
-            )),
-            Err(e) => fail(&format!("failed to run sudo {manager}: {e}")),
-        }
-    } else {
-        let out = tokio::process::Command::new("sudo")
-            .args(&argv)
-            .stdin(Stdio::null())
-            .output()
-            .await;
-        match out {
-            Ok(o) if o.status.success() => bootstrap_install_success(manager, &pkgs),
-            Ok(o) => {
-                let stderr = String::from_utf8_lossy(&o.stderr);
-                fail(&format!(
-                    "{manager} install failed (exit {:?}): {}",
-                    o.status.code(),
-                    stderr.trim()
-                ))
-            }
-            Err(e) => fail(&format!("failed to run sudo {manager}: {e}")),
-        }
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-async fn run_bootstrap_impl_with_mode(_allow_interactive_sudo: bool) -> ToolResult {
-    ToolResult {
-        success: true,
-        output: format!(
-            "bootstrap is a no-op on {}: desktop helpers are not required.",
-            std::env::consts::OS
-        ),
-        error: None,
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn bootstrap_install_success(manager: &str, pkgs: &[&str]) -> ToolResult {
-    let still_missing = missing_linux_helpers();
-    if still_missing.is_empty() {
-        info!(
-            target: "topclaw::audit",
-            event = "computer_use_bootstrap",
-            manager = manager,
-            packages = ?pkgs,
-            "installed Linux desktop helpers"
-        );
-        ToolResult {
-            success: true,
-            output: format!(
-                "Installed {} via {manager}. Desktop helpers ready.",
-                pkgs.join(" ")
-            ),
-            error: None,
-        }
-    } else {
-        fail(&format!(
-            "{manager} reported success but {} still missing. Try reinstalling manually.",
-            still_missing.join(", ")
-        ))
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn detect_package_manager() -> Option<(&'static str, Vec<&'static str>)> {
-    // Return (manager-binary, base-package-list-for-full-install).
-    // The packages list is a superset; we filter to only what's actually missing.
-    let candidates = [
-        ("apt-get", vec!["xdotool", "wmctrl", "scrot", "xdg-utils"]),
-        ("dnf", vec!["xdotool", "wmctrl", "scrot", "xdg-utils"]),
-        ("pacman", vec!["xdotool", "wmctrl", "scrot", "xdg-utils"]),
-        ("zypper", vec!["xdotool", "wmctrl", "scrot", "xdg-utils"]),
-        ("apk", vec!["xdotool", "wmctrl", "scrot", "xdg-utils"]),
-    ];
-    for (bin, pkgs) in candidates {
-        if which::which(bin).is_ok() {
-            return Some((bin, pkgs));
-        }
-    }
-    None
-}
-
-#[cfg(target_os = "linux")]
-fn packages_for_missing(missing: &[&str], _manager: &str) -> Vec<&'static str> {
-    // Map helper binary names to distro package names. xdg-open ships in
-    // xdg-utils across the major distros.
-    let mut out: Vec<&'static str> = Vec::new();
-    for m in missing {
-        let pkg = match *m {
-            "xdotool" => "xdotool",
-            "wmctrl" => "wmctrl",
-            "scrot" => "scrot",
-            "xdg-open" => "xdg-utils",
-            _ => continue,
-        };
-        if !out.contains(&pkg) {
-            out.push(pkg);
-        }
-    }
-    out
-}
-
-#[cfg(target_os = "linux")]
-fn install_argv(manager: &str, pkgs: &[&str]) -> Vec<String> {
-    let mut argv: Vec<String> = match manager {
-        "apt-get" => vec!["apt-get".into(), "install".into(), "-y".into()],
-        "dnf" => vec!["dnf".into(), "install".into(), "-y".into()],
-        "pacman" => vec!["pacman".into(), "-S".into(), "--noconfirm".into()],
-        "zypper" => vec!["zypper".into(), "install".into(), "-y".into()],
-        "apk" => vec!["apk".into(), "add".into()],
-        _ => vec![manager.into(), "install".into()],
-    };
-    for p in pkgs {
-        argv.push((*p).into());
-    }
-    argv
-}
-
-#[cfg(target_os = "linux")]
-fn install_command_string(manager: &str, pkgs: &[&str]) -> String {
-    install_argv(manager, pkgs).join(" ")
-}
-
-#[cfg(target_os = "linux")]
-async fn sudo_noninteractive_ok() -> bool {
-    // `sudo -n true` exits 0 only if a valid cached credential or NOPASSWD
-    // entry makes sudo non-interactive.
-    match tokio::process::Command::new("sudo")
-        .args(["-n", "true"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .await
-    {
-        Ok(s) => s.success(),
-        Err(_) => false,
-    }
+    bootstrap::install_desktop_helpers_for_user_request().await
 }
 
 #[cfg(test)]
@@ -935,30 +671,7 @@ mod tests {
         assert!(enum_vals.iter().any(|v| v.as_str() == Some("bootstrap")));
     }
 
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn install_argv_shapes_by_manager() {
-        let s = |v: Vec<&str>| -> Vec<String> { v.into_iter().map(String::from).collect() };
-        assert_eq!(
-            install_argv("apt-get", &["xdotool"]),
-            s(vec!["apt-get", "install", "-y", "xdotool"])
-        );
-        assert_eq!(
-            install_argv("pacman", &["xdotool", "wmctrl"]),
-            s(vec!["pacman", "-S", "--noconfirm", "xdotool", "wmctrl"])
-        );
-        assert_eq!(
-            install_argv("dnf", &["scrot"]),
-            s(vec!["dnf", "install", "-y", "scrot"])
-        );
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn packages_for_missing_maps_xdg_open_to_xdg_utils() {
-        let pkgs = packages_for_missing(&["xdg-open", "xdotool"], "apt-get");
-        assert_eq!(pkgs, vec!["xdg-utils", "xdotool"]);
-    }
+    // Bootstrap module tests are in src/tools/bootstrap.rs
 
     #[test]
     fn desktop_helper_probe_is_structured() {
@@ -986,25 +699,7 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "linux")]
-    #[tokio::test]
-    async fn bootstrap_reports_already_ready_when_nothing_missing() {
-        // This test is meaningful only when the host already has the helpers.
-        if !missing_linux_helpers().is_empty() {
-            return;
-        }
-        let r = run_bootstrap().await;
-        assert!(r.success);
-        assert!(r.output.contains("already installed"));
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    #[tokio::test]
-    async fn bootstrap_is_noop_on_non_linux() {
-        let r = run_bootstrap().await;
-        assert!(r.success);
-        assert!(r.output.contains("no-op"));
-    }
+    // Bootstrap tests moved to src/tools/bootstrap.rs for proper separation
 
     #[cfg(target_os = "linux")]
     #[test]
@@ -1026,32 +721,7 @@ mod tests {
         assert!(required_helpers("key_press").contains(&"xdotool"));
     }
 
-    /// install_desktop_helpers() returns a human-readable string
-    /// and never panics, regardless of platform.
-    #[tokio::test]
-    async fn install_desktop_helpers_returns_string() {
-        // Guard: skip on Linux hosts where helpers are actually missing,
-        // because the function would attempt `sudo -n apt-get install`.
-        if !missing_linux_helpers().is_empty() {
-            return;
-        }
-        let result = install_desktop_helpers().await;
-        // On Linux with all helpers: "All Linux desktop helpers ... already installed."
-        // On non-Linux: "bootstrap is a no-op on <OS>..."
-        // In all cases, it must return a non-empty string without panicking.
-        assert!(!result.is_empty());
-    }
-
-    /// missing_linux_helpers() always returns a Vec (empty on non-Linux).
-    #[test]
-    fn missing_linux_helpers_returns_vec() {
-        let missing = missing_linux_helpers();
-        // On non-Linux this is always empty; on Linux it depends on
-        // what's installed. Either way, it must not panic.
-        for bin in &missing {
-            assert!(!bin.is_empty(), "helper name should not be empty");
-        }
-    }
+    // Re-exports from bootstrap module - tests are in bootstrap.rs
 
     #[tokio::test]
     async fn rejects_when_autonomy_readonly() {
@@ -1102,15 +772,15 @@ mod tests {
     async fn invalid_endpoint_gives_parseable_error() {
         let mut c = cfg_default();
         c.auto_start = true;
-        // Empty endpoint causes reqwest builder error before any network call
+        // Empty endpoint is treated as non-local, triggering auto_start block message
+        // This is a descriptive error, not a panic
         c.endpoint = "".into();
         let t = tool(c);
         let r = t.execute(json!({"action": "window_list"})).await.unwrap();
         assert!(!r.success);
-        // Error should be descriptive, not a panic
         let err = r.error.as_ref().expect("error must be present");
-        // Either reqwest builder error or sidecar unreachable - both are descriptive
-        assert!(err.contains("builder error") || err.contains("not reachable"),
+        // Error should explain that auto_start can't handle this endpoint
+        assert!(err.contains("auto_start") || err.contains("local"),
             "error should be descriptive: {err}");
     }
 

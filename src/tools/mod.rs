@@ -67,6 +67,8 @@ pub mod schema;
 pub mod screenshot;
 #[cfg(feature = "computer-use-sidecar")]
 pub mod sidecar_client;
+#[cfg(feature = "computer-use-sidecar")]
+pub mod bootstrap;
 pub mod shell;
 pub mod subagent_list;
 pub mod subagent_manage;

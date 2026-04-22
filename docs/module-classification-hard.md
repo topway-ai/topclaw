@@ -312,16 +312,17 @@ classified into exactly one category. No vague wording. No preserved aliases.
 - **Why it exists:** Built-in computer-use sidecar HTTP server.
 - **Current mainline needed:** Yes — sidecar is the execution engine for computer_use.
 - **Legacy burden:** `linux.rs` — Linux-specific backend. Keep for now.
-- **Assessment (this pass):** Structure is clean, but `tools/computer_use.rs` contains
-  mixed concerns worth separating:
-  - `computer_use.rs` — 700+ lines mixing: tool facade, HTTP client, bootstrap logic,
-    Linux helper detection, package manager detection, sudo handling
-  - `sidecar_client.rs` — Clean utilities already extracted (health probe, spawn, URL)
+- **Assessment (this pass):** Structure is now cleaner with proper separation:
+  - `computer_use.rs` — ~650 lines, focused on tool facade + HTTP client
+  - `bootstrap.rs` — ~350 lines, Linux desktop helper detection/installation
+  - `sidecar_client.rs` — Clean utilities (health probe, spawn, URL)
   - `sidecar/server.rs` — Clean axum router
   - `sidecar/linux.rs` — Clean action handlers
-- **Next action:** Keep as-is structurally, but monitor `computer_use.rs` size.
-  Bootstrap logic (install_desktop_helpers, run_bootstrap_impl_with_mode) could
-  be extracted to a separate module if the file grows further.
+- **Completed refactors:**
+  - `bootstrap.rs` extracted from `computer_use.rs` (Linux helper detection, package
+    manager detection, sudo handling)
+  - API stability preserved via re-exports in computer_use.rs
+- **Next action:** Keep as-is. Structure is now honest for current product shape.
 - **Files/dirs:** `mod.rs`, `server.rs`, `linux.rs`
 - **Risk:** MEDIUM — sidecar handles desktop automation.
 - **Tests required:** Sidecar server tests.
@@ -483,10 +484,14 @@ Current resolution order: `TOPCLAW_CONFIG_DIR` > `TOPCLAW_WORKSPACE` > active_wo
 
 **Delete:** None in this pass
 **Merge:** None — all tool files have distinct purposes and clear ownership
-**Narrow:**
-  - `memory/backend.rs` — flagged for next-wave merge (only 2 public fns)
-  - `channels/runtime_*` helpers — flagged for next-wave collapse
-  - `computer_use.rs` bootstrap logic — monitor, extract if file grows beyond 800 lines
+**Split (this pass):**
+  - `computer_use.rs` bootstrap logic → extracted to `bootstrap.rs` (~350 lines)
+  - `computer_use.rs` now focused on tool facade + HTTP client (~650 lines)
+
+**Completed refactors:**
+  - `bootstrap.rs` created with Linux desktop helper detection/installation
+  - API stability preserved via re-exports in computer_use.rs
+  - Unused imports removed from computer_use.rs
 
 **Keep as-is:** All cron, memory, lossless, subagent, delegate, sidecar tools
 
@@ -497,4 +502,4 @@ Current resolution order: `TOPCLAW_CONFIG_DIR` > `TOPCLAW_WORKSPACE` > active_wo
 **Next-wave targets:**
 1. `memory/backend.rs` merge into `mod.rs`
 2. `channels/runtime_*` helpers collapse into `dispatch.rs`
-3. `computer_use.rs` bootstrap extraction (if size warrants)
+3. Review tool families (delegate, cron, memory, subagent) for further narrowing
