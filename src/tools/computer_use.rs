@@ -841,4 +841,92 @@ mod tests {
         let err = r.error.as_ref().expect("error must be present");
         assert!(err.contains("rate limit") || err.contains("exceeded"), "error should mention rate limit: {err}");
     }
+
+    // ── computer_use happy path tests (PART 5: protect mainline) ──────────────
+
+    #[tokio::test]
+    async fn bootstrap_succeeds_when_helpers_present() {
+        // This test verifies the happy path: when all Linux helpers are installed,
+        // bootstrap returns success without trying to install anything.
+        #[cfg(target_os = "linux")]
+        {
+            // Skip if helpers are actually missing (would try to run sudo)
+            if !missing_linux_helpers().is_empty() {
+                return;
+            }
+            let r = t().execute(json!({"action": "bootstrap"})).await.unwrap();
+            assert!(r.success, "bootstrap should succeed when helpers are present");
+            assert!(r.output.contains("already installed") || r.output.contains("ready"),
+                "bootstrap output should indicate success: {}", r.output);
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let r = t().execute(json!({"action": "bootstrap"})).await.unwrap();
+            assert!(r.success);
+            assert!(r.output.contains("no-op"));
+        }
+    }
+
+    #[test]
+    fn schema_has_all_required_actions() {
+        // Verify the schema lists all 12 actions correctly
+        let t = t();
+        let schema = t.parameters_schema();
+        let required_actions = [
+            "screen_capture", "window_list", "window_focus", "window_close",
+            "app_launch", "app_terminate", "mouse_move", "mouse_click",
+            "mouse_drag", "key_type", "key_press", "bootstrap"
+        ];
+        let enum_vals = schema["properties"]["action"]["enum"]
+            .as_array()
+            .expect("enum array");
+        let names: Vec<&str> = enum_vals.iter().filter_map(Value::as_str).collect();
+        for action in required_actions.iter() {
+            assert!(names.contains(action), "missing action {action} in schema");
+        }
+        assert_eq!(names.len(), 12, "should have exactly 12 actions");
+    }
+
+    #[test]
+    fn tool_has_descriptive_name_and_description() {
+        let t = t();
+        assert_eq!(t.name(), "computer_use");
+        assert!(!t.description().is_empty(), "description should not be empty");
+        assert!(t.description().len() > 100, "description should be comprehensive");
+    }
+
+    #[test]
+    fn app_launch_accepts_valid_config() {
+        let mut c = cfg_default();
+        c.app_allowlist = vec!["google-chrome".into()];
+        // Valid config should not panic when creating tool
+        let result = std::panic::catch_unwind(|| {
+            let tmp = tempfile::tempdir().unwrap();
+            ComputerUseTool::new(security(), c, tmp.path().to_path_buf(), None)
+        });
+        assert!(result.is_ok(), "should not panic with valid allowlist");
+    }
+
+    #[test]
+    fn endpoint_locality_detection_works() {
+        let mut c = cfg_default();
+        // Localhost should be detected as local
+        c.endpoint = "http://127.0.0.1:8787/v1/actions".into();
+        assert!(c.endpoint_is_local());
+        
+        c.endpoint = "http://localhost:8787/v1/actions".into();
+        assert!(c.endpoint_is_local());
+        
+        // Non-local should be detected as remote
+        c.endpoint = "http://192.168.1.100:8787/v1/actions".into();
+        assert!(!c.endpoint_is_local());
+        
+        c.endpoint = "http://example.com:8787/v1/actions".into();
+        assert!(!c.endpoint_is_local());
+    }
+
+    fn t() -> ComputerUseTool {
+        let tmp = tempfile::tempdir().unwrap();
+        ComputerUseTool::new(security(), cfg_default(), tmp.path().to_path_buf(), None)
+    }
 }

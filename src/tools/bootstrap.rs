@@ -15,6 +15,13 @@ pub const LINUX_HELPERS: &[&str] = &[
     "xdotool",  // window/workspace control, mouse/keyboard simulation
     "wmctrl",   // window list, focus, close
     "scrot",    // screenshot capture
+    // NOTE: xdg-open is not probed here because:
+    // 1. The sidecar (linux.rs) uses xdg-open via std::process::Command::new("xdg-open")
+    // 2. xdg-open ships in xdg-utils package, but xdg-open binary is usually available
+    //    on most desktop Linux systems by default
+    // 3. app_launch with URLs doesn't require xdg-open to be pre-probed - the tool
+    //    will return an error at runtime if xdg-open fails, which is informative
+    //    rather than silently succeeding
 ];
 
 /// Probe result for Linux desktop helper readiness.
