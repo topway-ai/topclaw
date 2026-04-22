@@ -1092,6 +1092,112 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn load_memory_context_formats_entries_correctly() {
+        // Verify the inline loader formats entries with "- key: content" pattern
+        struct MockMemoryFormatting {
+            entries: Arc<Vec<crate::memory::MemoryEntry>>,
+        }
+
+        #[async_trait]
+        impl Memory for MockMemoryFormatting {
+            async fn store(&self, _: &str, _: &str, _: MemoryCategory, _: Option<&str>) -> Result<()> {
+                Ok(())
+            }
+            async fn recall(&self, _: &str, _: usize, _: Option<&str>) -> Result<Vec<crate::memory::MemoryEntry>> {
+                Ok(self.entries.as_ref().clone())
+            }
+            async fn get(&self, _: &str) -> Result<Option<crate::memory::MemoryEntry>> {
+                Ok(None)
+            }
+            async fn list(&self, _: Option<&MemoryCategory>, _: Option<&str>) -> Result<Vec<crate::memory::MemoryEntry>> {
+                Ok(vec![])
+            }
+            async fn forget(&self, _: &str) -> Result<bool> { Ok(true) }
+            async fn count(&self) -> Result<usize> { Ok(self.entries.len()) }
+            async fn health_check(&self) -> bool { true }
+            fn name(&self) -> &str { "mock" }
+        }
+
+        let memory = MockMemoryFormatting {
+            entries: Arc::new(vec![
+                crate::memory::MemoryEntry {
+                    id: "1".into(),
+                    key: "project_name".into(),
+                    content: "TopClaw CLI".into(),
+                    category: MemoryCategory::Daily,
+                    timestamp: "2025-01-15".into(),
+                    session_id: None,
+                    score: Some(0.85),
+                },
+            ]),
+        };
+
+        let context = load_memory_context(&memory, "project name", 5, 0.0).await.unwrap();
+        assert!(context.starts_with("[Memory context]"));
+        assert!(context.contains("- project_name: TopClaw CLI"));
+        // Trailing newline
+        assert!(context.ends_with("\n\n"));
+    }
+
+    #[tokio::test]
+    async fn load_memory_context_filters_by_relevance_score() {
+        // Verify entries below min_relevance_score are filtered out
+        struct MockMemoryWithScores {
+            entries: Arc<Vec<crate::memory::MemoryEntry>>,
+        }
+
+        #[async_trait]
+        impl Memory for MockMemoryWithScores {
+            async fn store(&self, _: &str, _: &str, _: MemoryCategory, _: Option<&str>) -> Result<()> {
+                Ok(())
+            }
+            async fn recall(&self, _: &str, _: usize, _: Option<&str>) -> Result<Vec<crate::memory::MemoryEntry>> {
+                Ok(self.entries.as_ref().clone())
+            }
+            async fn get(&self, _: &str) -> Result<Option<crate::memory::MemoryEntry>> {
+                Ok(None)
+            }
+            async fn list(&self, _: Option<&MemoryCategory>, _: Option<&str>) -> Result<Vec<crate::memory::MemoryEntry>> {
+                Ok(vec![])
+            }
+            async fn forget(&self, _: &str) -> Result<bool> { Ok(true) }
+            async fn count(&self) -> Result<usize> { Ok(self.entries.len()) }
+            async fn health_check(&self) -> bool { true }
+            fn name(&self) -> &str { "mock" }
+        }
+
+        let memory = MockMemoryWithScores {
+            entries: Arc::new(vec![
+                crate::memory::MemoryEntry {
+                    id: "1".into(),
+                    key: "high_relevance".into(),
+                    content: "Should appear".into(),
+                    category: MemoryCategory::Daily,
+                    timestamp: "now".into(),
+                    session_id: None,
+                    score: Some(0.8),
+                },
+                crate::memory::MemoryEntry {
+                    id: "2".into(),
+                    key: "low_relevance".into(),
+                    content: "Should be filtered".into(),
+                    category: MemoryCategory::Daily,
+                    timestamp: "now".into(),
+                    session_id: None,
+                    score: Some(0.1),
+                },
+            ]),
+        };
+
+        // With min_relevance_score=0.5, only high_relevance should appear
+        let context = load_memory_context(&memory, "test", 5, 0.5).await.unwrap();
+        assert!(context.contains("high_relevance"));
+        assert!(context.contains("Should appear"));
+        assert!(!context.contains("low_relevance"));
+        assert!(!context.contains("Should be filtered"));
+    }
+
+    #[tokio::test]
     async fn turn_routes_with_hint_when_query_classification_matches() {
         let seen_models = Arc::new(Mutex::new(Vec::new()));
         let provider = Box::new(ModelCaptureProvider {

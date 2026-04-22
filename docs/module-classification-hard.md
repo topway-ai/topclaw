@@ -23,16 +23,18 @@ classified into exactly one category. No vague wording. No preserved aliases.
 ### `agent/`
 
 - **Classification:** KEEP
-- **Flags:** PROTECTED_CORE, TOO_BIG_OWNER, FIRST_REFACTOR_TARGET
+- **Flags:** PROTECTED_CORE, TOO_BIG_OWNER
 - **Why it exists:** Main LLM-to-tool execution loop. Core product.
 - **Current mainline needed:** Yes — the entire agentic loop depends on it.
 - **Legacy burden:** `loop_/` subdirectory has 11 files. `agent.rs` + `loop_.rs` overlap.
   `classifier.rs` — single-pass classifier may be replaceable with a provider call.
   `research.rs` — optional phase, not always used.
-  `memory_loader.rs` — separate file when it could be inline in wiring.rs.
   `wiring.rs` — thin, keep as-is.
-- **Next action:** Keep but narrow. Merge `agent.rs` into `loop_.rs` (only 1 call site).
-  Move `memory_loader.rs` into `wiring.rs`. Evaluate `classifier.rs` for deletion.
+- **Completed refactors:**
+  - `memory_loader.rs` INLINED into `agent.rs` (load_memory_context function)
+  - Added `min_relevance_score` field to `AgentConfig` (default 0.4)
+  - Added tests: legacy autosave skip, entry formatting, relevance filtering
+- **Next action:** Keep but narrow. Evaluate `classifier.rs` for deletion.
 - **Files/dirs:** `agent.rs`, `classifier.rs`, `dispatcher.rs`, `loop_.rs`, `loop_/`
 - **Risk:** HIGH — core loop. Narrow incrementally. Keep tests green.
 - **Tests required:** Agent happy path, agent failure path, tool dispatch.
