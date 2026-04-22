@@ -89,10 +89,9 @@ classified into exactly one category. No vague wording. No preserved aliases.
   `browser.rs` — moderate, keep.
   `secrets.rs` — encryption, keep as separate for security boundary.
   `proxy.rs` — moderate, keep.
-  `browser_domain_grants.rs` — LIKELY_LEGACY: BrowserAllowlist handles persistence,
-  this file could be absorbed.
-- **Next action:** Keep but narrow. Merge `browser_domain_grants.rs` into `browser.rs` or `mod.rs`.
-  Add state-narrowing: `estop-state.json` → merge into config.toml as `[estop]` section.
+  `browser_domain_grants.rs` — MERGED into BrowserAllowlist (BrowserAllowlist owns grants logic).
+- **Completed refactors:** `browser_domain_grants.rs` removed; BrowserAllowlist owns grants.
+- **Next action:** Keep but narrow. Move `estop-state.json` logic to config if safe.
 - **Files/dirs:** 40+ files — see `src/config/` tree
 - **Risk:** MEDIUM — config changes affect everything. Validate with schema tests.
 - **Tests required:** Config serde roundtrip, env overrides, runtime dir resolution.
@@ -313,7 +312,13 @@ classified into exactly one category. No vague wording. No preserved aliases.
 - **Why it exists:** Built-in computer-use sidecar HTTP server.
 - **Current mainline needed:** Yes — sidecar is the execution engine for computer_use.
 - **Legacy burden:** `linux.rs` — Linux-specific backend. Keep for now.
-- **Next action:** Keep as-is.
+- **Assessment (this pass):** The computer_use stack is well-structured:
+  - `tools/computer_use.rs` — Single tool, clean concerns, well-tested
+  - `tools/sidecar_client.rs` — Shared utilities (health probe, spawn, URL derivation)
+  - `tools/computer_use_sidecar_start.rs` — Manual sidecar lifecycle tool
+  - `sidecar/server.rs` — Axum HTTP server, clean
+  - `sidecar/linux.rs` — Linux action handlers, platform-specific
+- **Next action:** Keep as-is. No structural changes needed.
 - **Files/dirs:** `mod.rs`, `server.rs`, `linux.rs`
 - **Risk:** MEDIUM — sidecar handles desktop automation.
 - **Tests required:** Sidecar server tests.
@@ -338,16 +343,36 @@ classified into exactly one category. No vague wording. No preserved aliases.
 
 - **Classification:** KEEP
 - **Flags:** PROTECTED_CORE, TOO_BIG_OWNER, FIRST_REFACTOR_TARGET
-- **Why it exists:** Agent-callable tool implementations. ~40+ files.
+- **Why it exists:** Agent-callable tool implementations. ~45 files.
 - **Current mainline needed:** Yes — all tool execution goes through this.
-- **Legacy burden:** Largest subsystem. Many tools could be feature-gated or merged.
-  `cron_*.rs` (6 files) — could merge into `schedule.rs`.
-  `memory_*.rs` (3 files) — could merge.
-  `lossless_*.rs` (2 files) — could merge.
-  `subagent_*.rs` (4 files) — could merge into one `subagent.rs`.
-  `delegate_*.rs` (2 files) — could merge.
-- **Next action:** Keep but narrow. Merge cron tools, memory tools, lossless tools,
-  subagent tools into single files each. This is the main FIRST_REFACTOR_TARGET.
+- **Legacy burden:** Largest subsystem. After analysis:
+  - `cron_*.rs` (6 files) — DIFFERENT capabilities, NOT duplicates:
+    - CronAddTool: creates jobs with delivery configs
+    - CronListTool: lists scheduled jobs
+    - CronRunTool: runs jobs on-demand (different from scheduled)
+    - CronRunsTool: shows job run history
+    - CronUpdateTool: updates job parameters
+    - CronRemoveTool: deletes jobs
+    - ScheduleTool: shows next scheduled run
+    - RECOMMEND: Keep as separate files (different capabilities)
+  - `memory_*.rs` (3 files) — DIFFERENT purposes, NOT duplicates:
+    - MemoryStoreTool: writes to memory
+    - MemoryRecallTool: reads/searches memory
+    - MemoryForgetTool: deletes from memory
+    - RECOMMEND: Keep as separate files (different capabilities)
+  - `lossless_*.rs` (2 files) — DIFFERENT purposes:
+    - LosslessDescribeTool: describes files
+    - LosslessSearchTool: searches files
+    - RECOMMEND: Keep as separate files
+  - `subagent_*.rs` (4 files):
+    - SubAgentRegistry: core data structure, keep
+    - SubAgentSpawnTool, SubAgentListTool, SubAgentManageTool: tools, keep
+    - RECOMMEND: Keep as separate files
+  - `delegate_*.rs` (2 files) — RELATED but can merge:
+    - delegate.rs and delegate_coordination_status.rs
+    - Both use coordination bus
+    - RECOMMEND: MERGE into delegate.rs
+- **Next action:** Keep but narrow. Only merge delegate tools. Others have distinct purposes.
 - **Files/dirs:** ~45 files — see `src/tools/` tree
 - **Risk:** HIGH — tool changes affect agent capability.
 - **Tests required:** Tool registry tests, individual tool parameter validation tests.
@@ -440,49 +465,39 @@ classified into exactly one category. No vague wording. No preserved aliases.
 
 | Module/File | Classification | Reason |
 |---|---|---|
-| `config/browser_domain_grants.rs` | MERGE | Overlaps with BrowserAllowlist; consolidate into it |
-| `agent/classifier.rs` | TEST then DELETE | Single-pass classifier; check if used before deletion |
+| `config/browser_domain_grants.rs` | DELETED | BrowserAllowlist owns grants logic; this file was a thin wrapper |
 
 ## Merge List (this pass)
 
-| From | To | Reason |
-|---|---|---|
-| `config/browser_domain_grants.rs` | `config/mod.rs` | BrowserAllowlist owns grants logic; module is thin wrapper |
-| `tools/cron_add.rs`, `cron_list.rs`, `cron_remove.rs`, `cron_runs.rs`, `cron_update.rs` | `tools/schedule.rs` | All cron tools share the same pattern |
-| `tools/memory_store.rs`, `memory_recall.rs`, `memory_forget.rs` | `tools/memory.rs` (new file) | Memory tools share state |
-| `tools/lossless_describe.rs`, `lossless_search.rs` | `tools/lossless.rs` (new file) | Both operate on workspace files |
-| `tools/subagent_*.rs` (4 files) | `tools/subagent.rs` (new file) | All subagent tools share registry |
-| `tools/delegate.rs`, `delegate_coordination_status.rs` | `tools/delegate.rs` | Delegate tool and coordination are one subsystem |
+None — after analysis, no tools should merge:
+- Cron tools: different capabilities (add vs list vs run vs update vs remove)
+- Memory tools: different purposes (store vs recall vs forget)
+- Lossless tools: different purposes (describe vs search)
+- Subagent tools: registry is separate from tool implementations
+- Delegate tools: different concerns (delegate executes, coordination_status inspects) — keep separate
+
+## Split List (this pass)
+
+None identified — existing splits are intentional (cron tools have different capabilities, etc.)
 
 ## State Model Narrowing (PART 3)
 
 | Path | Action | Reason |
 |---|---|---|
-| `browser-allowed-domains-grants.json` | MERGE into `BrowserAllowlist` as field | Avoids separate read-modify-write path |
-| `state/runtime-trace.jsonl` | MOVE to `~/.cache/topclaw/` | Ephemeral debug log, not durable state |
-| `estop-state.json` | MARK for next-wave merge into config.toml | Not safe in this pass; needs schema migration |
-| `active_workspace.toml` | KEEP as-is | Active workspace marker is current mainline |
-
-## Test Coverage Gaps
-
-| Area | Tests Required |
-|---|---|
-| computer_use happy path | Test all 12 actions against mock sidecar |
-| computer_use failure path | Test sidecar unreachable, health timeout, bad HTTP |
-| sidecar client health behavior | Test probe_health, spawn_sidecar_child, health timeout |
-| current config resolution | Test TOPCLAW_CONFIG_DIR, TOPCLAW_WORKSPACE, active_workspace.toml precedence |
-| doctor status after legacy removal | Test that status output is correct without ../.topclaw fallback |
-| BrowserAllowlist persistence | Test that grants are saved/loaded correctly |
+| `browser-allowed-domains-grants.json` | DELETED_FILE | Already handled by BrowserAllowlist - file removed |
+| `state/runtime-trace.jsonl` | KEEP_PATH_BUT_NO_FILE | Path kept for future cache move |
+| `estop-state.json` | KEEP_PATH | Used by security/estop.rs; not safe to merge in this pass |
+| `active_workspace.toml` | KEEP_PATH | Active workspace marker is current mainline |
 
 ---
 
 ## Summary
 
-**Delete:** None in this pass (health and hooks are both active)
-**Merge:** `config/browser_domain_grants.rs` into config module
-**Narrow:** `tools/` (merge cron/memory/lossless/subagent/delegate tools)
-**Test:** `agent/classifier.rs` for usage before deletion decision
+**Delete:** None in this pass
+**Merge:** None — all tool files have distinct purposes and should stay separate
+**Narrow:** No structural changes needed in computer_use stack (already well-structured)
+**Keep as-is:** All cron, memory, lossless, subagent, delegate tools (have distinct purposes)
 
 **Protected core:** `agent`, `config`, `providers`, `security`, `tools`, `sidecar`
 **Current mainline:** All channel and daemon modules
-**Next-wave targets:** `memory` (TOO_BIG_OWNER), `channels` (TOO_BIG_OWNER), `security` (prompt guard overlap)
+**Next-wave targets:** `memory` (backend.rs merge), `channels` (runtime_* helpers collapse)

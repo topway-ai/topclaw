@@ -131,6 +131,12 @@ mod tests {
     }
 
     #[test]
+    fn derive_health_url_falls_back_to_default_on_invalid_url() {
+        // Invalid URL should return default health URL
+        assert_eq!(derive_health_url("not-a-url"), "http://127.0.0.1:8787/health");
+    }
+
+    #[test]
     fn bind_addr_from_endpoint_works() {
         assert_eq!(
             bind_addr_from_endpoint("http://127.0.0.1:8787/v1/actions").as_deref(),
@@ -141,5 +147,37 @@ mod tests {
     #[test]
     fn bind_addr_from_endpoint_rejects_invalid() {
         assert!(bind_addr_from_endpoint("not-a-url").is_none());
+    }
+
+    #[test]
+    fn bind_addr_from_endpoint_rejects_hostname_only() {
+        // Hostname without port is not a valid SocketAddr
+        assert!(bind_addr_from_endpoint("http://localhost/v1/actions").is_none());
+    }
+
+    #[test]
+    fn default_bind_constant_is_valid() {
+        assert!(DEFAULT_BIND.parse::<SocketAddr>().is_ok());
+    }
+
+    #[test]
+    fn health_poll_constants_are_reasonable() {
+        // Health poll timeout should be at least 1 second
+        assert!(HEALTH_POLL_TIMEOUT.as_secs() >= 1);
+        // Health poll interval should be less than timeout
+        assert!(HEALTH_POLL_INTERVAL < HEALTH_POLL_TIMEOUT);
+    }
+
+    #[tokio::test]
+    async fn probe_health_returns_false_for_unreachable_url() {
+        // Non-routable IP should fail quickly
+        let result = probe_health("http://192.0.2.1:8787/health").await;
+        assert!(!result, "unreachable URL should return false");
+    }
+
+    #[tokio::test]
+    async fn probe_health_returns_false_for_invalid_url() {
+        let result = probe_health("not-a-url").await;
+        assert!(!result, "invalid URL should return false");
     }
 }

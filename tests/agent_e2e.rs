@@ -13,7 +13,6 @@ use serde_json::json;
 use std::sync::{Arc, Mutex};
 use topclaw::agent::agent::Agent;
 use topclaw::agent::dispatcher::{NativeToolDispatcher, XmlToolDispatcher};
-use topclaw::agent::memory_loader::MemoryLoader;
 use topclaw::config::MemoryConfig;
 use topclaw::memory;
 use topclaw::memory::Memory;
@@ -198,38 +197,19 @@ impl Provider for RecordingProvider {
     }
 }
 
-/// Mock memory loader that returns a static context string,
-/// simulating RAG recall without a real memory backend.
-struct StaticMemoryLoader {
-    context: String,
-}
-
-impl StaticMemoryLoader {
-    fn new(context: &str) -> Self {
-        Self {
-            context: context.to_string(),
-        }
-    }
-}
-
-#[async_trait]
-impl MemoryLoader for StaticMemoryLoader {
-    async fn load_context(&self, _memory: &dyn Memory, _user_message: &str) -> Result<String> {
-        Ok(self.context.clone())
-    }
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Test helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn make_memory() -> Arc<dyn Memory> {
     let cfg = MemoryConfig {
-        backend: "none".into(),
+        backend: "sqlite".into(),
         ..MemoryConfig::default()
     };
     Arc::from(memory::create_memory(&cfg, &std::env::temp_dir(), None).unwrap())
 }
+
+
 
 fn make_observer() -> Arc<dyn Observer> {
     Arc::from(NoopObserver {})
@@ -280,21 +260,16 @@ fn build_agent_xml(provider: Box<dyn Provider>, tools: Vec<Box<dyn Tool>>) -> Ag
 fn build_recording_agent(
     provider: Box<dyn Provider>,
     tools: Vec<Box<dyn Tool>>,
-    memory_loader: Option<Box<dyn MemoryLoader>>,
 ) -> Agent {
-    let mut builder = Agent::builder()
+    Agent::builder()
         .provider(provider)
         .tools(tools)
         .memory(make_memory())
         .observer(make_observer())
         .tool_dispatcher(Box::new(NativeToolDispatcher))
-        .workspace_dir(std::env::temp_dir());
-
-    if let Some(loader) = memory_loader {
-        builder = builder.memory_loader(loader);
-    }
-
-    builder.build().unwrap()
+        .workspace_dir(std::env::temp_dir())
+        .build()
+        .unwrap()
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -474,7 +449,7 @@ async fn e2e_multi_turn_history_fidelity() {
         text_response("response 3"),
     ]);
 
-    let mut agent = build_recording_agent(Box::new(provider), vec![], None);
+    let mut agent = build_recording_agent(Box::new(provider), vec![]);
 
     let r1 = agent.turn("msg 1").await.unwrap();
     assert_eq!(r1, "response 1");
@@ -536,128 +511,8 @@ async fn e2e_multi_turn_history_fidelity() {
     );
 }
 
-/// Validates that a custom MemoryLoader injects RAG context into user
-/// messages before they reach the provider.
-#[tokio::test]
-async fn e2e_memory_enrichment_injects_context() {
-    let (provider, recorded) = RecordingProvider::new(vec![text_response("enriched response")]);
-
-    let memory_context = "[Memory context]\n- user_name: test_user\n\n";
-    let loader = StaticMemoryLoader::new(memory_context);
-
-    let mut agent = build_recording_agent(Box::new(provider), vec![], Some(Box::new(loader)));
-
-    let response = agent.turn("hello").await.unwrap();
-    assert_eq!(response, "enriched response");
-
-    // Provider received enriched message
-    let requests = recorded.lock().unwrap();
-    assert_eq!(requests.len(), 1);
-    let user_msg = requests[0].iter().find(|m| m.role == "user").unwrap();
-    assert!(
-        user_msg.content.starts_with("[Memory context]"),
-        "User message should start with memory context, got: {}",
-        user_msg.content,
-    );
-    assert!(
-        user_msg.content.contains("user_name: test_user"),
-        "User message should contain memory key-value pair",
-    );
-    assert!(
-        user_msg.content.ends_with("hello"),
-        "User message should end with original text, got: {}",
-        user_msg.content,
-    );
-
-    // Agent history also stores enriched message
-    let history = agent.history();
-    match &history[1] {
-        ConversationMessage::Chat(c) => {
-            assert_eq!(c.role, "user");
-            assert!(c.content.starts_with("[Memory context]"));
-            assert!(c.content.ends_with("hello"));
-        }
-        other => panic!("Expected Chat variant for user message, got: {other:?}"),
-    }
-}
-
-/// Validates multi-turn conversation with memory enrichment: every user
-/// message is enriched, and the provider sees the full enriched history.
-#[tokio::test]
-async fn e2e_multi_turn_with_memory_enrichment() {
-    let (provider, recorded) =
-        RecordingProvider::new(vec![text_response("answer 1"), text_response("answer 2")]);
-
-    let memory_context = "[Memory context]\n- project: topclaw\n\n";
-    let loader = StaticMemoryLoader::new(memory_context);
-
-    let mut agent = build_recording_agent(Box::new(provider), vec![], Some(Box::new(loader)));
-
-    let r1 = agent.turn("first question").await.unwrap();
-    assert_eq!(r1, "answer 1");
-
-    let r2 = agent.turn("second question").await.unwrap();
-    assert_eq!(r2, "answer 2");
-
-    let requests = recorded.lock().unwrap();
-    assert_eq!(requests.len(), 2);
-
-    // Turn 1: user message is enriched
-    let req1_user = requests[0].iter().find(|m| m.role == "user").unwrap();
-    assert!(req1_user.content.contains("[Memory context]"));
-    assert!(req1_user.content.contains("project: topclaw"));
-    assert!(req1_user.content.ends_with("first question"));
-
-    // Turn 2: both user messages enriched, assistant from turn 1 present
-    let req2_users: Vec<&ChatMessage> = requests[1].iter().filter(|m| m.role == "user").collect();
-    assert_eq!(req2_users.len(), 2, "Request 2 should have 2 user messages");
-
-    // Turn 1 user message still enriched in history
-    assert!(req2_users[0].content.contains("[Memory context]"));
-    assert!(req2_users[0].content.ends_with("first question"));
-
-    // Turn 2 user message also enriched
-    assert!(req2_users[1].content.contains("[Memory context]"));
-    assert!(req2_users[1].content.ends_with("second question"));
-
-    // Assistant response from turn 1 preserved
-    let req2_assts: Vec<&ChatMessage> = requests[1]
-        .iter()
-        .filter(|m| m.role == "assistant")
-        .collect();
-    assert_eq!(req2_assts.len(), 1);
-    assert_eq!(req2_assts[0].content, "answer 1");
-
-    // History: system + 2*(enriched_user + assistant) = 5
-    assert_eq!(agent.history().len(), 5);
-}
-
-/// Validates that empty memory context does not prepend memory text.
-/// A per-turn datetime prefix may still be present.
-#[tokio::test]
-async fn e2e_empty_memory_context_passthrough() {
-    let (provider, recorded) = RecordingProvider::new(vec![text_response("plain response")]);
-
-    let loader = StaticMemoryLoader::new("");
-
-    let mut agent = build_recording_agent(Box::new(provider), vec![], Some(Box::new(loader)));
-
-    let response = agent.turn("hello").await.unwrap();
-    assert_eq!(response, "plain response");
-
-    let requests = recorded.lock().unwrap();
-    let user_msg = requests[0].iter().find(|m| m.role == "user").unwrap();
-    assert!(
-        user_msg.content.ends_with("hello"),
-        "User payload should preserve original text suffix, got: {}",
-        user_msg.content
-    );
-    assert!(
-        !user_msg.content.contains("[Memory context]"),
-        "Empty context should not prepend memory context text, got: {}",
-        user_msg.content
-    );
-}
+// Memory enrichment tests (e2e_memory_enrichment_injects_context, etc.) are covered
+// by unit tests in src/agent/agent.rs (load_memory_context_* tests).
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Live integration test — real OpenAI Codex API (requires credentials)

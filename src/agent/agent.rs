@@ -1085,7 +1085,7 @@ mod tests {
             ]),
         };
 
-        let context = load_memory_context(&memory, "answer style", 5, 0.0).await;
+        let context = load_memory_context(&memory, "answer style", 5, 0.0).await.unwrap();
         assert!(context.contains("user_fact"));
         assert!(!context.contains("assistant_resp_legacy"));
         assert!(!context.contains("should be skipped"));
