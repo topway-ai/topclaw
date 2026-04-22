@@ -13,6 +13,10 @@ fn default_agent_tool_dispatcher() -> String {
     "auto".into()
 }
 
+fn default_min_relevance_score() -> f64 {
+    0.4
+}
+
 /// Agent orchestration configuration (`[agent]` section).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct AgentConfig {
@@ -23,6 +27,9 @@ pub struct AgentConfig {
     /// Setting to `0` falls back to the safe default of `100`.
     #[serde(default = "default_agent_max_tool_iterations")]
     pub max_tool_iterations: usize,
+    /// Minimum relevance score threshold for memory context loading. Default: `0.4`.
+    #[serde(default = "default_min_relevance_score")]
+    pub min_relevance_score: f64,
     /// Maximum conversation history messages retained per session. Default: `50`.
     #[serde(default = "default_agent_max_history_messages")]
     pub max_history_messages: usize,
@@ -39,6 +46,7 @@ impl Default for AgentConfig {
         Self {
             compact_context: false,
             max_tool_iterations: default_agent_max_tool_iterations(),
+            min_relevance_score: default_min_relevance_score(),
             max_history_messages: default_agent_max_history_messages(),
             parallel_tools: false,
             tool_dispatcher: default_agent_tool_dispatcher(),

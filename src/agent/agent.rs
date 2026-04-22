@@ -6,20 +6,57 @@
 //!
 //! For most applications, [`Agent::from_config`] is the easiest constructor.
 //! Use [`AgentBuilder`] when you need custom provider, tool, or memory wiring.
+/// Inline memory context loader (formerly in memory_loader.rs).
+/// Loads relevant memory entries for the current user message.
+async fn load_memory_context(
+    memory: &dyn Memory,
+    user_message: &str,
+    limit: usize,
+    min_relevance_score: f64,
+) -> String {
+    let entries = match memory.recall(user_message, limit, None).await {
+        Ok(e) => e,
+        Err(_) => return String::new(),
+    };
+    if entries.is_empty() {
+        return String::new();
+    }
+
+    let mut context = String::from("[Memory context]\n");
+    for entry in entries {
+        if memory::is_assistant_autosave_key(&entry.key) {
+            continue;
+        }
+        if let Some(score) = entry.score {
+            if score < min_relevance_score {
+                continue;
+            }
+        }
+        let _ = writeln!(context, "- {}: {}", entry.key, entry.content);
+    }
+
+    if context == "[Memory context]\n" {
+        return String::new();
+    }
+
+    context.push('\n');
+    context
+}
+
 use crate::agent::dispatcher::{
     NativeToolDispatcher, ParsedToolCall, ToolDispatcher, ToolExecutionResult, XmlToolDispatcher,
 };
-use crate::agent::memory_loader::{DefaultMemoryLoader, MemoryLoader};
 use crate::agent::prompt::{PromptContext, SystemPromptBuilder};
 use crate::agent::research;
 use crate::agent::wiring;
 use crate::config::{Config, ResearchPhaseConfig};
-use crate::memory::{Memory, MemoryCategory};
+use crate::memory::{self, Memory, MemoryCategory};
 use crate::observability::{Observer, ObserverEvent};
 use crate::providers::{self, ChatMessage, ChatRequest, ConversationMessage, Provider};
 use crate::tools::{Tool, ToolSpec};
 use anyhow::Result;
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::io::Write as IoWrite;
 use std::sync::Arc;
 use std::time::Instant;
@@ -33,7 +70,6 @@ pub struct Agent {
     observer: Arc<dyn Observer>,
     prompt_builder: SystemPromptBuilder,
     tool_dispatcher: Box<dyn ToolDispatcher>,
-    memory_loader: Box<dyn MemoryLoader>,
     config: crate::config::AgentConfig,
     model_name: String,
     temperature: f64,
@@ -61,7 +97,6 @@ pub struct AgentBuilder {
     observer: Option<Arc<dyn Observer>>,
     prompt_builder: Option<SystemPromptBuilder>,
     tool_dispatcher: Option<Box<dyn ToolDispatcher>>,
-    memory_loader: Option<Box<dyn MemoryLoader>>,
     config: Option<crate::config::AgentConfig>,
     model_name: Option<String>,
     temperature: Option<f64>,
@@ -86,7 +121,6 @@ impl AgentBuilder {
             observer: None,
             prompt_builder: None,
             tool_dispatcher: None,
-            memory_loader: None,
             config: None,
             model_name: None,
             temperature: None,
@@ -129,11 +163,6 @@ impl AgentBuilder {
 
     pub fn tool_dispatcher(mut self, tool_dispatcher: Box<dyn ToolDispatcher>) -> Self {
         self.tool_dispatcher = Some(tool_dispatcher);
-        self
-    }
-
-    pub fn memory_loader(mut self, memory_loader: Box<dyn MemoryLoader>) -> Self {
-        self.memory_loader = Some(memory_loader);
         self
     }
 
@@ -233,9 +262,6 @@ impl AgentBuilder {
             tool_dispatcher: self
                 .tool_dispatcher
                 .ok_or_else(|| anyhow::anyhow!("tool_dispatcher is required"))?,
-            memory_loader: self
-                .memory_loader
-                .unwrap_or_else(|| Box::new(DefaultMemoryLoader::default())),
             config: self.config.unwrap_or_default(),
             model_name: self
                 .model_name
@@ -342,10 +368,7 @@ impl Agent {
             .memory(execution.memory)
             .observer(observer)
             .tool_dispatcher(tool_dispatcher)
-            .memory_loader(Box::new(DefaultMemoryLoader::new(
-                5,
-                config.memory.min_relevance_score,
-            )))
+
             .prompt_builder(SystemPromptBuilder::with_defaults())
             .config(config.agent.clone())
             .model_name(model_name)
@@ -499,11 +522,13 @@ impl Agent {
                 .await;
         }
 
-        let context = self
-            .memory_loader
-            .load_context(self.memory.as_ref(), user_message)
-            .await
-            .unwrap_or_default();
+        let context = load_memory_context(
+            self.memory.as_ref(),
+            user_message,
+            5,
+            self.config.min_relevance_score,
+        )
+        .await;
 
         // ── Research Phase ──────────────────────────────────────────────
         // If enabled and triggered, run a focused research turn to gather
@@ -1010,6 +1035,62 @@ mod tests {
             .history()
             .iter()
             .any(|msg| matches!(msg, ConversationMessage::ToolResults(_))));
+    }
+
+    #[tokio::test]
+    async fn load_memory_context_skips_legacy_autosave_entries() {
+        // Verify the inline loader skips assistant autosave keys
+        struct MockMemoryWithEntries {
+            entries: Arc<Vec<crate::memory::MemoryEntry>>,
+        }
+
+        #[async_trait]
+        impl Memory for MockMemoryWithEntries {
+            async fn store(&self, _: &str, _: &str, _: MemoryCategory, _: Option<&str>) -> Result<()> {
+                Ok(())
+            }
+            async fn recall(&self, _: &str, _: usize, _: Option<&str>) -> Result<Vec<crate::memory::MemoryEntry>> {
+                Ok(self.entries.as_ref().clone())
+            }
+            async fn get(&self, _: &str) -> Result<Option<crate::memory::MemoryEntry>> {
+                Ok(None)
+            }
+            async fn list(&self, _: Option<&MemoryCategory>, _: Option<&str>) -> Result<Vec<crate::memory::MemoryEntry>> {
+                Ok(vec![])
+            }
+            async fn forget(&self, _: &str) -> Result<bool> { Ok(true) }
+            async fn count(&self) -> Result<usize> { Ok(self.entries.len()) }
+            async fn health_check(&self) -> bool { true }
+            fn name(&self) -> &str { "mock" }
+        }
+
+        let memory = MockMemoryWithEntries {
+            entries: Arc::new(vec![
+                crate::memory::MemoryEntry {
+                    id: "1".into(),
+                    key: "assistant_resp_legacy".into(),
+                    content: "should be skipped".into(),
+                    category: MemoryCategory::Daily,
+                    timestamp: "now".into(),
+                    session_id: None,
+                    score: Some(0.95),
+                },
+                crate::memory::MemoryEntry {
+                    id: "2".into(),
+                    key: "user_fact".into(),
+                    content: "User prefers concise answers".into(),
+                    category: MemoryCategory::Conversation,
+                    timestamp: "now".into(),
+                    session_id: None,
+                    score: Some(0.9),
+                },
+            ]),
+        };
+
+        let context = load_memory_context(&memory, "answer style", 5, 0.0).await;
+        assert!(context.contains("user_fact"));
+        assert!(!context.contains("assistant_resp_legacy"));
+        assert!(!context.contains("should be skipped"));
     }
 
     #[tokio::test]

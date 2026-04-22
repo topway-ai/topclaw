@@ -12,7 +12,6 @@ pub mod agent;
 pub mod classifier;
 pub mod dispatcher;
 pub mod loop_;
-pub mod memory_loader;
 pub mod prompt;
 pub mod research;
 pub(crate) mod wiring;
