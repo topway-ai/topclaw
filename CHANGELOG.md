@@ -5,7 +5,12 @@ All notable changes to TopClaw will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2026.4.21] - 2026-04-22
+
+### Added
+- **Telegram approval & desktop handling**: Repair telegram approval rate and desktop automation tool selection for non-CLI channels. `computer_use` now appears before `web_fetch`/`browser_open` in tool descriptions.
+- **Stop repeated web tool failure loops**: Agent now properly handles web tool failures without repeated retries.
+- **CLI upgrade command**: Added `topclaw upgrade` command for self-updates.
 
 ### Changed
 - **CLI simplification**: merged `topclaw peripheral` into `topclaw hardware`; removed obsolete `auth setup-token` (use `auth add-key`).
