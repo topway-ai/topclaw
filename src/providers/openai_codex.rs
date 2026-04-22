@@ -118,10 +118,8 @@ impl OpenAiCodexProvider {
 }
 
 fn default_topclaw_dir() -> PathBuf {
-    directories::UserDirs::new().map_or_else(
-        || PathBuf::from(".topclaw"),
-        |dirs| dirs.home_dir().join(".topclaw"),
-    )
+    crate::config::default_config_dir()
+        .unwrap_or_else(|_| PathBuf::from(".topclaw"))
 }
 
 fn build_responses_url(base_or_endpoint: &str) -> anyhow::Result<String> {

@@ -88,9 +88,10 @@ pub use sandbox::{SandboxBackend, SandboxConfig};
 pub use scheduler::SchedulerConfig;
 pub use schema::{
     ChannelsConfig, Config, DiscordConfig, GroupReplyConfig, GroupReplyMode, MemoryConfig,
-    QdrantConfig, SecurityConfig, StorageConfig, StreamMode, SyscallAnomalyConfig, TelegramConfig,
+    SecurityConfig, StorageConfig, StreamMode, SyscallAnomalyConfig, TelegramConfig,
     WebhookConfig,
 };
+pub use schema::default_config_dir;
 pub use secrets::SecretsConfig;
 pub use skills::{parse_skills_prompt_injection_mode, SkillsConfig, SkillsPromptInjectionMode};
 pub use storage_provider::{StorageProviderConfig, StorageProviderSection};

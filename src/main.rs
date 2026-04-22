@@ -63,7 +63,7 @@ fn auxiliary_surfaces_configured(config: &Config) -> bool {
 
 mod main_handlers;
 use main_handlers::{
-    handle_auth_command, handle_estop_command, handle_security_command, handle_uninstall_command,
+    handle_auth_command, handle_estop_command, handle_uninstall_command,
     handle_workspace_command, write_shell_completion,
 };
 use std::ffi::OsString;
@@ -437,21 +437,6 @@ Examples:
         tools: Vec<String>,
     },
 
-    /// Manage security maintenance tasks
-    #[command(long_about = "\
-Manage security maintenance tasks.
-
-Commands in this group maintain security-related data stores used at runtime.
-
-Examples:
-  topclaw security update-guard-corpus
-  topclaw security update-guard-corpus --source builtin
-  topclaw security update-guard-corpus --source ./data/security/attack-corpus-v1.jsonl
-  topclaw security update-guard-corpus --source https://example.com/guard-corpus.jsonl --checksum <sha256>")]
-    Security {
-        #[command(subcommand)]
-        security_command: SecurityCommands,
-    },
 
     /// Manage scheduled tasks
     #[command(long_about = "\
@@ -669,19 +654,6 @@ enum EstopSubcommands {
         /// OTP code. If omitted and OTP is required, a prompt is shown.
         #[arg(long)]
         otp: Option<String>,
-    },
-}
-
-#[derive(Subcommand, Debug)]
-enum SecurityCommands {
-    /// Upsert semantic prompt-injection corpus records into the configured vector collection
-    UpdateGuardCorpus {
-        /// Corpus source: `builtin`, filesystem path, or HTTP(S) URL
-        #[arg(long)]
-        source: Option<String>,
-        /// Expected SHA-256 checksum (hex) for source payload verification
-        #[arg(long)]
-        checksum: Option<String>,
     },
 }
 
@@ -1319,10 +1291,6 @@ async fn main() -> Result<()> {
             domains,
             tools,
         } => handle_estop_command(&config, estop_command, level, domains, tools),
-
-        Commands::Security { security_command } => {
-            handle_security_command(&config, security_command).await
-        }
 
         Commands::Cron { cron_command } => cron::handle_command(cron_command, &config),
 

@@ -1,10 +1,9 @@
 use crate::{
-    AuthCommands, Cli, CompletionShell, EstopLevelArg, EstopSubcommands, SecurityCommands,
+    AuthCommands, Cli, CompletionShell, EstopLevelArg, EstopSubcommands,
     ServiceCommands, WorkspaceCommands, WorkspaceTokenCommands,
 };
 use anyhow::{bail, Context, Result};
 use dialoguer::{Input, Password};
-use directories::UserDirs;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
@@ -12,10 +11,7 @@ use topclaw::{auth, security, service, workspace, Config};
 use tracing::warn;
 
 pub(crate) fn handle_uninstall_command(purge: bool) -> Result<()> {
-    let home_dir = UserDirs::new()
-        .map(|dirs| dirs.home_dir().to_path_buf())
-        .context("Could not find home directory")?;
-    let config_dir = home_dir.join(".topclaw");
+    let config_dir = topclaw::config::default_config_dir()?;
     let config_path = config_dir.join("config.toml");
     let workspace_dir = config_dir.join("workspace");
 
@@ -32,6 +28,12 @@ pub(crate) fn handle_uninstall_command(purge: bool) -> Result<()> {
         remove_topclaw_binary(path)?;
     }
 
+    // The .cargo/bin path must always use the actual home directory,
+    // regardless of where the config directory lives (e.g. if
+    // TOPCLAW_CONFIG_DIR=/opt/topclaw, parent would be /opt, not ~).
+    let home_dir = directories::UserDirs::new()
+        .map(|dirs| dirs.home_dir().to_path_buf())
+        .context("Could not find home directory")?;
     let cargo_bin = home_dir
         .join(".cargo")
         .join("bin")
@@ -364,29 +366,6 @@ pub(crate) fn write_shell_completion<W: Write>(
     Ok(())
 }
 
-pub(crate) async fn handle_security_command(
-    config: &Config,
-    security_command: SecurityCommands,
-) -> Result<()> {
-    match security_command {
-        SecurityCommands::UpdateGuardCorpus { source, checksum } => {
-            let report = security::semantic_guard::update_guard_corpus(
-                config,
-                source.as_deref(),
-                checksum.as_deref(),
-            )
-            .await?;
-
-            println!("Semantic guard corpus update completed.");
-            println!("  Source:           {}", report.source);
-            println!("  SHA-256:          {}", report.sha256);
-            println!("  Parsed records:   {}", report.parsed_records);
-            println!("  Upserted records: {}", report.upserted_records);
-            println!("  Collection:       {}", report.collection);
-            Ok(())
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PendingOAuthLogin {

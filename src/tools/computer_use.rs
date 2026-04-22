@@ -857,15 +857,6 @@ fn bind_addr_from_endpoint(endpoint: &str) -> Option<String> {
     addr.parse::<SocketAddr>().ok().map(|s| s.to_string())
 }
 
-impl BrowserComputerUseConfig {
-    fn endpoint_is_local(&self) -> bool {
-        match reqwest::Url::parse(&self.endpoint) {
-            Ok(u) => matches!(u.host_str(), Some("127.0.0.1" | "localhost" | "::1")),
-            Err(_) => false,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

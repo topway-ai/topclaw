@@ -624,10 +624,8 @@ pub(super) async fn process_channel_message_with_options(
                         Some((
                             cfg.security.canary_tokens,
                             cfg.security.semantic_guard,
-                            cfg.security.semantic_guard_collection,
+                            cfg.security.semantic_guard_collection.clone(),
                             cfg.security.semantic_guard_threshold,
-                            cfg.memory,
-                            cfg.api_key,
                         ))
                     }
                     Err(err) => {
@@ -649,19 +647,11 @@ pub(super) async fn process_channel_message_with_options(
             semantic_enabled,
             semantic_collection,
             semantic_threshold,
-            memory_cfg,
-            api_key,
         )) = semantic_cfg
         {
             canary_enabled_for_turn = canary_enabled;
             if semantic_enabled {
-                let semantic_guard = crate::security::SemanticGuard::from_config(
-                    &memory_cfg,
-                    semantic_enabled,
-                    semantic_collection.as_str(),
-                    semantic_threshold,
-                    api_key.as_deref(),
-                );
+                let semantic_guard = crate::security::SemanticGuard::new(semantic_enabled);
                 if let Some(detection) = semantic_guard.detect(&msg.content).await {
                     runtime_trace::record_event(
                         "channel_message_blocked_semantic_guard",

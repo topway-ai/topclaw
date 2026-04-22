@@ -58,7 +58,7 @@ pub use policy::{AutonomyLevel, SecurityPolicy, ShellRedirectPolicy};
 #[allow(unused_imports)]
 pub use secrets::SecretStore;
 #[allow(unused_imports)]
-pub use semantic_guard::{GuardCorpusUpdateReport, SemanticGuard, SemanticGuardStartupStatus};
+pub use semantic_guard::{SemanticGuard, SemanticGuardStartupStatus};
 #[allow(unused_imports)]
 pub use syscall_anomaly::{SyscallAnomalyAlert, SyscallAnomalyDetector, SyscallAnomalyKind};
 #[allow(unused_imports)]

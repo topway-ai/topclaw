@@ -576,8 +576,7 @@ fn memory_config_defaults_for_backend(backend: &str) -> MemoryConfig {
         snapshot_enabled: false,
         snapshot_on_hygiene: false,
         auto_hydrate: true,
-        sqlite_open_timeout_secs: None,
-        qdrant: crate::config::QdrantConfig::default(),
+        sqlite_open_timeout_secs: None
     }
 }
 
@@ -667,7 +666,8 @@ fn resolve_quick_setup_dirs_with_home(home: &Path) -> (PathBuf, PathBuf) {
         }
     }
 
-    let config_dir = home.join(".topclaw");
+    let config_dir = crate::config::default_config_dir()
+        .unwrap_or_else(|_| home.join(".topclaw"));
     (config_dir.clone(), config_dir.join("workspace"))
 }
 

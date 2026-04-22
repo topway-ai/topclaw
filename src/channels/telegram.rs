@@ -3,7 +3,6 @@ use crate::config::{Config, StreamMode};
 use crate::security::pairing::PairingGuard;
 use anyhow::Context;
 use async_trait::async_trait;
-use directories::UserDirs;
 use parking_lot::Mutex;
 use reqwest::multipart::{Form, Part};
 use std::fmt::Write as _;
@@ -866,10 +865,7 @@ impl TelegramChannel {
     }
 
     async fn load_config_without_env() -> anyhow::Result<Config> {
-        let home = UserDirs::new()
-            .map(|u| u.home_dir().to_path_buf())
-            .context("Could not find home directory")?;
-        let topclaw_dir = home.join(".topclaw");
+        let topclaw_dir = crate::config::default_config_dir()?;
         let config_path = topclaw_dir.join("config.toml");
 
         let contents = fs::read_to_string(&config_path)

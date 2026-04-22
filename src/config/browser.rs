@@ -51,6 +51,16 @@ const fn default_computer_use_timeout_ms() -> u64 {
     15_000
 }
 
+impl BrowserComputerUseConfig {
+    /// Check whether the configured sidecar endpoint points to localhost.
+    pub fn endpoint_is_local(&self) -> bool {
+        match reqwest::Url::parse(&self.endpoint) {
+            Ok(u) => matches!(u.host_str(), Some("127.0.0.1" | "localhost" | "::1")),
+            Err(_) => false,
+        }
+    }
+}
+
 impl Default for BrowserComputerUseConfig {
     fn default() -> Self {
         Self {
