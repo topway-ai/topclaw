@@ -1066,4 +1066,109 @@ mod tests {
         assert!(!r.success);
         assert!(r.error.unwrap().to_lowercase().contains("read-only"));
     }
+
+    // ── computer_use failure path tests (PART 5: protect mainline) ─────────────
+
+    #[tokio::test]
+    async fn sidecar_unreachable_without_auto_start_returns_clear_error() {
+        let mut c = cfg_default();
+        c.auto_start = false;
+        // Use a non-routable IP so the request fails immediately
+        c.endpoint = "http://192.0.2.1:8787/v1/actions".into();
+        let t = tool(c);
+        let r = t.execute(json!({"action": "window_list"})).await.unwrap();
+        assert!(!r.success);
+        let err = r.error.unwrap();
+        assert!(err.contains("not reachable"), "error should mention sidecar not reachable: {err}");
+        assert!(err.contains("auto_start"), "error should mention auto_start option: {err}");
+    }
+
+    #[tokio::test]
+    async fn remote_endpoint_blocks_auto_start_with_clear_message() {
+        let mut c = cfg_default();
+        c.auto_start = true;
+        c.endpoint = "http://remote.example.com:8787/v1/actions".into();
+        let t = tool(c);
+        let r = t.execute(json!({"action": "window_list"})).await.unwrap();
+        assert!(!r.success);
+        let err = r.error.unwrap();
+        assert!(err.contains("auto_start only spawns a local sidecar"),
+            "error should explain auto_start limitation: {err}");
+        assert!(err.contains("Start the remote sidecar manually"),
+            "error should suggest manual start: {err}");
+    }
+
+    #[tokio::test]
+    async fn invalid_endpoint_gives_parseable_error() {
+        let mut c = cfg_default();
+        c.auto_start = true;
+        // Empty endpoint causes reqwest builder error before any network call
+        c.endpoint = "".into();
+        let t = tool(c);
+        let r = t.execute(json!({"action": "window_list"})).await.unwrap();
+        assert!(!r.success);
+        // Error should be descriptive, not a panic
+        let err = r.error.as_ref().expect("error must be present");
+        // Either reqwest builder error or sidecar unreachable - both are descriptive
+        assert!(err.contains("builder error") || err.contains("not reachable"),
+            "error should be descriptive: {err}");
+    }
+
+    #[tokio::test]
+    async fn app_terminate_requires_app_or_pid() {
+        let mut c = cfg_default();
+        c.auto_start = false;
+        c.endpoint = "http://192.0.2.1:8787/v1/actions".into();
+        let t = tool(c);
+        // app_terminate without app or pid should be rejected
+        let r = t.execute(json!({"action": "app_terminate"})).await.unwrap();
+        assert!(!r.success);
+        let err = r.error.as_ref().expect("error must be present");
+        assert!(err.contains("app") || err.contains("pid"), "error should mention missing app/pid: {err}");
+    }
+
+    #[tokio::test]
+    async fn window_focus_blocked_when_sidecar_unreachable() {
+        let mut c = cfg_default();
+        c.auto_start = false;
+        c.endpoint = "http://192.0.2.1:8787/v1/actions".into();
+        let t = tool(c);
+        // window_focus without any selector (window_id, window_title, app) should fail
+        let r = t.execute(json!({"action": "window_focus"})).await.unwrap();
+        assert!(!r.success);
+        let err = r.error.as_ref().expect("error must be present");
+        assert!(err.contains("requires"), "error should mention missing selector: {err}");
+    }
+
+    #[tokio::test]
+    async fn mouse_drag_requires_all_coords() {
+        let t = tool(cfg_default());
+        let r = t.execute(json!({
+            "action": "mouse_drag",
+            "from_x": 0,
+            "from_y": 0
+            // missing to_x, to_y
+        })).await.unwrap();
+        assert!(!r.success);
+        let err = r.error.as_ref().expect("error must be present");
+        assert!(err.contains("to_x") || err.contains("to_y"), "error should mention missing coords: {err}");
+    }
+
+    #[tokio::test]
+    async fn security_policy_rate_limit_blocks_execution() {
+        use crate::security::AutonomyLevel;
+        // Rate limit of 0 means no actions allowed
+        let sec = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Full,
+            max_actions_per_hour: 0,
+            ..SecurityPolicy::default()
+        });
+        let tmp = tempfile::tempdir().unwrap();
+        let t = ComputerUseTool::new(sec, cfg_default(), tmp.path().to_path_buf(), None);
+        // Even bootstrap (which doesn't need sidecar) should be blocked by rate limit
+        let r = t.execute(json!({"action": "bootstrap"})).await.unwrap();
+        assert!(!r.success);
+        let err = r.error.as_ref().expect("error must be present");
+        assert!(err.contains("rate limit") || err.contains("exceeded"), "error should mention rate limit: {err}");
+    }
 }

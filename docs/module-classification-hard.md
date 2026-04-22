@@ -312,13 +312,16 @@ classified into exactly one category. No vague wording. No preserved aliases.
 - **Why it exists:** Built-in computer-use sidecar HTTP server.
 - **Current mainline needed:** Yes — sidecar is the execution engine for computer_use.
 - **Legacy burden:** `linux.rs` — Linux-specific backend. Keep for now.
-- **Assessment (this pass):** The computer_use stack is well-structured:
-  - `tools/computer_use.rs` — Single tool, clean concerns, well-tested
-  - `tools/sidecar_client.rs` — Shared utilities (health probe, spawn, URL derivation)
-  - `tools/computer_use_sidecar_start.rs` — Manual sidecar lifecycle tool
-  - `sidecar/server.rs` — Axum HTTP server, clean
-  - `sidecar/linux.rs` — Linux action handlers, platform-specific
-- **Next action:** Keep as-is. No structural changes needed.
+- **Assessment (this pass):** Structure is clean, but `tools/computer_use.rs` contains
+  mixed concerns worth separating:
+  - `computer_use.rs` — 700+ lines mixing: tool facade, HTTP client, bootstrap logic,
+    Linux helper detection, package manager detection, sudo handling
+  - `sidecar_client.rs` — Clean utilities already extracted (health probe, spawn, URL)
+  - `sidecar/server.rs` — Clean axum router
+  - `sidecar/linux.rs` — Clean action handlers
+- **Next action:** Keep as-is structurally, but monitor `computer_use.rs` size.
+  Bootstrap logic (install_desktop_helpers, run_bootstrap_impl_with_mode) could
+  be extracted to a separate module if the file grows further.
 - **Files/dirs:** `mod.rs`, `server.rs`, `linux.rs`
 - **Risk:** MEDIUM — sidecar handles desktop automation.
 - **Tests required:** Sidecar server tests.
@@ -342,38 +345,20 @@ classified into exactly one category. No vague wording. No preserved aliases.
 ### `tools/`
 
 - **Classification:** KEEP
-- **Flags:** PROTECTED_CORE, TOO_BIG_OWNER, FIRST_REFACTOR_TARGET
-- **Why it exists:** Agent-callable tool implementations. ~45 files.
+- **Flags:** PROTECTED_CORE, TOO_BIG_OWNER
+- **Why it exists:** Agent-callable tool implementations. ~46 files.
 - **Current mainline needed:** Yes — all tool execution goes through this.
 - **Legacy burden:** Largest subsystem. After analysis:
-  - `cron_*.rs` (6 files) — DIFFERENT capabilities, NOT duplicates:
-    - CronAddTool: creates jobs with delivery configs
-    - CronListTool: lists scheduled jobs
-    - CronRunTool: runs jobs on-demand (different from scheduled)
-    - CronRunsTool: shows job run history
-    - CronUpdateTool: updates job parameters
-    - CronRemoveTool: deletes jobs
-    - ScheduleTool: shows next scheduled run
-    - RECOMMEND: Keep as separate files (different capabilities)
-  - `memory_*.rs` (3 files) — DIFFERENT purposes, NOT duplicates:
-    - MemoryStoreTool: writes to memory
-    - MemoryRecallTool: reads/searches memory
-    - MemoryForgetTool: deletes from memory
-    - RECOMMEND: Keep as separate files (different capabilities)
-  - `lossless_*.rs` (2 files) — DIFFERENT purposes:
-    - LosslessDescribeTool: describes files
-    - LosslessSearchTool: searches files
-    - RECOMMEND: Keep as separate files
-  - `subagent_*.rs` (4 files):
-    - SubAgentRegistry: core data structure, keep
-    - SubAgentSpawnTool, SubAgentListTool, SubAgentManageTool: tools, keep
-    - RECOMMEND: Keep as separate files
-  - `delegate_*.rs` (2 files) — RELATED but can merge:
-    - delegate.rs and delegate_coordination_status.rs
-    - Both use coordination bus
-    - RECOMMEND: MERGE into delegate.rs
-- **Next action:** Keep but narrow. Only merge delegate tools. Others have distinct purposes.
-- **Files/dirs:** ~45 files — see `src/tools/` tree
+  - `cron_*.rs` (6 files) — DIFFERENT capabilities, keep separate
+  - `memory_*.rs` (3 files) — DIFFERENT purposes, keep separate
+  - `lossless_*.rs` (2 files) — DIFFERENT purposes, keep separate
+  - `subagent_*.rs` (4 files) — registry is separate from tools, keep separate
+  - `delegate.rs` — Core delegate tool, keep
+  - `delegate_coordination_status.rs` — READ-ONLY observability tool, keep separate
+    (Different purpose: coordination status is read-only introspection, delegate is execution)
+- **Next action:** Keep as-is. All tool files have distinct purposes and clear ownership.
+  No merges needed — current boundaries are honest for current product shape.
+- **Files/dirs:** ~46 files — see `src/tools/` tree
 - **Risk:** HIGH — tool changes affect agent capability.
 - **Tests required:** Tool registry tests, individual tool parameter validation tests.
 
@@ -484,20 +469,32 @@ None identified — existing splits are intentional (cron tools have different c
 
 | Path | Action | Reason |
 |---|---|---|
-| `browser-allowed-domains-grants.json` | DELETED_FILE | Already handled by BrowserAllowlist - file removed |
-| `state/runtime-trace.jsonl` | KEEP_PATH_BUT_NO_FILE | Path kept for future cache move |
+| `browser-allowed-domains-grants.json` | KEEP_AS_ALTERNATE_PATH | BrowserAllowlist can use either `.topclaw/` or workspace dir. Cleanup is low priority. |
+| `state/runtime-trace.jsonl` | KEEP_PATH_BUT_NO_FILE | Ephemeral debug log; auto-pruned. Path kept for future cache move. |
 | `estop-state.json` | KEEP_PATH | Used by security/estop.rs; not safe to merge in this pass |
 | `active_workspace.toml` | KEEP_PATH | Active workspace marker is current mainline |
+
+**State model is honest:** Single resolution model in place, no fallback to `../.topclaw`.
+Current resolution order: `TOPCLAW_CONFIG_DIR` > `TOPCLAW_WORKSPACE` > active_workspace.toml > defaults.
 
 ---
 
 ## Summary
 
 **Delete:** None in this pass
-**Merge:** None — all tool files have distinct purposes and should stay separate
-**Narrow:** No structural changes needed in computer_use stack (already well-structured)
-**Keep as-is:** All cron, memory, lossless, subagent, delegate tools (have distinct purposes)
+**Merge:** None — all tool files have distinct purposes and clear ownership
+**Narrow:**
+  - `memory/backend.rs` — flagged for next-wave merge (only 2 public fns)
+  - `channels/runtime_*` helpers — flagged for next-wave collapse
+  - `computer_use.rs` bootstrap logic — monitor, extract if file grows beyond 800 lines
+
+**Keep as-is:** All cron, memory, lossless, subagent, delegate, sidecar tools
 
 **Protected core:** `agent`, `config`, `providers`, `security`, `tools`, `sidecar`
 **Current mainline:** All channel and daemon modules
-**Next-wave targets:** `memory` (backend.rs merge), `channels` (runtime_* helpers collapse)
+**State model:** Honest single-resolution model, no legacy fallback paths
+
+**Next-wave targets:**
+1. `memory/backend.rs` merge into `mod.rs`
+2. `channels/runtime_*` helpers collapse into `dispatch.rs`
+3. `computer_use.rs` bootstrap extraction (if size warrants)
