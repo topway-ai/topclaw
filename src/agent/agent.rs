@@ -13,13 +13,10 @@ async fn load_memory_context(
     user_message: &str,
     limit: usize,
     min_relevance_score: f64,
-) -> String {
-    let entries = match memory.recall(user_message, limit, None).await {
-        Ok(e) => e,
-        Err(_) => return String::new(),
-    };
+) -> Result<String> {
+    let entries = memory.recall(user_message, limit, None).await?;
     if entries.is_empty() {
-        return String::new();
+        return Ok(String::new());
     }
 
     let mut context = String::from("[Memory context]\n");
@@ -36,11 +33,11 @@ async fn load_memory_context(
     }
 
     if context == "[Memory context]\n" {
-        return String::new();
+        return Ok(String::new());
     }
 
     context.push('\n');
-    context
+    Ok(context)
 }
 
 use crate::agent::dispatcher::{
@@ -528,7 +525,8 @@ impl Agent {
             5,
             self.config.min_relevance_score,
         )
-        .await;
+        .await
+        .unwrap_or_default();
 
         // ── Research Phase ──────────────────────────────────────────────
         // If enabled and triggered, run a focused research turn to gather
