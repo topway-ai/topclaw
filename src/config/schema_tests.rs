@@ -2039,12 +2039,11 @@ provider_api = "not-a-real-mode"
     }
 
     #[test]
-    async fn load_or_init_workspace_suffix_uses_legacy_config_layout() {
+    async fn load_or_init_workspace_suffix_uses_workspace_as_config_root() {
         let _env_guard = env_override_lock().await;
         let temp_home =
             std::env::temp_dir().join(format!("topclaw_test_home_{}", uuid::Uuid::new_v4()));
         let workspace_dir = temp_home.join("workspace");
-        let legacy_config_path = temp_home.join(".topclaw").join("config.toml");
 
         let original_home = std::env::var("HOME").ok();
         std::env::set_var("HOME", &temp_home);
@@ -2052,8 +2051,10 @@ provider_api = "not-a-real-mode"
 
         let config = Config::load_or_init().await.unwrap();
 
-        assert_eq!(config.workspace_dir, workspace_dir);
-        assert_eq!(config.config_path, legacy_config_path);
+        // Without a config.toml in the workspace dir, the workspace dir itself
+        // becomes the config root (legacy ../.topclaw fallback removed).
+        assert_eq!(config.workspace_dir, workspace_dir.join("workspace"));
+        assert_eq!(config.config_path, workspace_dir.join("config.toml"));
         assert!(config.config_path.exists());
 
         std::env::remove_var("TOPCLAW_WORKSPACE");
@@ -2066,19 +2067,18 @@ provider_api = "not-a-real-mode"
     }
 
     #[test]
-    async fn load_or_init_workspace_override_keeps_existing_legacy_config() {
+    async fn load_or_init_workspace_with_existing_config_uses_workspace_config() {
         let _env_guard = env_override_lock().await;
         let temp_home =
             std::env::temp_dir().join(format!("topclaw_test_home_{}", uuid::Uuid::new_v4()));
         let workspace_dir = temp_home.join("custom-workspace");
-        let legacy_config_dir = temp_home.join(".topclaw");
-        let legacy_config_path = legacy_config_dir.join("config.toml");
 
-        fs::create_dir_all(&legacy_config_dir).await.unwrap();
+        // Place config.toml inside the workspace dir itself.
+        fs::create_dir_all(&workspace_dir).await.unwrap();
         fs::write(
-            &legacy_config_path,
+            workspace_dir.join("config.toml"),
             r#"default_temperature = 0.7
-default_model = "legacy-model"
+default_model = "workspace-model"
 "#,
         )
         .await
@@ -2090,9 +2090,9 @@ default_model = "legacy-model"
 
         let config = Config::load_or_init().await.unwrap();
 
-        assert_eq!(config.workspace_dir, workspace_dir);
-        assert_eq!(config.config_path, legacy_config_path);
-        assert_eq!(config.default_model.as_deref(), Some("legacy-model"));
+        assert_eq!(config.workspace_dir, workspace_dir.join("workspace"));
+        assert_eq!(config.config_path, workspace_dir.join("config.toml"));
+        assert_eq!(config.default_model.as_deref(), Some("workspace-model"));
 
         std::env::remove_var("TOPCLAW_WORKSPACE");
         if let Some(home) = original_home {

@@ -141,8 +141,8 @@ pub fn print_report(results: &[DiagResult]) {
 /// Check or install desktop automation helpers (xdotool, wmctrl, scrot, xdg-open).
 #[cfg(feature = "computer-use-sidecar")]
 pub async fn run_desktop_helpers(config: &Config, install: bool) -> Result<()> {
-    if !is_computer_use_backend(config) {
-        println!("ℹ️  Desktop automation not configured (browser.backend ≠ computer_use).");
+    if !is_computer_use_active(config) {
+        println!("ℹ️  Desktop automation not configured (neither browser.backend=computer_use nor browser.computer_use.enabled=true).");
         println!(
             "   Run `topclaw bootstrap --interactive` and select the desktop-computer-use skill."
         );
@@ -1202,8 +1202,16 @@ fn check_environment(items: &mut Vec<DiagItem>) {
 
 // ── Desktop automation helpers ───────────────────────────────────
 
-pub fn is_computer_use_backend(config: &Config) -> bool {
-    config.browser.backend == "computer_use" || config.browser.backend == "computer-use"
+/// Returns `true` when computer-use sidecar capability is actively in use.
+///
+/// This checks both the browser backend setting **and** the dedicated
+/// `browser.computer_use.enabled` flag. The dedicated tool is registered
+/// independently of `browser.backend`, so the doctor should surface desktop
+/// helper warnings whenever either path is active.
+pub fn is_computer_use_active(config: &Config) -> bool {
+    let backend_is_cu = config.browser.backend == "computer_use"
+        || config.browser.backend == "computer-use";
+    backend_is_cu || config.browser.computer_use.enabled
 }
 
 #[cfg(feature = "computer-use-sidecar")]
@@ -1211,7 +1219,7 @@ fn check_desktop_helpers(config: &Config, items: &mut Vec<DiagItem>) {
     let cat = "desktop-automation";
 
     // Only check if the user has computer-use configured.
-    if !is_computer_use_backend(config) {
+    if !is_computer_use_active(config) {
         return;
     }
 
@@ -1670,12 +1678,44 @@ mod tests {
 
     #[test]
     #[cfg(feature = "computer-use-sidecar")]
-    fn desktop_helpers_check_skips_when_no_computer_use_backend() {
+    fn desktop_helpers_check_fires_when_computer_use_enabled() {
         let config = Config::default();
         let mut items = Vec::new();
         check_desktop_helpers(&config, &mut items);
-        // Default browser backend is not computer_use, so no items should be emitted.
+        // Default backend is "agent_browser" (not computer_use), but
+        // BrowserComputerUseConfig::default() sets enabled=true, so
+        // is_computer_use_active returns true and the check fires.
+        assert!(!items.is_empty());
+    }
+
+    #[test]
+    #[cfg(feature = "computer-use-sidecar")]
+    fn desktop_helpers_check_skips_when_computer_use_disabled() {
+        let mut config = Config::default();
+        config.browser.computer_use.enabled = false;
+        let mut items = Vec::new();
+        check_desktop_helpers(&config, &mut items);
+        // With both backend != computer_use AND computer_use.enabled = false,
+        // no items should be emitted.
         assert!(items.is_empty());
+    }
+
+    #[test]
+    fn is_computer_use_active_checks_enabled_flag() {
+        // Default: backend is "agent_browser" but computer_use.enabled is true.
+        let config = Config::default();
+        assert!(is_computer_use_active(&config));
+
+        // With computer_use.enabled = false, should be false.
+        let mut config_disabled = Config::default();
+        config_disabled.browser.computer_use.enabled = false;
+        assert!(!is_computer_use_active(&config_disabled));
+
+        // With backend = computer_use, should be true regardless of enabled.
+        let mut config_backend = Config::default();
+        config_backend.browser.backend = "computer_use".into();
+        config_backend.browser.computer_use.enabled = false;
+        assert!(is_computer_use_active(&config_backend));
     }
 
     #[test]
@@ -1698,9 +1738,10 @@ mod tests {
     #[tokio::test]
     #[cfg(feature = "computer-use-sidecar")]
     async fn run_desktop_helpers_reports_not_configured_when_no_computer_use() {
-        // Default config has browser.backend != computer_use, so it should
-        // print the "not configured" message and return Ok.
-        let config = Config::default();
+        // Disable computer_use so is_computer_use_active returns false,
+        // exercising the "not configured" code path.
+        let mut config = Config::default();
+        config.browser.computer_use.enabled = false;
         let result = run_desktop_helpers(&config, false).await;
         assert!(result.is_ok());
     }

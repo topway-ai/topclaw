@@ -9,6 +9,7 @@ use super::path_resolution::{
     resolve_allowed_parent_and_target, verify_write_target_still_allowed,
 };
 use super::traits::{Tool, ToolResult};
+use crate::config::BrowserComputerUseConfig;
 use crate::config::Config;
 use crate::security::SecurityPolicy;
 use anyhow::Context;
@@ -26,46 +27,12 @@ use std::time::Duration;
 use tokio::process::Command;
 use tracing::debug;
 
-/// Computer-use sidecar settings.
-#[derive(Clone)]
-pub struct ComputerUseConfig {
-    pub endpoint: String,
-    pub api_key: Option<String>,
-    pub timeout_ms: u64,
-    pub allow_remote_endpoint: bool,
-    pub window_allowlist: Vec<String>,
-    pub max_coordinate_x: Option<i64>,
-    pub max_coordinate_y: Option<i64>,
-}
-
-impl std::fmt::Debug for ComputerUseConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ComputerUseConfig")
-            .field("endpoint", &self.endpoint)
-            .field("timeout_ms", &self.timeout_ms)
-            .field("allow_remote_endpoint", &self.allow_remote_endpoint)
-            .field("window_allowlist", &self.window_allowlist)
-            .field("max_coordinate_x", &self.max_coordinate_x)
-            .field("max_coordinate_y", &self.max_coordinate_y)
-            .finish_non_exhaustive()
-    }
-}
-
-impl Default for ComputerUseConfig {
-    fn default() -> Self {
-        Self {
-            endpoint: "http://127.0.0.1:8787/v1/actions".into(),
-            api_key: None,
-            timeout_ms: 15_000,
-            allow_remote_endpoint: false,
-            window_allowlist: Vec::new(),
-            max_coordinate_x: None,
-            max_coordinate_y: None,
-        }
-    }
-}
-
 /// Browser automation tool using pluggable backends.
+///
+/// Note: `computer_use` holds a full [`BrowserComputerUseConfig`] but the
+/// `enabled`, `auto_start`, and `app_allowlist` fields are only consumed by
+/// [`ComputerUseTool`]; this struct uses the endpoint/timeout/coordinate fields
+/// when the `computer_use` backend is selected.
 pub struct BrowserTool {
     security: Arc<SecurityPolicy>,
     allowed_domains: RwLock<Vec<String>>,
@@ -74,7 +41,7 @@ pub struct BrowserTool {
     native_headless: bool,
     native_webdriver_url: String,
     native_chrome_path: Option<String>,
-    computer_use: ComputerUseConfig,
+    computer_use: BrowserComputerUseConfig,
     #[cfg(feature = "browser-native")]
     native_state: tokio::sync::Mutex<native_backend::NativeBrowserState>,
 }
@@ -243,7 +210,7 @@ impl BrowserTool {
             true,
             "http://127.0.0.1:9515".into(),
             None,
-            ComputerUseConfig::default(),
+            BrowserComputerUseConfig::default(),
         )
     }
 
@@ -256,7 +223,7 @@ impl BrowserTool {
         native_headless: bool,
         native_webdriver_url: String,
         native_chrome_path: Option<String>,
-        computer_use: ComputerUseConfig,
+        computer_use: BrowserComputerUseConfig,
     ) -> Self {
         Self {
             security,
@@ -2830,7 +2797,7 @@ mod tests {
             true,
             "http://127.0.0.1:9515".into(),
             None,
-            ComputerUseConfig::default(),
+            BrowserComputerUseConfig::default(),
         );
         assert_eq!(
             tool.configured_backend().unwrap(),
@@ -2849,9 +2816,9 @@ mod tests {
             true,
             "http://127.0.0.1:9515".into(),
             None,
-            ComputerUseConfig {
+            BrowserComputerUseConfig {
                 endpoint: "http://computer-use.example.com/v1/actions".into(),
-                ..ComputerUseConfig::default()
+                ..BrowserComputerUseConfig::default()
             },
         );
 
@@ -2869,10 +2836,10 @@ mod tests {
             true,
             "http://127.0.0.1:9515".into(),
             None,
-            ComputerUseConfig {
+            BrowserComputerUseConfig {
                 endpoint: "https://computer-use.example.com/v1/actions".into(),
                 allow_remote_endpoint: true,
-                ..ComputerUseConfig::default()
+                ..BrowserComputerUseConfig::default()
             },
         );
 
@@ -2890,10 +2857,10 @@ mod tests {
             true,
             "http://127.0.0.1:9515".into(),
             None,
-            ComputerUseConfig {
+            BrowserComputerUseConfig {
                 max_coordinate_x: Some(100),
                 max_coordinate_y: Some(100),
-                ..ComputerUseConfig::default()
+                ..BrowserComputerUseConfig::default()
             },
         );
 
@@ -2930,7 +2897,7 @@ mod tests {
             true,
             "http://127.0.0.1:9515".into(),
             None,
-            ComputerUseConfig::default(),
+            BrowserComputerUseConfig::default(),
         );
 
         let key_type_args = serde_json::json!({"text": "hello"});
@@ -2963,7 +2930,7 @@ mod tests {
             true,
             "http://127.0.0.1:9515".into(),
             None,
-            ComputerUseConfig::default(),
+            BrowserComputerUseConfig::default(),
         );
 
         let window_focus_args = serde_json::json!({"window_title": "Chrome"});

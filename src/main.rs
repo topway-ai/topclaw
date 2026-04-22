@@ -928,7 +928,7 @@ async fn main() -> Result<()> {
         // attempt to install missing Linux desktop helpers if requested.
         // We call the functions directly rather than doctor::run_desktop_helpers()
         // because the --install-desktop-helpers flag is an explicit user request
-        // that should work unconditionally (not gated on is_computer_use_backend).
+        // that should work unconditionally (not gated on is_computer_use_active).
         #[cfg(feature = "computer-use-sidecar")]
         if install_desktop_helpers {
             let missing = topclaw::tools::computer_use::missing_linux_helpers();
@@ -1063,7 +1063,7 @@ async fn main() -> Result<()> {
             let daemon_ready = daemon_ready(&diag_results);
             #[cfg(feature = "computer-use-sidecar")]
             let (desktop_helpers_ready, desktop_missing) = {
-                if doctor::is_computer_use_backend(&config) {
+                if doctor::is_computer_use_active(&config) {
                     let missing = topclaw::tools::computer_use::missing_linux_helpers();
                     (missing.is_empty(), missing)
                 } else {
@@ -1110,7 +1110,7 @@ async fn main() -> Result<()> {
                 }
             );
             #[cfg(feature = "computer-use-sidecar")]
-            if doctor::is_computer_use_backend(&config) {
+            if doctor::is_computer_use_active(&config) {
                 let desktop_status = if desktop_helpers_ready {
                     "✅ desktop helpers installed (xdotool, wmctrl, scrot, xdg-open)".to_string()
                 } else {
@@ -1643,7 +1643,7 @@ mod tests {
         let provider_rdy = provider_ready(&config);
         assert!(provider_rdy, "provider should be ready with API key set");
 
-        let (desktop_helpers_ready, _) = if doctor::is_computer_use_backend(&config) {
+        let (desktop_helpers_ready, _) = if doctor::is_computer_use_active(&config) {
             let missing = topclaw::tools::computer_use::missing_linux_helpers();
             (missing.is_empty(), missing)
         } else {
@@ -1668,10 +1668,19 @@ mod tests {
     }
 
     #[test]
-    fn status_omits_desktop_helpers_when_not_computer_use() {
+    fn status_omits_desktop_helpers_when_computer_use_disabled() {
+        let mut config = Config::default();
+        config.browser.computer_use.enabled = false;
+        // With both backend != computer_use AND computer_use.enabled = false,
+        // is_computer_use_active should return false.
+        assert!(!doctor::is_computer_use_active(&config));
+    }
+
+    #[test]
+    fn status_includes_desktop_helpers_when_computer_use_enabled() {
         let config = Config::default();
-        // Default browser backend is not computer_use.
-        assert!(!doctor::is_computer_use_backend(&config));
+        // Default: backend is not computer_use, but computer_use.enabled is true.
+        assert!(doctor::is_computer_use_active(&config));
     }
 
     #[test]

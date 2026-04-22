@@ -65,6 +65,8 @@ pub mod proxy_config;
 pub mod schedule;
 pub mod schema;
 pub mod screenshot;
+#[cfg(feature = "computer-use-sidecar")]
+pub mod sidecar_client;
 pub mod shell;
 pub mod subagent_list;
 pub mod subagent_manage;
@@ -78,7 +80,7 @@ pub mod web_search_tool;
 
 pub use apply_patch::ApplyPatchTool;
 #[cfg(feature = "browser-native")]
-pub use browser::{BrowserTool, ComputerUseConfig};
+pub use browser::BrowserTool;
 pub use browser_open::BrowserOpenTool;
 #[cfg(feature = "tool-composio")]
 pub use composio::ComposioTool;
@@ -479,7 +481,6 @@ fn build_tools_with_runtime(
         // Add full browser automation tool (pluggable backend)
         #[cfg(feature = "browser-native")]
         {
-            use crate::tools::browser::ComputerUseConfig;
             tool_arcs.push(Arc::new(BrowserTool::new_with_backend(
                 security.clone(),
                 browser_config.allowed_domains.clone(),
@@ -488,15 +489,7 @@ fn build_tools_with_runtime(
                 browser_config.native_headless,
                 browser_config.native_webdriver_url.clone(),
                 browser_config.native_chrome_path.clone(),
-                ComputerUseConfig {
-                    endpoint: browser_config.computer_use.endpoint.clone(),
-                    api_key: browser_config.computer_use.api_key.clone(),
-                    timeout_ms: browser_config.computer_use.timeout_ms,
-                    allow_remote_endpoint: browser_config.computer_use.allow_remote_endpoint,
-                    window_allowlist: browser_config.computer_use.window_allowlist.clone(),
-                    max_coordinate_x: browser_config.computer_use.max_coordinate_x,
-                    max_coordinate_y: browser_config.computer_use.max_coordinate_y,
-                },
+                browser_config.computer_use.clone(),
             )));
         }
     }

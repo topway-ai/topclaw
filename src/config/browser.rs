@@ -2,7 +2,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Computer-use sidecar configuration for browser automation.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+///
+/// Uses a manual [`Debug`] impl that redacts `api_key` to prevent
+/// credential leakage in log output.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
 pub struct BrowserComputerUseConfig {
     /// Enable the general-purpose `computer_use` tool (launch/focus apps,
     /// screenshot, click, type). Provider-agnostic — works with any LLM.
@@ -49,6 +52,23 @@ fn default_computer_use_endpoint() -> String {
 
 const fn default_computer_use_timeout_ms() -> u64 {
     15_000
+}
+
+impl std::fmt::Debug for BrowserComputerUseConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BrowserComputerUseConfig")
+            .field("enabled", &self.enabled)
+            .field("auto_start", &self.auto_start)
+            .field("app_allowlist", &self.app_allowlist)
+            .field("endpoint", &self.endpoint)
+            // api_key deliberately omitted to prevent credential leakage
+            .field("timeout_ms", &self.timeout_ms)
+            .field("allow_remote_endpoint", &self.allow_remote_endpoint)
+            .field("window_allowlist", &self.window_allowlist)
+            .field("max_coordinate_x", &self.max_coordinate_x)
+            .field("max_coordinate_y", &self.max_coordinate_y)
+            .finish_non_exhaustive()
+    }
 }
 
 impl BrowserComputerUseConfig {

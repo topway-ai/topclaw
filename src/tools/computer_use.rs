@@ -9,21 +9,18 @@
 //! spawn the built-in sidecar (same binary, `computer-use-sidecar` subcommand)
 //! and poll until ready. This keeps the happy path one tool call, not two.
 
+use super::sidecar_client;
 use super::traits::{Tool, ToolResult};
 use crate::config::BrowserComputerUseConfig;
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::io::IsTerminal;
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, info, warn};
-
-const HEALTH_POLL_TIMEOUT: Duration = Duration::from_secs(15);
-const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(250);
+use tracing::info;
 
 const ACTIONS: &[&str] = &[
     "screen_capture",
@@ -91,7 +88,7 @@ impl ComputerUseTool {
     }
 
     fn health_url(&self) -> String {
-        derive_health_url(&self.config.endpoint)
+        sidecar_client::derive_health_url(&self.config.endpoint)
     }
 
     fn policy_envelope(&self) -> Value {
@@ -121,7 +118,7 @@ impl ComputerUseTool {
     /// the built-in sidecar and wait for `/health`.
     async fn ensure_sidecar(&self) -> Result<(), String> {
         let health = self.health_url();
-        if probe_health(&health).await {
+        if sidecar_client::probe_health(&health).await {
             return Ok(());
         }
         if !self.config.auto_start {
@@ -135,24 +132,24 @@ impl ComputerUseTool {
                 self.config.endpoint
             ));
         }
-        let bind = bind_addr_from_endpoint(&self.config.endpoint).ok_or_else(|| {
+        let bind = sidecar_client::bind_addr_from_endpoint(&self.config.endpoint).ok_or_else(|| {
             format!(
                 "cannot derive bind address from endpoint: {}",
                 self.config.endpoint
             )
         })?;
-        spawn_sidecar(&bind, self.config.api_key.as_deref())?;
+        sidecar_client::spawn_sidecar_process(&bind, self.config.api_key.as_deref())?;
 
         let start = std::time::Instant::now();
-        while start.elapsed() < HEALTH_POLL_TIMEOUT {
-            if probe_health(&health).await {
+        while start.elapsed() < sidecar_client::HEALTH_POLL_TIMEOUT {
+            if sidecar_client::probe_health(&health).await {
                 return Ok(());
             }
-            tokio::time::sleep(HEALTH_POLL_INTERVAL).await;
+            tokio::time::sleep(sidecar_client::HEALTH_POLL_INTERVAL).await;
         }
         Err(format!(
             "spawned computer-use sidecar but /health at {health} did not become ready within {}s; ensure xdotool/wmctrl/scrot are installed (Linux) or the platform equivalents",
-            HEALTH_POLL_TIMEOUT.as_secs()
+            sidecar_client::HEALTH_POLL_TIMEOUT.as_secs()
         ))
     }
 
@@ -520,48 +517,6 @@ fn compact_json(v: &Value) -> String {
     serde_json::to_string(v).unwrap_or_else(|_| "{}".into())
 }
 
-async fn probe_health(url: &str) -> bool {
-    let Ok(client) = reqwest::Client::builder()
-        .timeout(Duration::from_millis(500))
-        .build()
-    else {
-        return false;
-    };
-    matches!(
-        client.get(url).send().await,
-        Ok(r) if r.status().is_success()
-    )
-}
-
-fn spawn_sidecar(bind: &str, api_key: Option<&str>) -> Result<(), String> {
-    let exe = std::env::current_exe()
-        .map_err(|e| format!("cannot resolve current executable to spawn sidecar: {e}"))?;
-    let mut cmd = tokio::process::Command::new(&exe);
-    cmd.arg("computer-use-sidecar").arg("--bind").arg(bind);
-    if let Some(key) = api_key.filter(|k| !k.is_empty()) {
-        cmd.env("TOPCLAW_SIDECAR_API_KEY", key);
-    }
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    #[cfg(unix)]
-    cmd.process_group(0);
-
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("failed to spawn sidecar: {e}"))?;
-    let pid = child.id();
-    debug!(?pid, %bind, "spawned computer-use sidecar");
-    // Detach a reaper so the Child handle can be dropped without
-    // leaving a zombie. The sidecar continues running until killed.
-    tokio::spawn(async move {
-        if let Err(e) = child.wait().await {
-            warn!(error=%e, "computer-use sidecar wait failed");
-        }
-    });
-    Ok(())
-}
-
 /// Detect missing Linux desktop helpers by probing `PATH` with `which`.
 #[cfg(target_os = "linux")]
 pub fn missing_linux_helpers() -> Vec<&'static str> {
@@ -834,29 +789,6 @@ async fn sudo_noninteractive_ok() -> bool {
     }
 }
 
-fn derive_health_url(endpoint: &str) -> String {
-    match reqwest::Url::parse(endpoint) {
-        Ok(u) => {
-            let mut base = format!("{}://{}", u.scheme(), u.host_str().unwrap_or("127.0.0.1"));
-            if let Some(port) = u.port() {
-                base.push(':');
-                base.push_str(&port.to_string());
-            }
-            base.push_str("/health");
-            base
-        }
-        Err(_) => "http://127.0.0.1:8787/health".into(),
-    }
-}
-
-fn bind_addr_from_endpoint(endpoint: &str) -> Option<String> {
-    let u = reqwest::Url::parse(endpoint).ok()?;
-    let host = u.host_str()?;
-    let port = u.port_or_known_default()?;
-    let addr = format!("{host}:{port}");
-    addr.parse::<SocketAddr>().ok().map(|s| s.to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -887,26 +819,6 @@ mod tests {
         for a in ACTIONS {
             assert!(names.contains(a), "missing action {a}");
         }
-    }
-
-    #[test]
-    fn derive_health_url_works() {
-        assert_eq!(
-            derive_health_url("http://127.0.0.1:8787/v1/actions"),
-            "http://127.0.0.1:8787/health"
-        );
-        assert_eq!(
-            derive_health_url("http://localhost:9000/v1/actions"),
-            "http://localhost:9000/health"
-        );
-    }
-
-    #[test]
-    fn bind_addr_from_endpoint_works() {
-        assert_eq!(
-            bind_addr_from_endpoint("http://127.0.0.1:8787/v1/actions").as_deref(),
-            Some("127.0.0.1:8787")
-        );
     }
 
     #[test]

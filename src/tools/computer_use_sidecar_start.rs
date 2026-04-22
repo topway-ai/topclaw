@@ -17,19 +17,14 @@
 //! - If a sidecar is already healthy at the endpoint, the tool returns success
 //!   without spawning a duplicate.
 
+use super::sidecar_client;
 use super::traits::{Tool, ToolResult};
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::net::SocketAddr;
-use std::process::Stdio;
 use std::sync::Arc;
-use std::time::Duration;
 use tracing::info;
-
-const DEFAULT_BIND: &str = "127.0.0.1:8787";
-const HEALTH_POLL_TIMEOUT: Duration = Duration::from_secs(15);
-const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 pub struct ComputerUseSidecarStartTool {
     security: Arc<SecurityPolicy>,
@@ -45,25 +40,12 @@ fn extract_bind(args: &Value) -> Result<String, String> {
     let bind = args
         .get("bind")
         .and_then(Value::as_str)
-        .unwrap_or(DEFAULT_BIND)
+        .unwrap_or(sidecar_client::DEFAULT_BIND)
         .trim()
         .to_string();
     bind.parse::<SocketAddr>()
         .map_err(|e| format!("invalid 'bind' address '{bind}': {e}"))?;
     Ok(bind)
-}
-
-async fn health_ok(endpoint: &str) -> bool {
-    let Ok(client) = reqwest::Client::builder()
-        .timeout(Duration::from_millis(500))
-        .build()
-    else {
-        return false;
-    };
-    matches!(
-        client.get(endpoint).send().await,
-        Ok(resp) if resp.status().is_success()
-    )
 }
 
 #[async_trait]
@@ -87,7 +69,7 @@ impl Tool for ComputerUseSidecarStartTool {
                 "bind": {
                     "type": "string",
                     "description": "Address the sidecar binds to, e.g. '127.0.0.1:8787'. Must parse as SocketAddr.",
-                    "default": DEFAULT_BIND
+                    "default": sidecar_client::DEFAULT_BIND
                 },
                 "api_key": {
                     "type": "string",
@@ -134,7 +116,7 @@ impl Tool for ComputerUseSidecarStartTool {
         };
 
         let health_url = format!("http://{bind}/health");
-        if health_ok(&health_url).await {
+        if sidecar_client::probe_health(&health_url).await {
             return Ok(ToolResult {
                 success: true,
                 output: format!("computer-use sidecar already healthy at http://{bind}/v1/actions"),
@@ -142,37 +124,17 @@ impl Tool for ComputerUseSidecarStartTool {
             });
         }
 
-        let exe = match std::env::current_exe() {
-            Ok(p) => p,
-            Err(e) => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(format!("failed to resolve current executable: {e}")),
-                });
-            }
-        };
-
-        let mut cmd = tokio::process::Command::new(&exe);
-        cmd.arg("computer-use-sidecar").arg("--bind").arg(&bind);
-        if let Some(key) = args.get("api_key").and_then(Value::as_str) {
-            if !key.is_empty() {
-                cmd.env("TOPCLAW_SIDECAR_API_KEY", key);
-            }
-        }
-        cmd.stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        #[cfg(unix)]
-        cmd.process_group(0); // detach from parent's process group
-
-        let mut child = match cmd.spawn() {
+        let api_key = args
+            .get("api_key")
+            .and_then(Value::as_str)
+            .filter(|k| !k.is_empty());
+        let mut child = match sidecar_client::spawn_sidecar_child(&bind, api_key) {
             Ok(c) => c,
             Err(e) => {
                 return Ok(ToolResult {
                     success: false,
                     output: String::new(),
-                    error: Some(format!("failed to spawn sidecar: {e}")),
+                    error: Some(e),
                 });
             }
         };
@@ -181,12 +143,12 @@ impl Tool for ComputerUseSidecarStartTool {
         // Poll /health until ready or timeout.
         let start = std::time::Instant::now();
         let mut healthy = false;
-        while start.elapsed() < HEALTH_POLL_TIMEOUT {
-            if health_ok(&health_url).await {
+        while start.elapsed() < sidecar_client::HEALTH_POLL_TIMEOUT {
+            if sidecar_client::probe_health(&health_url).await {
                 healthy = true;
                 break;
             }
-            tokio::time::sleep(HEALTH_POLL_INTERVAL).await;
+            tokio::time::sleep(sidecar_client::HEALTH_POLL_INTERVAL).await;
         }
 
         let reason = args.get("reason").and_then(Value::as_str);
@@ -223,7 +185,7 @@ impl Tool for ComputerUseSidecarStartTool {
                 output: String::new(),
                 error: Some(format!(
                     "spawned sidecar (pid {pid:?}) but /health at {health_url} did not become ready within {}s; check xdotool/wmctrl/scrot are installed and X session is available",
-                    HEALTH_POLL_TIMEOUT.as_secs()
+                    sidecar_client::HEALTH_POLL_TIMEOUT.as_secs()
                 )),
             })
         }

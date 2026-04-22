@@ -186,18 +186,13 @@ pub(crate) async fn persist_active_workspace_config_dir(config_dir: &Path) -> Re
 
 /// Resolve the config directory for a given workspace directory.
 ///
-/// This function handles three cases:
+/// This function handles two cases:
 /// 1. The workspace directory itself contains `config.toml` — use it directly.
-/// 2. **Legacy layout fallback**: The workspace directory is a child of a directory
-///    that contains `.topclaw/config.toml` (e.g. `~/projects/myproject` where
-///    `~/.topclaw/config.toml` exists). This supports users who set
-///    `TOPCLAW_WORKSPACE=~/projects/myproject/workspace` before per-workspace
-///    config dirs were introduced.
-/// 3. Neither exists — treat the workspace directory as the config root.
+/// 2. No `config.toml` found — treat the workspace directory as the config root.
 ///
-/// The legacy fallback (case 2) should be removed once the migration window
-/// closes. Track usage via the `config_dir_legacy_fallback_used` metric if
-/// possible.
+/// The legacy fallback that checked `../.topclaw/config.toml` has been removed
+/// in the current-version-only state model. Users who relied on that layout
+/// should migrate their config to the workspace directory directly.
 pub(crate) fn resolve_config_dir_for_workspace(workspace_dir: &Path) -> (PathBuf, PathBuf) {
     let workspace_config_dir = workspace_dir.to_path_buf();
     if workspace_config_dir.join("config.toml").exists() {
@@ -205,27 +200,6 @@ pub(crate) fn resolve_config_dir_for_workspace(workspace_dir: &Path) -> (PathBuf
             workspace_config_dir.clone(),
             workspace_config_dir.join("workspace"),
         );
-    }
-
-    // Legacy fallback: check parent for `.topclaw/` config directory.
-    // This handles the pre-per-workspace-config layout where
-    // `TOPCLAW_WORKSPACE=/some/path/workspace` would find config at
-    // `/some/path/.topclaw/config.toml`.
-    let legacy_config_dir = workspace_dir.parent().map(|parent| parent.join(".topclaw"));
-    if let Some(legacy_dir) = legacy_config_dir {
-        if legacy_dir.join("config.toml").exists() {
-            return (legacy_dir, workspace_config_dir);
-        }
-
-        // Heuristic: if the workspace directory is literally named "workspace",
-        // assume the parent's `.topclaw/` is the config root even without
-        // a config.toml present (the config may be created later during onboarding).
-        if workspace_dir
-            .file_name()
-            .is_some_and(|name| name == std::ffi::OsStr::new("workspace"))
-        {
-            return (legacy_dir, workspace_config_dir);
-        }
     }
 
     (
