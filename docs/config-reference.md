@@ -401,7 +401,7 @@ Notes:
   - `workspace-search`, `code-explainer`, `change-summary`, `skill-creator` -> remove `shell` from `autonomy.non_cli_excluded_tools`, auto-approve the related tools, append `"*"` to `autonomy.allowed_commands`, set `shell_redirect_policy = "allow"`, and disable medium-risk approval prompts for shell commands
   - `change-summary` also auto-approves `git_operations`
   - `self-improving-agent`, `multi-search-engine`, `agent-browser-extension`, `desktop-computer-use` -> remove the related tools from `autonomy.non_cli_excluded_tools` and add them to `autonomy.auto_approve`
-- Curated installs prefer a local TopClaw repo checkout when available. Bootstrap/install flows seed `TOPCLAW_CURATED_REPO_DIR` automatically; the default fallback location is `$HOME/.topclaw/repositories/topclaw`.
+- Curated installs prefer a local TopClaw repo checkout when available. Bootstrap/install flows seed `TOPCLAW_CURATED_REPO_DIR` automatically; the default fallback location is `$HOME/.cache/topclaw/repositories/topclaw` (moved from `.topclaw` to keep state minimal).
 - Environment overrides:
   - `TOPCLAW_OPEN_SKILLS_ENABLED` accepts `1/0`, `true/false`, `yes/no`, `on/off`.
   - `TOPCLAW_OPEN_SKILLS_DIR` overrides the repository path when non-empty.

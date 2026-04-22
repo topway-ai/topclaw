@@ -470,10 +470,14 @@ None identified — existing splits are intentional (cron tools have different c
 
 | Path | Action | Reason |
 |---|---|---|
-| `browser-allowed-domains-grants.json` | KEEP_AS_ALTERNATE_PATH | BrowserAllowlist can use either `.topclaw/` or workspace dir. Cleanup is low priority. |
+| `repositories/topclaw/` | MOVED_TO_CACHE | Ephemeral skills repo moved to `~/.cache/topclaw/repositories/topclaw`. Can be re-cloned; doesn't need durable state. |
+| `browser-allowed-domains-grants.json` | KEEP_AS_ALTERNATE_PATH | BrowserAllowlist can use either `.topclaw/` or workspace dir. |
 | `state/runtime-trace.jsonl` | KEEP_PATH_BUT_NO_FILE | Ephemeral debug log; auto-pruned. Path kept for future cache move. |
 | `estop-state.json` | KEEP_PATH | Used by security/estop.rs; not safe to merge in this pass |
 | `active_workspace.toml` | KEEP_PATH | Active workspace marker is current mainline |
+
+**Completed state model changes:**
+- `repositories/topclaw/` → `~/.cache/topclaw/repositories/topclaw` (updated in src/skills/mod.rs, scripts/bootstrap.sh, scripts/install-release.sh, docs/config-reference.md)
 
 **State model is honest:** Single resolution model in place, no fallback to `../.topclaw`.
 Current resolution order: `TOPCLAW_CONFIG_DIR` > `TOPCLAW_WORKSPACE` > active_workspace.toml > defaults.
@@ -492,6 +496,18 @@ Current resolution order: `TOPCLAW_CONFIG_DIR` > `TOPCLAW_WORKSPACE` > active_wo
   - `bootstrap.rs` created with Linux desktop helper detection/installation
   - API stability preserved via re-exports in computer_use.rs
   - Unused imports removed from computer_use.rs
+  - xdg-open documented as intentionally excluded from LINUX_HELPERS
+
+**State model narrowed:**
+  - `repositories/topclaw/` moved to `~/.cache/topclaw/repositories/topclaw`
+  - Updated in src/skills/mod.rs, scripts/bootstrap.sh, scripts/install-release.sh
+
+**Tests added (PART 5):**
+  - Happy path: bootstrap_succeeds_when_helpers_present, schema_has_all_required_actions,
+    tool_has_descriptive_name_and_description, app_launch_accepts_valid_config,
+    endpoint_locality_detection_works
+  - Failure path: sidecar_unreachable, remote_endpoint_blocks_auto_start, etc.
+  - All 36 computer_use + bootstrap tests pass
 
 **Keep as-is:** All cron, memory, lossless, subagent, delegate, sidecar tools
 
@@ -502,4 +518,3 @@ Current resolution order: `TOPCLAW_CONFIG_DIR` > `TOPCLAW_WORKSPACE` > active_wo
 **Next-wave targets:**
 1. `memory/backend.rs` merge into `mod.rs`
 2. `channels/runtime_*` helpers collapse into `dispatch.rs`
-3. Review tool families (delegate, cron, memory, subagent) for further narrowing

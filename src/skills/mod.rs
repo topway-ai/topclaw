@@ -25,7 +25,9 @@ const SKILLS_SH_HOST: &str = "skills.sh";
 const TOPCLAW_GITHUB_OWNER: &str = "topway-ai";
 const TOPCLAW_GITHUB_REPO: &str = "topclaw";
 const TOPCLAW_CURATED_REPO_ENV: &str = "TOPCLAW_CURATED_REPO_DIR";
-const TOPCLAW_CURATED_REPO_DEFAULT_SUBDIR: &str = ".topclaw/repositories/topclaw";
+// Moved to cache to keep .topclaw state minimal.
+// Ephemeral curated repo can be re-cloned; doesn't need durable state.
+const TOPCLAW_CURATED_REPO_DEFAULT_SUBDIR: &str = ".cache/topclaw/repositories/topclaw";
 const SKILL_PROMPT_GUARD_NOTICE: &str =
     "Skill instructions withheld by runtime security guard. Inspect the skill file manually before using it.";
 

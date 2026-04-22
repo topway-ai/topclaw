@@ -59,7 +59,7 @@ is_topclaw_repo_dir() {
 
 ensure_curated_repo_checkout() {
   local repo_dir
-  repo_dir="${TOPCLAW_CURATED_REPO_DIR:-$HOME/.topclaw/repositories/topclaw}"
+  repo_dir="${TOPCLAW_CURATED_REPO_DIR:-$HOME/.cache/topclaw/repositories/topclaw}"
 
   mkdir -p "$(dirname "$repo_dir")"
 

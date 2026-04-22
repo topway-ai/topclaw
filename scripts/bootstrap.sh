@@ -126,7 +126,7 @@ ensure_curated_repo_checkout() {
     return 1
   fi
 
-  repo_dir="$HOME/.topclaw/repositories/topclaw"
+  repo_dir="$HOME/.cache/topclaw/repositories/topclaw"
   mkdir -p "$(dirname "$repo_dir")"
 
   if [[ -d "$repo_dir/.git" ]]; then
