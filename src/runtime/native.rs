@@ -151,8 +151,7 @@ impl RuntimeAdapter for NativeRuntime {
     }
 
     fn storage_path(&self) -> PathBuf {
-        crate::config::default_config_dir()
-            .unwrap_or_else(|_| PathBuf::from(".topclaw"))
+        crate::config::default_config_dir_or_fallback()
     }
 
     fn supports_long_running(&self) -> bool {

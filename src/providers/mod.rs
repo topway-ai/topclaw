@@ -938,8 +938,7 @@ fn create_provider_with_url_and_options(
                 .topclaw_dir
                 .clone()
                 .unwrap_or_else(|| {
-                    crate::config::default_config_dir()
-                        .unwrap_or_else(|_| PathBuf::from(".topclaw"))
+                    crate::config::default_config_dir_or_fallback()
                 });
             let auth_service = AuthService::new(&state_dir, options.secrets_encrypt);
             Ok(Box::new(gemini::GeminiProvider::new_with_auth(

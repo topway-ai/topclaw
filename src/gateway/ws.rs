@@ -282,7 +282,6 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
             &state.model,
             &[],
             &[],
-            Some(&config_guard.identity),
             None,
         )
     };

@@ -362,7 +362,7 @@ pub(crate) async fn run_tool_call_loop(
         max_tool_iterations
     };
 
-    let excluded_set = crate::channels::runtime_helpers::exclusion_set(excluded_tools);
+    let excluded_set = crate::channels::runtime_config::exclusion_set(excluded_tools);
     let tool_specs: Vec<crate::tools::ToolSpec> = tools_registry
         .iter()
         .filter(|tool| !excluded_set.contains(&tool.name().to_ascii_lowercase()))
@@ -1615,7 +1615,6 @@ pub async fn run(
         model_name,
         &tool_descs,
         &skills,
-        Some(&config.identity),
         bootstrap_max_chars,
         native_tools,
         config.skills.prompt_injection_mode,
@@ -1927,7 +1926,6 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         &model_name,
         &tool_descs,
         &skills,
-        Some(&config.identity),
         bootstrap_max_chars,
         native_tools,
         config.skills.prompt_injection_mode,

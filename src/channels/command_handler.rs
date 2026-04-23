@@ -18,13 +18,13 @@ use super::runtime_commands::{
     approval_target_label, is_approval_management_command, parse_runtime_command,
     ChannelRuntimeCommand, APPROVAL_ALL_TOOLS_ONCE_TOKEN,
 };
+use super::runtime_commands::{build_models_help_response, build_providers_help_response};
+use super::runtime_config::{
+    auto_unexclude_tool, is_non_cli_tool_excluded, snapshot_non_cli_excluded_tools,
+};
 use super::runtime_config::{
     describe_non_cli_approvals, persist_non_cli_approval_to_config,
     remove_non_cli_approval_from_config,
-};
-use super::runtime_help::{build_models_help_response, build_providers_help_response};
-use super::runtime_helpers::{
-    auto_unexclude_tool, is_non_cli_tool_excluded, snapshot_non_cli_excluded_tools,
 };
 use super::traits::{self, SendMessage};
 
@@ -261,7 +261,7 @@ pub(super) async fn handle_runtime_command_if_needed(
             build_providers_help_response(&current.provider, &current.model)
         }
         ChannelRuntimeCommand::SetProvider(raw_provider) => {
-            match super::runtime_helpers::resolve_product_priority_provider_alias(&raw_provider) {
+            match super::runtime_config::resolve_product_priority_provider_alias(&raw_provider) {
                 Some(provider_name) => {
                     match get_or_create_provider(ctx.as_ref(), &provider_name).await {
                         Ok(_) => {
@@ -288,7 +288,7 @@ pub(super) async fn handle_runtime_command_if_needed(
                         }
                     }
                 }
-                None => match super::runtime_helpers::canonical_known_provider_name(&raw_provider) {
+                None => match super::runtime_config::canonical_known_provider_name(&raw_provider) {
                     Some(provider_name) => format!(
                         "Channel provider switching is limited to product-priority providers: {}. `{provider_name}` remains available through config.toml or CLI, not `/models`.",
                         providers::PRODUCT_PROVIDER_PRIORITY.join(", ")

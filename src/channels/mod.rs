@@ -26,6 +26,7 @@
 
 mod capability_detection;
 mod capability_recovery;
+pub mod channel_runtime_context;
 pub mod cli;
 mod command_handler;
 mod context;
@@ -38,9 +39,7 @@ mod message_processing;
 mod prompt;
 mod route_state;
 mod runtime_commands;
-mod runtime_config;
-mod runtime_help;
-pub(crate) mod runtime_helpers;
+pub(crate) mod runtime_config;
 mod sanitize;
 mod startup;
 pub mod telegram;
@@ -91,7 +90,7 @@ mod tests {
     use super::route_state::{compact_sender_history, rollback_orphan_user_turn};
     use super::runtime_commands::*;
     use super::runtime_config::*;
-    use super::runtime_helpers::*;
+
     use super::sanitize::*;
     use super::startup::*;
     use super::*;
@@ -358,7 +357,7 @@ mod tests {
             channels_by_name: Arc::new(HashMap::new()),
             provider: Arc::new(DummyProvider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("system".to_string()),
@@ -421,7 +420,7 @@ mod tests {
             channels_by_name: Arc::new(HashMap::new()),
             provider: Arc::new(DummyProvider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("system".to_string()),
@@ -1465,7 +1464,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(ToolCallingProvider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![Box::new(MockPriceTool)]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -1529,7 +1528,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(ToolCallingProvider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![Box::new(MockPriceTool)]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -1607,7 +1606,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(ToolCallingProvider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![Box::new(MockPriceTool)]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -1680,7 +1679,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(ToolCallingProvider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![Box::new(MockPriceTool)]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -1746,7 +1745,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(RawToolArtifactProvider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![Box::new(MockPriceTool)]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -1819,7 +1818,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::clone(&default_provider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -1919,7 +1918,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::clone(&provider),
             default_provider: Arc::new("openrouter".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![Box::new(MockPriceTool)]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -2054,7 +2053,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::clone(&provider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![Box::new(MockPriceTool)]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -2165,7 +2164,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::clone(&provider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![Box::new(MockPriceTool)]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -2283,7 +2282,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::clone(&provider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![Box::new(MockPriceTool)]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -2394,7 +2393,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider,
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![Box::new(MockPriceTool)]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -2534,7 +2533,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::clone(&provider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![Box::new(shell_tool)]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -2695,7 +2694,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::clone(&provider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![Box::new(MockPriceTool)]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -2840,7 +2839,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::clone(&provider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![Box::new(MockPriceTool)]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -2946,7 +2945,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::clone(&provider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![Box::new(MockPriceTool)]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -3063,7 +3062,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::clone(&provider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![Box::new(MockPriceTool)]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -3178,7 +3177,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::clone(&default_provider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -3274,7 +3273,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::clone(&provider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -3414,7 +3413,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(HashMap::new()),
             provider: Arc::new(ModelCaptureProvider::default()),
             default_provider: Arc::new("ollama".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![Box::new(MockPriceTool)]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -3549,7 +3548,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 required_tool_iterations: 11,
             }),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![Box::new(MockPriceTool)]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -3634,7 +3633,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::clone(&provider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new(system_prompt.to_string()),
@@ -3701,7 +3700,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::clone(&provider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -3756,58 +3755,6 @@ BTC is currently around $65,000 based on latest tool output."#
         assert!(sent_messages[0].ends_with(
             "I'm currently using provider `openrouter` with model `minimax/minimax-m2.7`."
         ));
-    }
-
-    struct NoopMemory;
-
-    #[async_trait::async_trait]
-    impl Memory for NoopMemory {
-        fn name(&self) -> &str {
-            "noop"
-        }
-
-        async fn store(
-            &self,
-            _key: &str,
-            _content: &str,
-            _category: crate::memory::MemoryCategory,
-            _session_id: Option<&str>,
-        ) -> anyhow::Result<()> {
-            Ok(())
-        }
-
-        async fn recall(
-            &self,
-            _query: &str,
-            _limit: usize,
-            _session_id: Option<&str>,
-        ) -> anyhow::Result<Vec<crate::memory::MemoryEntry>> {
-            Ok(Vec::new())
-        }
-
-        async fn get(&self, _key: &str) -> anyhow::Result<Option<crate::memory::MemoryEntry>> {
-            Ok(None)
-        }
-
-        async fn list(
-            &self,
-            _category: Option<&crate::memory::MemoryCategory>,
-            _session_id: Option<&str>,
-        ) -> anyhow::Result<Vec<crate::memory::MemoryEntry>> {
-            Ok(Vec::new())
-        }
-
-        async fn forget(&self, _key: &str) -> anyhow::Result<bool> {
-            Ok(false)
-        }
-
-        async fn count(&self) -> anyhow::Result<usize> {
-            Ok(0)
-        }
-
-        async fn health_check(&self) -> bool {
-            true
-        }
     }
 
     #[allow(dead_code)]
@@ -3885,7 +3832,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: provider_impl.clone(),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -3969,7 +3916,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: provider_impl.clone(),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -4066,7 +4013,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 delay: Duration::from_millis(180),
             }),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -4145,7 +4092,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 delay: Duration::from_millis(20),
             }),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -4209,7 +4156,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 delay: Duration::from_millis(5),
             }),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -4284,7 +4231,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(HeartbeatOkProvider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -4355,7 +4302,7 @@ BTC is currently around $65,000 based on latest tool output."#
     fn prompt_contains_all_sections() {
         let ws = make_workspace();
         let tools = vec![("shell", "Run commands"), ("file_read", "Read files")];
-        let prompt = build_system_prompt(ws.path(), "test-model", &tools, &[], None, None);
+        let prompt = build_system_prompt(ws.path(), "test-model", &tools, &[], None);
 
         // Section headers
         assert!(prompt.contains("## Tools"), "missing Tools section");
@@ -4392,7 +4339,7 @@ BTC is currently around $65,000 based on latest tool output."#
             location: None,
         }];
 
-        let prompt = build_system_prompt(ws.path(), "model", &[], &skills, None, None);
+        let prompt = build_system_prompt(ws.path(), "model", &[], &skills, None);
 
         assert!(prompt.contains("<available_skills>"), "missing skills XML");
         assert!(prompt.contains("<name>code-review</name>"));
@@ -4433,7 +4380,6 @@ BTC is currently around $65,000 based on latest tool output."#
             &[],
             &skills,
             None,
-            None,
             false,
             crate::config::SkillsPromptInjectionMode::Compact,
         );
@@ -4468,7 +4414,7 @@ BTC is currently around $65,000 based on latest tool output."#
             location: None,
         }];
 
-        let prompt = build_system_prompt(ws.path(), "model", &[], &skills, None, None);
+        let prompt = build_system_prompt(ws.path(), "model", &[], &skills, None);
 
         assert!(prompt.contains("<name>code&lt;review&gt;&amp;</name>"));
         assert!(prompt.contains(
@@ -4501,7 +4447,7 @@ BTC is currently around $65,000 based on latest tool output."#
     #[test]
     fn prompt_contains_channel_capabilities() {
         let ws = make_workspace();
-        let prompt = build_system_prompt(ws.path(), "model", &[], &[], None, None);
+        let prompt = build_system_prompt(ws.path(), "model", &[], &[], None);
 
         assert!(
             prompt.contains("## Channel Capabilities"),
@@ -4631,7 +4577,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: provider_impl.clone(),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -4732,7 +4678,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channels_by_name: Arc::new(channels_by_name),
             provider: provider_impl.clone(),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -4905,7 +4851,7 @@ Done reminder set for 1:38 AM."#;
             channels_by_name: Arc::new(HashMap::new()),
             provider: Arc::new(DummyProvider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(tools),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("system".to_string()),
@@ -4963,7 +4909,7 @@ Done reminder set for 1:38 AM."#;
             channels_by_name: Arc::new(HashMap::new()),
             provider: Arc::new(DummyProvider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(tools),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("system".to_string()),
@@ -5023,7 +4969,7 @@ Done reminder set for 1:38 AM."#;
             channels_by_name: Arc::new(channels_by_name),
             provider: provider_impl.clone(),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -5096,7 +5042,7 @@ Done reminder set for 1:38 AM."#;
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(ToolCallingProvider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![Box::new(MockPriceTool)]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -5191,7 +5137,7 @@ Done reminder set for 1:38 AM."#;
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(ToolCallingProvider),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![Box::new(SlowMockPriceTool {
                 delay: Duration::from_secs(CHANNEL_PROGRESS_HEARTBEAT_SECS + 1),
             })]),
@@ -5266,7 +5212,7 @@ Done reminder set for 1:38 AM."#;
             channels_by_name: Arc::new(channels_by_name),
             provider: provider_impl.clone(),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![Box::new(NamedTestTool("web_fetch"))]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("test-system-prompt".to_string()),
@@ -5593,7 +5539,7 @@ BTC is currently around $65,000 based on latest tool output."#;
             channels_by_name: Arc::new(channels_by_name),
             provider: provider_impl.clone(),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new("system".to_string()),
@@ -5661,7 +5607,7 @@ BTC is currently around $65,000 based on latest tool output."#;
             channels_by_name: Arc::new(channels_by_name),
             provider: provider_impl.clone(),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![]),
             observer: Arc::new(NoopObserver),
             system_prompt: Arc::new(
@@ -5734,7 +5680,7 @@ BTC is currently around $65,000 based on latest tool output."#;
             channels_by_name: Arc::new(channels_by_name),
             provider: provider_impl.clone(),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![Box::new(DirectRepoMetricsShellTool {
                 calls: Arc::clone(&shell_calls),
             })]),
@@ -5825,7 +5771,7 @@ BTC is currently around $65,000 based on latest tool output."#;
             channels_by_name: Arc::new(channels_by_name),
             provider: provider_impl.clone(),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![Box::new(DirectDesktopComputerUseTool {
                 actions: Arc::clone(&actions),
             })]),
@@ -5919,7 +5865,7 @@ BTC is currently around $65,000 based on latest tool output."#;
             channels_by_name: Arc::new(channels_by_name),
             provider: provider_impl.clone(),
             default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
+            memory: Arc::new(crate::memory::NoneMemory::new()),
             tools_registry: Arc::new(vec![Box::new(DirectDesktopComputerUseTool {
                 actions: Arc::clone(&actions),
             })]),

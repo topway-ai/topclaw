@@ -61,19 +61,21 @@ classified into exactly one category. No vague wording. No preserved aliases.
 - **Flags:** CURRENT_MAINLINE, TOO_BIG_OWNER, FIRST_REFACTOR_TARGET
 - **Why it exists:** Telegram, Discord, CLI channel runtimes. Primary user interaction.
 - **Current mainline needed:** Yes — channels are the primary runtime for most users.
-- **Legacy burden:** 22 files. Many files could collapse. `command_handler.rs`, `runtime_commands.rs`,
-`runtime_config.rs`, `runtime_help.rs`, `runtime_helpers.rs` — all thin helpers that could merge.
-`dispatch.rs`, `factory.rs` — core, keep.
-`message_processing.rs` — core, keep.
-`transcription.rs`, `runtime_config.rs` — could be inline in factory.
+- **Legacy burden:** Reduced from 22 files. Runtime helpers collapsed: `runtime_help.rs` merged into `runtime_commands.rs`; `runtime_helpers.rs` merged into `runtime_config.rs` (eliminates circular dep). `NoopMemory` test stub replaced with production `NoneMemory`. `channel_runtime_context.rs` moved from `tools/` to `channels/` (correct home).
+`dispatch.rs`, `factory.rs` — core, keep. 
+`message_processing.rs` — core, keep. 
+`transcription.rs` — could be inline in factory.
 - **Completed refactors (this session):**
 - Moved `build_local_capability_response`, `should_answer_local_capability_response_immediately`, and `extract_loaded_skill_names_from_system_prompt` from `helpers.rs` to `capability_detection.rs` — capability response functions belong with capability detection, not in a generic helpers file
-- **Next action:** Keep but narrow. Collapse runtime_* helpers into fewer files.
-  Merge `runtime_config.rs` + `runtime_commands.rs` into `dispatch.rs`.
-- **Files/dirs:** `cli.rs`, `command_handler.rs`, `context.rs`, `discord.rs`, `dispatch.rs`,
-  `factory.rs`, `helpers.rs`, `message_processing.rs`, `mod.rs`, `prompt.rs`, `route_state.rs`,
-  `runtime_commands.rs`, `runtime_config.rs`, `runtime_help.rs`, `runtime_helpers.rs`,
-  `sanitize.rs`, `startup.rs`, `telegram.rs`, `traits.rs`, `transcription.rs`, `capability_detection.rs`, `capability_recovery.rs`
+- `runtime_help.rs` MERGED into `runtime_commands.rs` — help text generation lives with command parsing
+- `runtime_helpers.rs` MERGED into `runtime_config.rs` — eliminates circular dependency, all provider resolution + tool exclusion + visibility prompt logic now in one file
+- `channel_runtime_context.rs` MOVED from `tools/` to `channels/` — it implements no Tool trait; only consumers are channels/message_processing.rs and tools/discord_history_fetch.rs
+- 43 `NoopMemory` test stubs in `mod.rs` REPLACED with production `crate::memory::NoneMemory::new()`
+- **Next action:** Keep but narrow. Evaluate `transcription.rs` for inline in factory.
+- **Files/dirs:** `cli.rs`, `command_handler.rs`, `context.rs`, `discord.rs`, `dispatch.rs`, 
+`factory.rs`, `helpers.rs`, `message_processing.rs`, `mod.rs`, `prompt.rs`, `route_state.rs`, 
+`runtime_commands.rs`, `runtime_config.rs`, `channel_runtime_context.rs`,
+`sanitize.rs`, `startup.rs`, `telegram.rs`, `traits.rs`, `transcription.rs`, `capability_detection.rs`, `capability_recovery.rs`
 - **Risk:** HIGH — active user channels. Narrow carefully, keep tests green.
 - **Tests required:** Channel factory tests, Telegram dispatch tests, Discord dispatch tests.
 
@@ -96,6 +98,10 @@ classified into exactly one category. No vague wording. No preserved aliases.
 - **Completed refactors (this session):**
 - Dead `if/else` branch in `resolve_config_dir_for_workspace()` collapsed — both arms returned identical values
 - Legacy `channels_except_webhook()` alias deleted from `schema_channels.rs` — zero callers
+- `identity.rs` DELETED — sole field `format` was never read anywhere; `identity_config` param removed from `build_system_prompt()` and all 15+ callers
+- `OtpMethod::Pairing` and `OtpMethod::CliPrompt` variants PRUNED — zero references
+- `CostConfig.allow_override`, `prices`, `ModelPricing`, `get_default_pricing()` TRIMMED — zero consumers outside cost.rs
+- `TOPCLAW_DIR_NAME` constant + `default_config_dir_or_fallback()` + `config_dir_for_home()` added to `schema_runtime_dirs.rs` — replaced 9 scattered `.topclaw` path duplicates
 - **Next action:** Keep but narrow. Move `estop-state.json` logic to config if safe.
 - **Files/dirs:** 40+ files — see `src/config/` tree
 - **Risk:** MEDIUM — config changes affect everything. Validate with schema tests.
@@ -378,19 +384,21 @@ classified into exactly one category. No vague wording. No preserved aliases.
 - **Legacy burden:** Largest subsystem. After analysis:
 - `cron_*.rs` (6 files) — DIFFERENT capabilities, keep separate
 - `memory_*.rs` (3 files) — DIFFERENT purposes, keep separate
-- `lossless_*.rs` (2 files) — DIFFERENT purposes, keep separate
+- `lossless_*.rs` (2 files) — MERGED into `lossless.rs`
 - `subagent_*.rs` (4 files) — registry is separate from tools, keep separate
 - `delegate.rs` — Core delegate tool, keep
 - `delegate_coordination_status.rs` — READ-ONLY observability tool, keep separate
 (Different purpose: coordination status is read-only introspection, delegate is execution)
 - `schedule.rs` — DELETED. Fully subsumed by `cron_add`/`cron_list`/`cron_remove`/etc.
   Its own description said: "To send a scheduled message to Discord/Telegram, use the cron_add tool instead."
-- **Completed refactors (this pass):**
-  - `schedule.rs` (791 lines) DELETED — all scheduling capability moved to cron tools
-  - `pub mod schedule`, `pub use schedule::ScheduleTool`, `ScheduleTool::new()` removed from `mod.rs`
-  - Schedule tool descriptions removed from `agent/loop_.rs` and `channels/prompt.rs` system prompts
-  - Test references updated from `schedule` to `cron_add` across `channels/mod.rs`, `approval/mod.rs`, `gateway/mod.rs`, `gateway/ws.rs`
-  - `dev/config.template.toml` non_cli_excluded_tools list updated
+- **Completed refactors (this session + previous):**
+- `schedule.rs` (791 lines) DELETED — all scheduling capability moved to cron tools
+- `pub mod schedule`, `pub use schedule::ScheduleTool`, `ScheduleTool::new()` removed from `mod.rs`
+- Schedule tool descriptions removed from `agent/loop_.rs` and `channels/prompt.rs` system prompts
+- Test references updated from `schedule` to `cron_add` across `channels/mod.rs`, `approval/mod.rs`, `gateway/mod.rs`, `gateway/ws.rs`
+- `dev/config.template.toml` non_cli_excluded_tools list updated
+- `lossless_describe.rs` + `lossless_search.rs` MERGED into `lossless.rs` — same structure, same domain
+- `channel_runtime_context.rs` MOVED to `channels/` — not a tool (no Tool trait impl); only consumers are channels subsystem
 - **Next action:** Keep as-is. All tool files have distinct purposes and clear ownership.
 No merges needed — current boundaries are honest for current product shape.
 - **Files/dirs:** ~45 files — see `src/tools/` tree
@@ -507,15 +515,22 @@ No merges needed — current boundaries are honest for current product shape.
 | `channels/helpers.rs` capability response functions | MOVED | `build_local_capability_response`, `should_answer_local_capability_response_immediately`, `extract_loaded_skill_names_from_system_prompt` moved to `capability_detection.rs` |
 | `config/schema_runtime_dirs.rs` dead branch | DELETED | `resolve_config_dir_for_workspace()` collapsed — both arms returned identical values |
 | `config/schema_channels.rs` legacy alias | DELETED | `channels_except_webhook()` — zero callers |
+| `config/identity.rs` | DELETED | Sole field `format` never read; `identity_config` param removed from prompt.rs and 15+ callers |
+| `config/otp.rs` `Pairing` + `CliPrompt` variants | DELETED | Zero references in codebase |
+| `config/cost.rs` `allow_override`, `prices`, `ModelPricing`, `get_default_pricing()` | DELETED | Zero consumers outside cost.rs |
+| `channels/runtime_help.rs` | MERGED | Into `runtime_commands.rs` — help text generation with command parsing |
+| `channels/runtime_helpers.rs` | MERGED | Into `runtime_config.rs` — eliminates circular dependency |
+| `tools/lossless_describe.rs` + `tools/lossless_search.rs` | MERGED | Into `tools/lossless.rs` — same structure, same domain |
+| `tools/channel_runtime_context.rs` | MOVED | To `channels/channel_runtime_context.rs` — not a tool, no Tool trait impl |
+| `channels/mod.rs` `NoopMemory` test stub | DELETED | Replaced with production `crate::memory::NoneMemory::new()` (43 instances) |
 
 ## Merge List (this pass)
 
-None — after analysis, no tools should merge:
-- Cron tools: different capabilities (add vs list vs run vs update vs remove)
-- Memory tools: different purposes (store vs recall vs forget)
-- Lossless tools: different purposes (describe vs search)
-- Subagent tools: registry is separate from tool implementations
-- Delegate tools: different concerns (delegate executes, coordination_status inspects) — keep separate
+| Files | Merged Into | Reason |
+|---|---|---|
+| `channels/runtime_help.rs` | `channels/runtime_commands.rs` | Help text generation belongs with command parsing |
+| `channels/runtime_helpers.rs` | `channels/runtime_config.rs` | Eliminates circular dependency between the two |
+| `tools/lossless_describe.rs` + `tools/lossless_search.rs` | `tools/lossless.rs` | Same structure, same domain |
 
 ## Split List (this pass)
 
@@ -543,9 +558,10 @@ Current resolution order: `TOPCLAW_CONFIG_DIR` > `TOPCLAW_WORKSPACE` > active_wo
 ## Summary
 
 **Delete (this pass):** `tools/schedule.rs` (791 lines), `browser.rs` duplicate HTTP client, `endpoint_reachable()`, `ComputerUseResponse`, `computer_use.rs` `http_client()`, bootstrap re-exports, duplicate `fn fail()`, duplicate health-poll loops
-**Delete (this session):** `browser.rs` duplicate `validate_computer_use_action()`, `validate_coordinate()`, `read_required_i64()`, response parsing, envelope construction; `computer_use.rs` duplicate `policy_envelope()`, `metadata_envelope()`, response parsing, duplicate test; `bootstrap.rs` hand-rolled `fail()`; `computer_use_sidecar_start.rs` hardcoded health URL; `doctor/mod.rs` duplicate backend string matching; `config/schema_runtime_dirs.rs` dead branch; `config/schema_channels.rs` legacy alias
-**Move (this session):** `build_local_capability_response`, `should_answer_local_capability_response_immediately`, `extract_loaded_skill_names_from_system_prompt` from `helpers.rs` → `capability_detection.rs`
-**Merge:** None — all tool files have distinct purposes and clear ownership
+**Delete (this session):** `config/identity.rs` (15 lines, dead field), `config/otp.rs` dead variants (`Pairing`, `CliPrompt`), `config/cost.rs` dead fields (`allow_override`, `prices`, `ModelPricing`, `get_default_pricing()`), `channels/runtime_help.rs` (merged), `channels/runtime_helpers.rs` (merged), `tools/lossless_describe.rs` (merged), `tools/lossless_search.rs` (merged), `tools/channel_runtime_context.rs` (moved), `channels/mod.rs` `NoopMemory` test stub (replaced with production `NoneMemory`)
+**Move (this session):** `build_local_capability_response`, `should_answer_local_capability_response_immediately`, `extract_loaded_skill_names_from_system_prompt` from `helpers.rs` → `capability_detection.rs`; `channel_runtime_context.rs` from `tools/` → `channels/`
+**Merge (this session):** `runtime_help.rs` → `runtime_commands.rs`; `runtime_helpers.rs` → `runtime_config.rs`; `lossless_describe.rs` + `lossless_search.rs` → `lossless.rs`
+**Consolidate (this session):** 9 scattered `.topclaw` path duplicates → `default_config_dir_or_fallback()` + `config_dir_for_home()` in `schema_runtime_dirs.rs`
 **Split (this pass):**
 - `computer_use.rs` bootstrap logic → extracted to `bootstrap.rs` (~350 lines)
 - `computer_use.rs` now focused on tool facade, delegates HTTP to `sidecar_client` (~650 lines)
@@ -583,4 +599,4 @@ endpoint_locality_detection_works, resolve_trace_path_default_uses_xdg_cache
 
 **Next-wave targets:**
 1. `memory/backend.rs` merge into `mod.rs`
-2. `channels/runtime_*` helpers collapse into `dispatch.rs`
+2. `channels/transcription.rs` inline into `factory.rs`

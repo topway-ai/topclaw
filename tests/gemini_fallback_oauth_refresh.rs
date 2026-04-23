@@ -44,7 +44,7 @@ async fn gemini_warmup_refreshes_expired_oauth_token() -> Result<()> {
         return Ok(());
     }
 
-    let topclaw_dir = home.join(".topclaw");
+    let topclaw_dir = topclaw::config::default_config_dir_or_fallback();
     let auth_profiles_path = topclaw_dir.join("auth-profiles.json");
 
     if !auth_profiles_path.exists() {

@@ -1,5 +1,5 @@
-use super::channel_runtime_context::current_channel_runtime_context;
 use super::traits::{Tool, ToolResult};
+use crate::channels::channel_runtime_context::current_channel_runtime_context;
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -498,7 +498,7 @@ impl Tool for DiscordHistoryFetchTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tools::channel_runtime_context::{
+    use crate::channels::channel_runtime_context::{
         with_channel_runtime_context, ChannelRuntimeContext,
     };
     use serde_json::Value;

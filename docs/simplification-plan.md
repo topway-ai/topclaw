@@ -122,7 +122,7 @@ src/config/
 | Action | Rationale | Risk |
 |--------|----------|------|
 | Move channel factory to `factory.rs` | Already exists, expand usage | Low |
-| Move runtime helpers to `runtime_helpers.rs` | Already exists | Low |
+| Merge runtime helpers into `runtime_config.rs` | Eliminates circular dep | Low |
 | Extract route state to `route_state.rs` | Already exists | Low |
 | Create `channel_traits.rs` | Consolidate channel behavior | Medium |
 

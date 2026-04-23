@@ -8,10 +8,6 @@ pub enum OtpMethod {
     /// Time-based one-time password (RFC 6238).
     #[default]
     Totp,
-    /// Future method for paired-device confirmations.
-    Pairing,
-    /// Future method for local CLI challenge prompts.
-    CliPrompt,
 }
 
 /// Security OTP configuration.

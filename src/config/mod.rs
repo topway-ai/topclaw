@@ -22,7 +22,6 @@ pub mod gateway;
 pub mod heartbeat;
 pub mod hooks;
 pub mod http_request;
-pub mod identity;
 pub mod model_provider;
 pub mod model_route;
 pub mod multimodal;
@@ -63,7 +62,6 @@ pub use gateway::{GatewayConfig, NodeControlConfig};
 pub use heartbeat::HeartbeatConfig;
 pub use hooks::{BuiltinHooksConfig, HooksConfig};
 pub use http_request::HttpRequestConfig;
-pub use identity::IdentityConfig;
 pub use model_provider::ModelProviderConfig;
 pub use model_route::ModelRouteConfig;
 pub use multimodal::MultimodalConfig;
@@ -86,12 +84,11 @@ pub use runtime::{
 // Note: Docker/Wasm runtime config types kept for backward-compatible config deserialization
 pub use sandbox::{SandboxBackend, SandboxConfig};
 pub use scheduler::SchedulerConfig;
+pub use schema::{config_dir_for_home, default_config_dir, default_config_dir_or_fallback};
 pub use schema::{
     ChannelsConfig, Config, DiscordConfig, GroupReplyConfig, GroupReplyMode, MemoryConfig,
-    SecurityConfig, StorageConfig, StreamMode, SyscallAnomalyConfig, TelegramConfig,
-    WebhookConfig,
+    SecurityConfig, StorageConfig, StreamMode, SyscallAnomalyConfig, TelegramConfig, WebhookConfig,
 };
-pub use schema::default_config_dir;
 pub use secrets::SecretsConfig;
 pub use skills::{parse_skills_prompt_injection_mode, SkillsConfig, SkillsPromptInjectionMode};
 pub use storage_provider::{StorageProviderConfig, StorageProviderSection};

@@ -749,7 +749,7 @@ fn resolve_invoking_user_config_dir() -> Option<PathBuf> {
                 let entry = String::from_utf8_lossy(&output.stdout);
                 let fields: Vec<&str> = entry.trim().split(':').collect();
                 if fields.len() >= 6 {
-                    return Some(PathBuf::from(fields[5]).join(".topclaw"));
+                    return Some(crate::config::config_dir_for_home(Path::new(fields[5])));
                 }
             }
         }
@@ -758,7 +758,7 @@ fn resolve_invoking_user_config_dir() -> Option<PathBuf> {
     std::env::var("HOME")
         .ok()
         .map(PathBuf::from)
-        .map(|home| home.join(".topclaw"))
+        .map(|home| crate::config::config_dir_for_home(&home))
 }
 
 fn migrate_openrc_runtime_state_if_needed(config_dir: &Path) -> Result<()> {

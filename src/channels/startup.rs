@@ -23,7 +23,7 @@ use super::prompt::{
 use super::runtime_config::{
     config_file_stamp, runtime_config_store, runtime_defaults_from_config, RuntimeConfigState,
 };
-use super::runtime_helpers::{
+use super::runtime_config::{
     filtered_tool_specs_for_runtime, resolved_default_model, resolved_default_provider,
 };
 use super::traits::Channel;
@@ -397,7 +397,6 @@ pub async fn start_channels(config: Config) -> Result<()> {
         &model,
         &tool_descs,
         &skills,
-        Some(&config.identity),
         bootstrap_max_chars,
         native_tools,
         config.skills.prompt_injection_mode,

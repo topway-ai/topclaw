@@ -16,6 +16,8 @@ pub(super) struct ActiveWorkspaceState {
     pub(super) config_dir: String,
 }
 
+const TOPCLAW_DIR_NAME: &str = ".topclaw";
+
 /// Return the default config directory (`~/.topclaw`).
 ///
 /// This is the single source of truth for the default config root.
@@ -25,7 +27,25 @@ pub fn default_config_dir() -> Result<PathBuf> {
     let home = UserDirs::new()
         .map(|u| u.home_dir().to_path_buf())
         .context("Could not find home directory")?;
-    Ok(home.join(".topclaw"))
+    Ok(home.join(TOPCLAW_DIR_NAME))
+}
+
+/// Return the default config directory, falling back to a relative `./.topclaw`
+/// when the home directory cannot be resolved.
+///
+/// Use this when callers cannot propagate the `Result` from
+/// [`default_config_dir`] (e.g. `Default` impls, option-chained paths).
+pub fn default_config_dir_or_fallback() -> PathBuf {
+    default_config_dir().unwrap_or_else(|_| PathBuf::from(TOPCLAW_DIR_NAME))
+}
+
+/// Append the `.topclaw` suffix to an arbitrary home-directory path.
+///
+/// Used by `service::resolve_invoking_user_config_dir` which must resolve
+/// a *different* user's home (e.g. via `getent passwd` under `sudo`) and
+/// cannot call `default_config_dir()`.
+pub fn config_dir_for_home(home: &Path) -> PathBuf {
+    home.join(TOPCLAW_DIR_NAME)
 }
 
 fn active_workspace_state_path(marker_root: &Path) -> PathBuf {
@@ -296,5 +316,31 @@ mod tests {
             resolve_config_dir_for_workspace(dir.path());
         assert_eq!(config_dir_no_toml, config_dir_with_toml);
         assert_eq!(workspace_dir_no_toml, workspace_dir_with_toml);
+    }
+
+    #[test]
+    fn topclaw_dir_name_constant_matches_fallback() {
+        assert_eq!(TOPCLAW_DIR_NAME, ".topclaw");
+        let fallback = default_config_dir_or_fallback();
+        if let Some(home) = UserDirs::new().map(|u| u.home_dir().to_path_buf()) {
+            assert_eq!(fallback, home.join(".topclaw"));
+        } else {
+            assert_eq!(fallback, PathBuf::from(".topclaw"));
+        }
+    }
+
+    #[test]
+    fn config_dir_for_home_appends_topclaw_suffix() {
+        let home = PathBuf::from("/home/testuser");
+        let result = config_dir_for_home(&home);
+        assert_eq!(result, PathBuf::from("/home/testuser/.topclaw"));
+    }
+
+    #[test]
+    fn default_config_dir_or_fallback_uses_same_suffix_as_config_dir_for_home() {
+        let home = PathBuf::from("/tmp/fake_home");
+        let via_config_dir_for_home = config_dir_for_home(&home);
+        let via_constant = home.join(TOPCLAW_DIR_NAME);
+        assert_eq!(via_config_dir_for_home, via_constant);
     }
 }

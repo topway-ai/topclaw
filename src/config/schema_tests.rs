@@ -428,8 +428,6 @@ async fn config_toml_roundtrip() {
         },
         cron: CronConfig::default(),
 
-        identity: IdentityConfig::default(),
-
         channels_config: ChannelsConfig {
             cli: true,
             telegram: Some(TelegramConfig {
@@ -773,8 +771,6 @@ async fn config_save_and_load_tmpdir() {
         query_classification: QueryClassificationConfig::default(),
         heartbeat: HeartbeatConfig::default(),
         cron: CronConfig::default(),
-
-        identity: IdentityConfig::default(),
         channels_config: ChannelsConfig::default(),
         memory: MemoryConfig::default(),
         storage: StorageConfig::default(),

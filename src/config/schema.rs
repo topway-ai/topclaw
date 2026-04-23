@@ -19,7 +19,6 @@ use crate::config::GatewayConfig;
 use crate::config::HeartbeatConfig;
 use crate::config::HooksConfig;
 use crate::config::HttpRequestConfig;
-use crate::config::IdentityConfig;
 use crate::config::ModelProviderConfig;
 use crate::config::ModelRouteConfig;
 use crate::config::MultimodalConfig;
@@ -87,8 +86,8 @@ use self::schema_security::{
     default_syscall_anomaly_max_denied_events_per_minute,
     default_syscall_anomaly_max_total_events_per_minute,
 };
+pub use runtime_dirs::{config_dir_for_home, default_config_dir, default_config_dir_or_fallback};
 use runtime_dirs::{default_config_and_workspace_dirs, resolve_runtime_config_dirs};
-pub use runtime_dirs::default_config_dir;
 pub(crate) use runtime_dirs::{
     persist_active_workspace_config_dir, resolve_config_dir_for_workspace,
     resolve_runtime_dirs_for_onboarding,
@@ -265,10 +264,6 @@ pub struct Config {
     /// Proxy configuration for outbound HTTP/HTTPS/SOCKS5 traffic (`[proxy]`).
     #[serde(default)]
     pub proxy: ProxyConfig,
-
-    /// Identity format configuration (`[identity]`).
-    #[serde(default)]
-    pub identity: IdentityConfig,
 
     /// Cost tracking and budget enforcement configuration (`[cost]`).
     #[serde(default)]
@@ -449,8 +444,6 @@ pub struct MemoryConfig {
     /// None = wait indefinitely (default). Recommended max: 300.
     #[serde(default)]
     pub sqlite_open_timeout_secs: Option<u64>,
-
-
 }
 
 // ── Hooks ────────────────────────────────────────────────────────
@@ -754,8 +747,7 @@ pub struct SyscallAnomalyConfig {
 
 impl Default for Config {
     fn default() -> Self {
-        let topclaw_dir = default_config_dir()
-            .unwrap_or_else(|_| PathBuf::from(".topclaw"));
+        let topclaw_dir = default_config_dir_or_fallback();
 
         Self {
             workspace_dir: topclaw_dir.join("workspace"),
@@ -783,7 +775,6 @@ impl Default for Config {
             heartbeat: HeartbeatConfig::default(),
             cron: CronConfig::default(),
 
-            identity: IdentityConfig::default(),
             channels_config: ChannelsConfig::default(),
             memory: MemoryConfig::default(),
             storage: StorageConfig::default(),
@@ -814,8 +805,6 @@ fn config_dir_creation_error(path: &Path) -> String {
         path.display()
     )
 }
-
-
 
 impl Config {
     pub async fn load_or_init() -> Result<Self> {

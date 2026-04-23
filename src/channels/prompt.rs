@@ -3,7 +3,7 @@ use super::capability_detection::{
     looks_like_skill_workflow_request,
 };
 use super::BOOTSTRAP_MAX_CHARS;
-use crate::config::{Config, IdentityConfig, SkillsPromptInjectionMode};
+use crate::config::{Config, SkillsPromptInjectionMode};
 use std::fmt::Write;
 use std::path::Path;
 
@@ -381,9 +381,6 @@ pub(crate) fn build_current_turn_routing_hint(
 /// 6. Date & Time - timezone for cache stability
 /// 7. Runtime - host, OS, model
 ///
-/// When `identity_config` is set to AIEOS format, the bootstrap files section
-/// is replaced with the AIEOS identity data loaded from file or inline JSON.
-///
 /// Daily memory files (`memory/*.md`) are NOT injected - they are accessed
 /// on-demand via `memory_recall` / `memory_search` tools.
 #[allow(clippy::empty_line_after_doc_comments)]
@@ -392,7 +389,6 @@ pub fn build_system_prompt(
     model_name: &str,
     tools: &[(&str, &str)],
     skills: &[crate::skills::Skill],
-    identity_config: Option<&IdentityConfig>,
     bootstrap_max_chars: Option<usize>,
 ) -> String {
     build_system_prompt_with_mode(
@@ -400,7 +396,6 @@ pub fn build_system_prompt(
         model_name,
         tools,
         skills,
-        identity_config,
         bootstrap_max_chars,
         false,
         SkillsPromptInjectionMode::Full,
@@ -479,7 +474,6 @@ pub fn build_system_prompt_with_mode(
     model_name: &str,
     tools: &[(&str, &str)],
     skills: &[crate::skills::Skill],
-    identity_config: Option<&IdentityConfig>,
     bootstrap_max_chars: Option<usize>,
     native_tools: bool,
     skills_prompt_mode: SkillsPromptInjectionMode,
@@ -572,7 +566,6 @@ pub fn build_system_prompt_with_mode(
     append_project_context(
         &mut prompt,
         workspace_dir,
-        identity_config,
         bootstrap_max_chars.unwrap_or(BOOTSTRAP_MAX_CHARS),
     );
 
@@ -612,12 +605,7 @@ pub fn build_system_prompt_with_mode(
     }
 }
 
-fn append_project_context(
-    prompt: &mut String,
-    workspace_dir: &Path,
-    _identity_config: Option<&IdentityConfig>,
-    max_chars: usize,
-) {
+fn append_project_context(prompt: &mut String, workspace_dir: &Path, max_chars: usize) {
     load_bootstrap_files(prompt, workspace_dir, max_chars);
 }
 
@@ -815,7 +803,7 @@ mod desktop_automation_prompt_tests {
             ("computer_use", "Desktop automation tool"),
             ("web_fetch", "Fetch web pages"),
         ];
-        let prompt = build_system_prompt(tmp.path(), "test-model", &tools, &[], None, None);
+        let prompt = build_system_prompt(tmp.path(), "test-model", &tools, &[], None);
 
         assert!(
             prompt.contains("## Desktop Automation"),
@@ -840,7 +828,7 @@ mod desktop_automation_prompt_tests {
         let tmp = TempDir::new().unwrap();
         let tools: Vec<(&str, &str)> =
             vec![("web_fetch", "Fetch web pages"), ("shell", "Run commands")];
-        let prompt = build_system_prompt(tmp.path(), "test-model", &tools, &[], None, None);
+        let prompt = build_system_prompt(tmp.path(), "test-model", &tools, &[], None);
 
         // The positive routing hints must be absent
         assert!(
@@ -861,7 +849,7 @@ mod desktop_automation_prompt_tests {
     fn desktop_automation_routing_mentions_chrome_and_firefox() {
         let tmp = TempDir::new().unwrap();
         let tools: Vec<(&str, &str)> = vec![("computer_use", "Desktop automation tool")];
-        let prompt = build_system_prompt(tmp.path(), "test-model", &tools, &[], None, None);
+        let prompt = build_system_prompt(tmp.path(), "test-model", &tools, &[], None);
 
         assert!(
             prompt.contains("google-chrome"),

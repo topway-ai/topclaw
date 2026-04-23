@@ -4,6 +4,9 @@
 //! receiving a message, running the LLM tool-call loop, and delivering
 //! the response back to the channel.
 
+use super::channel_runtime_context::{
+    with_channel_runtime_context, ChannelRuntimeContext as ToolChannelRuntimeContext,
+};
 use crate::agent::loop_::{
     is_non_cli_approval_pending, lossless::LosslessContext,
     run_tool_call_loop_with_non_cli_approval_context, scrub_credentials, NonCliApprovalContext,
@@ -11,9 +14,6 @@ use crate::agent::loop_::{
 use crate::config::Config;
 use crate::observability::runtime_trace;
 use crate::providers::{self, ChatMessage};
-use crate::tools::channel_runtime_context::{
-    with_channel_runtime_context, ChannelRuntimeContext as ToolChannelRuntimeContext,
-};
 use crate::util::truncate_with_ellipsis;
 use serde_json::{json, Value};
 use std::collections::VecDeque;
@@ -40,10 +40,10 @@ use super::route_state::{
     set_sender_history,
 };
 use super::runtime_config::{
-    maybe_apply_runtime_config_update, runtime_config_path, runtime_defaults_snapshot,
-};
-use super::runtime_helpers::{
     build_runtime_tool_visibility_prompt, snapshot_non_cli_excluded_tools,
+};
+use super::runtime_config::{
+    maybe_apply_runtime_config_update, runtime_config_path, runtime_defaults_snapshot,
 };
 use super::sanitize::sanitize_channel_response;
 use super::traits::{self, SendMessage};

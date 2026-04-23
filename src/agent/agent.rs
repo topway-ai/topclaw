@@ -71,8 +71,6 @@ pub struct Agent {
     model_name: String,
     temperature: f64,
     workspace_dir: std::path::PathBuf,
-    #[allow(dead_code)]
-    identity_config: crate::config::IdentityConfig,
     skills: Vec<crate::skills::Skill>,
     skills_prompt_mode: crate::config::SkillsPromptInjectionMode,
     auto_save: bool,
@@ -98,7 +96,6 @@ pub struct AgentBuilder {
     model_name: Option<String>,
     temperature: Option<f64>,
     workspace_dir: Option<std::path::PathBuf>,
-    identity_config: Option<crate::config::IdentityConfig>,
     skills: Option<Vec<crate::skills::Skill>>,
     skills_prompt_mode: Option<crate::config::SkillsPromptInjectionMode>,
     auto_save: Option<bool>,
@@ -122,7 +119,6 @@ impl AgentBuilder {
             model_name: None,
             temperature: None,
             workspace_dir: None,
-            identity_config: None,
             skills: None,
             skills_prompt_mode: None,
             auto_save: None,
@@ -180,11 +176,6 @@ impl AgentBuilder {
 
     pub fn workspace_dir(mut self, workspace_dir: std::path::PathBuf) -> Self {
         self.workspace_dir = Some(workspace_dir);
-        self
-    }
-
-    pub fn identity_config(mut self, identity_config: crate::config::IdentityConfig) -> Self {
-        self.identity_config = Some(identity_config);
         self
     }
 
@@ -267,7 +258,6 @@ impl AgentBuilder {
             workspace_dir: self
                 .workspace_dir
                 .unwrap_or_else(|| std::path::PathBuf::from(".")),
-            identity_config: self.identity_config.unwrap_or_default(),
             skills: self.skills.unwrap_or_default(),
             skills_prompt_mode: self.skills_prompt_mode.unwrap_or_default(),
             auto_save: self.auto_save.unwrap_or(false),
@@ -365,7 +355,6 @@ impl Agent {
             .memory(execution.memory)
             .observer(observer)
             .tool_dispatcher(tool_dispatcher)
-
             .prompt_builder(SystemPromptBuilder::with_defaults())
             .config(config.agent.clone())
             .model_name(model_name)
@@ -374,7 +363,6 @@ impl Agent {
             .classification_config(config.query_classification.clone())
             .available_hints(available_hints)
             .route_model_by_hint(route_model_by_hint)
-            .identity_config(config.identity.clone())
             .skills(skills)
             .skills_prompt_mode(config.skills.prompt_injection_mode)
             .auto_save(config.memory.auto_save)
@@ -1044,22 +1032,45 @@ mod tests {
 
         #[async_trait]
         impl Memory for MockMemoryWithEntries {
-            async fn store(&self, _: &str, _: &str, _: MemoryCategory, _: Option<&str>) -> Result<()> {
+            async fn store(
+                &self,
+                _: &str,
+                _: &str,
+                _: MemoryCategory,
+                _: Option<&str>,
+            ) -> Result<()> {
                 Ok(())
             }
-            async fn recall(&self, _: &str, _: usize, _: Option<&str>) -> Result<Vec<crate::memory::MemoryEntry>> {
+            async fn recall(
+                &self,
+                _: &str,
+                _: usize,
+                _: Option<&str>,
+            ) -> Result<Vec<crate::memory::MemoryEntry>> {
                 Ok(self.entries.as_ref().clone())
             }
             async fn get(&self, _: &str) -> Result<Option<crate::memory::MemoryEntry>> {
                 Ok(None)
             }
-            async fn list(&self, _: Option<&MemoryCategory>, _: Option<&str>) -> Result<Vec<crate::memory::MemoryEntry>> {
+            async fn list(
+                &self,
+                _: Option<&MemoryCategory>,
+                _: Option<&str>,
+            ) -> Result<Vec<crate::memory::MemoryEntry>> {
                 Ok(vec![])
             }
-            async fn forget(&self, _: &str) -> Result<bool> { Ok(true) }
-            async fn count(&self) -> Result<usize> { Ok(self.entries.len()) }
-            async fn health_check(&self) -> bool { true }
-            fn name(&self) -> &str { "mock" }
+            async fn forget(&self, _: &str) -> Result<bool> {
+                Ok(true)
+            }
+            async fn count(&self) -> Result<usize> {
+                Ok(self.entries.len())
+            }
+            async fn health_check(&self) -> bool {
+                true
+            }
+            fn name(&self) -> &str {
+                "mock"
+            }
         }
 
         let memory = MockMemoryWithEntries {
@@ -1085,7 +1096,9 @@ mod tests {
             ]),
         };
 
-        let context = load_memory_context(&memory, "answer style", 5, 0.0).await.unwrap();
+        let context = load_memory_context(&memory, "answer style", 5, 0.0)
+            .await
+            .unwrap();
         assert!(context.contains("user_fact"));
         assert!(!context.contains("assistant_resp_legacy"));
         assert!(!context.contains("should be skipped"));
@@ -1100,39 +1113,62 @@ mod tests {
 
         #[async_trait]
         impl Memory for MockMemoryFormatting {
-            async fn store(&self, _: &str, _: &str, _: MemoryCategory, _: Option<&str>) -> Result<()> {
+            async fn store(
+                &self,
+                _: &str,
+                _: &str,
+                _: MemoryCategory,
+                _: Option<&str>,
+            ) -> Result<()> {
                 Ok(())
             }
-            async fn recall(&self, _: &str, _: usize, _: Option<&str>) -> Result<Vec<crate::memory::MemoryEntry>> {
+            async fn recall(
+                &self,
+                _: &str,
+                _: usize,
+                _: Option<&str>,
+            ) -> Result<Vec<crate::memory::MemoryEntry>> {
                 Ok(self.entries.as_ref().clone())
             }
             async fn get(&self, _: &str) -> Result<Option<crate::memory::MemoryEntry>> {
                 Ok(None)
             }
-            async fn list(&self, _: Option<&MemoryCategory>, _: Option<&str>) -> Result<Vec<crate::memory::MemoryEntry>> {
+            async fn list(
+                &self,
+                _: Option<&MemoryCategory>,
+                _: Option<&str>,
+            ) -> Result<Vec<crate::memory::MemoryEntry>> {
                 Ok(vec![])
             }
-            async fn forget(&self, _: &str) -> Result<bool> { Ok(true) }
-            async fn count(&self) -> Result<usize> { Ok(self.entries.len()) }
-            async fn health_check(&self) -> bool { true }
-            fn name(&self) -> &str { "mock" }
+            async fn forget(&self, _: &str) -> Result<bool> {
+                Ok(true)
+            }
+            async fn count(&self) -> Result<usize> {
+                Ok(self.entries.len())
+            }
+            async fn health_check(&self) -> bool {
+                true
+            }
+            fn name(&self) -> &str {
+                "mock"
+            }
         }
 
         let memory = MockMemoryFormatting {
-            entries: Arc::new(vec![
-                crate::memory::MemoryEntry {
-                    id: "1".into(),
-                    key: "project_name".into(),
-                    content: "TopClaw CLI".into(),
-                    category: MemoryCategory::Daily,
-                    timestamp: "2025-01-15".into(),
-                    session_id: None,
-                    score: Some(0.85),
-                },
-            ]),
+            entries: Arc::new(vec![crate::memory::MemoryEntry {
+                id: "1".into(),
+                key: "project_name".into(),
+                content: "TopClaw CLI".into(),
+                category: MemoryCategory::Daily,
+                timestamp: "2025-01-15".into(),
+                session_id: None,
+                score: Some(0.85),
+            }]),
         };
 
-        let context = load_memory_context(&memory, "project name", 5, 0.0).await.unwrap();
+        let context = load_memory_context(&memory, "project name", 5, 0.0)
+            .await
+            .unwrap();
         assert!(context.starts_with("[Memory context]"));
         assert!(context.contains("- project_name: TopClaw CLI"));
         // Trailing newline
@@ -1148,22 +1184,45 @@ mod tests {
 
         #[async_trait]
         impl Memory for MockMemoryWithScores {
-            async fn store(&self, _: &str, _: &str, _: MemoryCategory, _: Option<&str>) -> Result<()> {
+            async fn store(
+                &self,
+                _: &str,
+                _: &str,
+                _: MemoryCategory,
+                _: Option<&str>,
+            ) -> Result<()> {
                 Ok(())
             }
-            async fn recall(&self, _: &str, _: usize, _: Option<&str>) -> Result<Vec<crate::memory::MemoryEntry>> {
+            async fn recall(
+                &self,
+                _: &str,
+                _: usize,
+                _: Option<&str>,
+            ) -> Result<Vec<crate::memory::MemoryEntry>> {
                 Ok(self.entries.as_ref().clone())
             }
             async fn get(&self, _: &str) -> Result<Option<crate::memory::MemoryEntry>> {
                 Ok(None)
             }
-            async fn list(&self, _: Option<&MemoryCategory>, _: Option<&str>) -> Result<Vec<crate::memory::MemoryEntry>> {
+            async fn list(
+                &self,
+                _: Option<&MemoryCategory>,
+                _: Option<&str>,
+            ) -> Result<Vec<crate::memory::MemoryEntry>> {
                 Ok(vec![])
             }
-            async fn forget(&self, _: &str) -> Result<bool> { Ok(true) }
-            async fn count(&self) -> Result<usize> { Ok(self.entries.len()) }
-            async fn health_check(&self) -> bool { true }
-            fn name(&self) -> &str { "mock" }
+            async fn forget(&self, _: &str) -> Result<bool> {
+                Ok(true)
+            }
+            async fn count(&self) -> Result<usize> {
+                Ok(self.entries.len())
+            }
+            async fn health_check(&self) -> bool {
+                true
+            }
+            fn name(&self) -> &str {
+                "mock"
+            }
         }
 
         let memory = MockMemoryWithScores {

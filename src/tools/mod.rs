@@ -25,7 +25,6 @@ pub mod bootstrap;
 #[cfg(feature = "browser-native")]
 pub mod browser;
 pub mod browser_open;
-pub mod channel_runtime_context;
 pub mod cli_discovery;
 #[cfg(feature = "tool-composio")]
 pub mod composio;
@@ -53,8 +52,7 @@ pub mod git_operations;
 pub mod glob_search;
 pub mod http_request;
 pub mod image_info;
-pub mod lossless_describe;
-pub mod lossless_search;
+pub mod lossless;
 pub mod memory_forget;
 pub mod memory_recall;
 pub mod memory_store;
@@ -109,8 +107,7 @@ pub use git_operations::GitOperationsTool;
 pub use glob_search::GlobSearchTool;
 pub use http_request::HttpRequestTool;
 pub use image_info::ImageInfoTool;
-pub use lossless_describe::LosslessDescribeTool;
-pub use lossless_search::LosslessSearchTool;
+pub use lossless::{LosslessDescribeTool, LosslessSearchTool};
 pub use memory_forget::MemoryForgetTool;
 pub use memory_recall::MemoryRecallTool;
 pub use memory_store::MemoryStoreTool;

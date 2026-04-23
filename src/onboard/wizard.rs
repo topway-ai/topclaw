@@ -235,7 +235,6 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         web_fetch: WebFetchConfig::default(),
         web_search: WebSearchConfig::default(),
         proxy: crate::config::ProxyConfig::default(),
-        identity: crate::config::IdentityConfig::default(),
         cost: crate::config::CostConfig::default(),
         agents: std::collections::HashMap::new(),
         hooks: crate::config::HooksConfig::default(),
@@ -648,7 +647,7 @@ pub async fn run_quick_setup(
     .await
 }
 
-fn resolve_quick_setup_dirs_with_home(home: &Path) -> (PathBuf, PathBuf) {
+fn resolve_quick_setup_dirs_with_home(_home: &Path) -> (PathBuf, PathBuf) {
     if let Ok(custom_config_dir) = std::env::var("TOPCLAW_CONFIG_DIR") {
         let trimmed = custom_config_dir.trim();
         if !trimmed.is_empty() {
@@ -666,7 +665,7 @@ fn resolve_quick_setup_dirs_with_home(home: &Path) -> (PathBuf, PathBuf) {
         }
     }
 
-    let config_dir = crate::config::default_config_dir().unwrap_or_else(|_| home.join(".topclaw"));
+    let config_dir = crate::config::default_config_dir_or_fallback();
     (config_dir.clone(), config_dir.join("workspace"))
 }
 
@@ -767,7 +766,6 @@ async fn run_quick_setup_with_home(
         web_fetch: crate::config::WebFetchConfig::default(),
         web_search: crate::config::WebSearchConfig::default(),
         proxy: crate::config::ProxyConfig::default(),
-        identity: crate::config::IdentityConfig::default(),
         cost: crate::config::CostConfig::default(),
         agents: std::collections::HashMap::new(),
         hooks: crate::config::HooksConfig::default(),

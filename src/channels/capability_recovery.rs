@@ -3,7 +3,7 @@ use super::capability_detection::{
     looks_like_file_write_task, looks_like_remote_repo_review_request, looks_like_shell_task,
     looks_like_web_task, should_try_llm_capability_recovery,
 };
-use super::runtime_helpers::exclusion_set;
+use super::runtime_config::exclusion_set;
 use super::{traits, ChannelRuntimeContext};
 use crate::approval::{ApprovalManager, PendingNonCliResumeRequest};
 use crate::providers::Provider;
