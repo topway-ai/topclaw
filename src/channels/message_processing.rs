@@ -22,7 +22,8 @@ use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
 use super::capability_detection::{
-    looks_like_desktop_computer_use_task, looks_like_repo_metrics_task,
+    build_local_capability_response, looks_like_desktop_computer_use_task,
+    looks_like_repo_metrics_task, should_answer_local_capability_response_immediately,
     should_try_llm_capability_recovery,
 };
 use super::capability_recovery::{

@@ -186,22 +186,12 @@ pub(crate) async fn persist_active_workspace_config_dir(config_dir: &Path) -> Re
 
 /// Resolve the config directory for a given workspace directory.
 ///
-/// This function handles two cases:
-/// 1. The workspace directory itself contains `config.toml` — use it directly.
-/// 2. No `config.toml` found — treat the workspace directory as the config root.
-///
-/// The legacy fallback that checked `../.topclaw/config.toml` has been removed
-/// in the current-version-only state model. Users who relied on that layout
-/// should migrate their config to the workspace directory directly.
+/// Returns `(workspace_dir, workspace_dir/workspace)` unconditionally.
+/// The legacy fallback that checked `../.topclaw/config.toml` has been removed,
+/// and the dead `if config.toml exists` branch (which returned the same values
+/// in both arms) has been collapsed.
 pub(crate) fn resolve_config_dir_for_workspace(workspace_dir: &Path) -> (PathBuf, PathBuf) {
     let workspace_config_dir = workspace_dir.to_path_buf();
-    if workspace_config_dir.join("config.toml").exists() {
-        return (
-            workspace_config_dir.clone(),
-            workspace_config_dir.join("workspace"),
-        );
-    }
-
     (
         workspace_config_dir.clone(),
         workspace_config_dir.join("workspace"),
@@ -281,4 +271,30 @@ pub(super) async fn resolve_runtime_config_dirs(
         default_workspace_dir.to_path_buf(),
         ConfigResolutionSource::DefaultConfigDir,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn resolve_config_dir_returns_workspace_dir_and_workspace_subdir() {
+        let dir = PathBuf::from("/tmp/my_workspace");
+        let (config_dir, workspace_dir) = resolve_config_dir_for_workspace(&dir);
+        assert_eq!(config_dir, PathBuf::from("/tmp/my_workspace"));
+        assert_eq!(workspace_dir, PathBuf::from("/tmp/my_workspace/workspace"));
+    }
+
+    #[test]
+    fn resolve_config_dir_does_not_branch_on_config_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let (config_dir_no_toml, workspace_dir_no_toml) =
+            resolve_config_dir_for_workspace(dir.path());
+        let _ = std::fs::File::create(dir.path().join("config.toml"));
+        let (config_dir_with_toml, workspace_dir_with_toml) =
+            resolve_config_dir_for_workspace(dir.path());
+        assert_eq!(config_dir_no_toml, config_dir_with_toml);
+        assert_eq!(workspace_dir_no_toml, workspace_dir_with_toml);
+    }
 }

@@ -5,7 +5,7 @@
 //! bootstrap is a Linux-specific system provisioning task, while computer_use
 //! is the actual desktop automation tool.
 
-use crate::tools::traits::ToolResult;
+use crate::tools::traits::{tool_fail, ToolResult};
 use std::io::IsTerminal;
 use std::process::Stdio;
 use tracing::info;
@@ -297,11 +297,7 @@ fn install_command_string(manager: &str, pkgs: &[&str]) -> String {
 }
 
 fn fail(msg: &str) -> ToolResult {
-    ToolResult {
-        success: false,
-        output: String::new(),
-        error: Some(msg.to_string()),
-    }
+    tool_fail(msg)
 }
 
 /// Check if sudo can run non-interactively (NOPASSWD or cached credential).

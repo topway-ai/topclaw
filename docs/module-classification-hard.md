@@ -62,10 +62,12 @@ classified into exactly one category. No vague wording. No preserved aliases.
 - **Why it exists:** Telegram, Discord, CLI channel runtimes. Primary user interaction.
 - **Current mainline needed:** Yes — channels are the primary runtime for most users.
 - **Legacy burden:** 22 files. Many files could collapse. `command_handler.rs`, `runtime_commands.rs`,
-  `runtime_config.rs`, `runtime_help.rs`, `runtime_helpers.rs` — all thin helpers that could merge.
-  `dispatch.rs`, `factory.rs` — core, keep.
-  `message_processing.rs` — core, keep.
-  `transcription.rs`, `runtime_config.rs` — could be inline in factory.
+`runtime_config.rs`, `runtime_help.rs`, `runtime_helpers.rs` — all thin helpers that could merge.
+`dispatch.rs`, `factory.rs` — core, keep.
+`message_processing.rs` — core, keep.
+`transcription.rs`, `runtime_config.rs` — could be inline in factory.
+- **Completed refactors (this session):**
+- Moved `build_local_capability_response`, `should_answer_local_capability_response_immediately`, and `extract_loaded_skill_names_from_system_prompt` from `helpers.rs` to `capability_detection.rs` — capability response functions belong with capability detection, not in a generic helpers file
 - **Next action:** Keep but narrow. Collapse runtime_* helpers into fewer files.
   Merge `runtime_config.rs` + `runtime_commands.rs` into `dispatch.rs`.
 - **Files/dirs:** `cli.rs`, `command_handler.rs`, `context.rs`, `discord.rs`, `dispatch.rs`,
@@ -91,6 +93,9 @@ classified into exactly one category. No vague wording. No preserved aliases.
   `proxy.rs` — moderate, keep.
   `browser_domain_grants.rs` — MERGED into BrowserAllowlist (BrowserAllowlist owns grants logic).
 - **Completed refactors:** `browser_domain_grants.rs` removed; BrowserAllowlist owns grants.
+- **Completed refactors (this session):**
+- Dead `if/else` branch in `resolve_config_dir_for_workspace()` collapsed — both arms returned identical values
+- Legacy `channels_except_webhook()` alias deleted from `schema_channels.rs` — zero callers
 - **Next action:** Keep but narrow. Move `estop-state.json` logic to config if safe.
 - **Files/dirs:** 40+ files — see `src/config/` tree
 - **Risk:** MEDIUM — config changes affect everything. Validate with schema tests.
@@ -321,32 +326,32 @@ classified into exactly one category. No vague wording. No preserved aliases.
 - **Assessment (this pass):** Structure is now cleaner with proper separation:
   - `computer_use.rs` — tool facade, delegates HTTP to `sidecar_client::post_sidecar_action()`
   - `bootstrap.rs` — ~350 lines, Linux desktop helper detection/installation
-  - `sidecar_client.rs` — shared utilities (health probe, spawn, URL, action POST)
+  - `sidecar_client.rs` — shared utilities (health probe, spawn, URL, action POST, **validation**, **response parsing**, **payload construction**, **backend detection**)
   - `sidecar/server.rs` — Clean axum router
   - `sidecar/linux.rs` — Clean action handlers
-- **Completed refactors (this pass):**
-  - `bootstrap.rs` extracted from `computer_use.rs` (Linux helper detection, package
-    manager detection, sudo handling)
-  - Bootstrap re-exports in `computer_use.rs` REMOVED — callers now import
-    `tools::bootstrap` directly (doctor, main.rs, onboard/wizard.rs)
-  - Duplicate sidecar HTTP client in `browser.rs` REPLACED with delegation to
-    `sidecar_client::post_sidecar_action()` — single implementation
-  - `browser.rs` `endpoint_reachable()` (raw TCP check) REPLACED with
-    `sidecar_client::probe_health()` (proper HTTP /health check)
+- **Completed refactors (this pass + previous):**
+  - `bootstrap.rs` extracted from `computer_use.rs` (Linux helper detection, package manager detection, sudo handling)
+  - Bootstrap re-exports in `computer_use.rs` REMOVED — callers now import `tools::bootstrap` directly
+  - Duplicate sidecar HTTP client in `browser.rs` REPLACED with delegation to `sidecar_client::post_sidecar_action()`
+  - `browser.rs` `endpoint_reachable()` (raw TCP check) REPLACED with `sidecar_client::probe_health()`
   - `computer_use_available()` made async to support HTTP health probe
-  - `allowed_domains` added to `computer_use.rs` policy envelope (was missing;
-    sidecar protocol expects it)
-  - `key_press` character validation aligned: `browser.rs` removed `-` from
-    allowed set → now `[A-Za-z0-9_+]` matching sidecar's `key_name_ok`
+  - `allowed_domains` added to `computer_use.rs` policy envelope (was missing; sidecar protocol expects it)
+  - `key_press` character validation aligned: `browser.rs` removed `-` from allowed set → now `[A-Za-z0-9_+]` matching sidecar's `key_name_ok`
   - Defense-in-depth `key_press` validation added in `computer_use.rs`
-  - `fn fail()` consolidated into `tool_fail()` in `traits.rs`
+  - `fn fail()` consolidated into `tool_fail()` in `traits.rs` (both `computer_use.rs` and `bootstrap.rs`)
   - Health-poll loop consolidated into `wait_for_healthy()` in `sidecar_client.rs`
-  - Dead code deleted: `endpoint_reachable()`, `ComputerUseResponse` struct in
-    `browser.rs`; `http_client()` method and `Duration` import in `computer_use.rs`
-- **Next action:** Keep as-is. Structure is now honest for current product shape.
+  - Dead code deleted: `endpoint_reachable()`, `ComputerUseResponse` struct in `browser.rs`; `http_client()` method and `Duration` import in `computer_use.rs`
+  - **This session:** Duplicate action validation consolidated into `sidecar_client::validate_computer_use_action()` — browser.rs limits (256-char app, 32-char key_press, 4096-char text, coordinate bounds) are now canonical
+  - **This session:** Duplicate response parsing consolidated into `sidecar_client::parse_sidecar_response()` — `success` field now defaults to `false` (fail-closed) instead of divergent `unwrap_or(true)` in browser.rs vs `unwrap_or(false)` in computer_use.rs
+  - **This session:** Duplicate envelope construction consolidated into `sidecar_client::build_sidecar_payload()` — both tools now send consistent payloads
+  - **This session:** Duplicate backend string matching in `doctor/mod.rs` replaced with `sidecar_client::is_computer_use_backend()`
+  - **This session:** Hardcoded health URL in `computer_use_sidecar_start.rs` replaced with `sidecar_client::derive_health_url()`
+  - **This session:** Duplicate `desktop_helper_probe_is_structured` test removed from `computer_use.rs` (canonical copy in `bootstrap.rs`)
+  - **This session:** `browser.rs` removed duplicate `validate_coordinate()` and `read_required_i64()` methods
+  - **Next action:** Keep as-is. Structure is now honest for current product shape.
 - **Files/dirs:** `mod.rs`, `server.rs`, `linux.rs`
 - **Risk:** MEDIUM — sidecar handles desktop automation.
-- **Tests required:** Sidecar server tests, sidecar_client unit tests, key_press validation tests.
+- **Tests required:** Sidecar server tests, sidecar_client unit tests, key_press validation tests, parse_sidecar_response tests, validate_computer_use_action tests, build_sidecar_payload tests, is_computer_use_backend tests.
 
 ---
 
@@ -489,6 +494,19 @@ No merges needed — current boundaries are honest for current product shape.
 | `computer_use.rs` bootstrap re-exports | DELETED | Callers now import `tools::bootstrap` directly |
 | `computer_use.rs` duplicate `fn fail()` | DELETED | Consolidated into `tool_fail()` in `traits.rs` |
 | `computer_use.rs` + `computer_use_sidecar_start.rs` duplicate health-poll loops | DELETED | Consolidated into `wait_for_healthy()` in `sidecar_client.rs` |
+| `browser.rs` duplicate `validate_computer_use_action()` | DELETED | Consolidated into `sidecar_client::validate_computer_use_action()` — browser.rs limits are canonical |
+| `browser.rs` duplicate `validate_coordinate()` / `read_required_i64()` | DELETED | Replaced by shared functions in `sidecar_client.rs` |
+| `browser.rs` duplicate response parsing (`unwrap_or(true)`) | DELETED | Consolidated into `sidecar_client::parse_sidecar_response()` — now defaults to `false` (fail-closed) |
+| `browser.rs` duplicate envelope construction | DELETED | Consolidated into `sidecar_client::build_sidecar_payload()` |
+| `computer_use.rs` duplicate `policy_envelope()` / `metadata_envelope()` | DELETED | Replaced by `sidecar_client::build_sidecar_payload()` |
+| `computer_use.rs` duplicate response parsing (`unwrap_or(false)`) | DELETED | Consolidated into `sidecar_client::parse_sidecar_response()` |
+| `computer_use.rs` duplicate `desktop_helper_probe_is_structured` test | DELETED | Canonical copy in `bootstrap.rs` |
+| `bootstrap.rs` hand-rolled `fn fail()` | DELETED | Now delegates to `tool_fail()` from `traits.rs` |
+| `computer_use_sidecar_start.rs` hardcoded health URL | DELETED | Replaced by `sidecar_client::derive_health_url()` |
+| `doctor/mod.rs` duplicate backend string matching | DELETED | Replaced by `sidecar_client::is_computer_use_backend()` |
+| `channels/helpers.rs` capability response functions | MOVED | `build_local_capability_response`, `should_answer_local_capability_response_immediately`, `extract_loaded_skill_names_from_system_prompt` moved to `capability_detection.rs` |
+| `config/schema_runtime_dirs.rs` dead branch | DELETED | `resolve_config_dir_for_workspace()` collapsed — both arms returned identical values |
+| `config/schema_channels.rs` legacy alias | DELETED | `channels_except_webhook()` — zero callers |
 
 ## Merge List (this pass)
 
@@ -525,6 +543,8 @@ Current resolution order: `TOPCLAW_CONFIG_DIR` > `TOPCLAW_WORKSPACE` > active_wo
 ## Summary
 
 **Delete (this pass):** `tools/schedule.rs` (791 lines), `browser.rs` duplicate HTTP client, `endpoint_reachable()`, `ComputerUseResponse`, `computer_use.rs` `http_client()`, bootstrap re-exports, duplicate `fn fail()`, duplicate health-poll loops
+**Delete (this session):** `browser.rs` duplicate `validate_computer_use_action()`, `validate_coordinate()`, `read_required_i64()`, response parsing, envelope construction; `computer_use.rs` duplicate `policy_envelope()`, `metadata_envelope()`, response parsing, duplicate test; `bootstrap.rs` hand-rolled `fail()`; `computer_use_sidecar_start.rs` hardcoded health URL; `doctor/mod.rs` duplicate backend string matching; `config/schema_runtime_dirs.rs` dead branch; `config/schema_channels.rs` legacy alias
+**Move (this session):** `build_local_capability_response`, `should_answer_local_capability_response_immediately`, `extract_loaded_skill_names_from_system_prompt` from `helpers.rs` → `capability_detection.rs`
 **Merge:** None — all tool files have distinct purposes and clear ownership
 **Split (this pass):**
 - `computer_use.rs` bootstrap logic → extracted to `bootstrap.rs` (~350 lines)

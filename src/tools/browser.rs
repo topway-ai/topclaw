@@ -708,32 +708,6 @@ impl BrowserTool {
         }
     }
 
-    fn validate_coordinate(&self, key: &str, value: i64, max: Option<i64>) -> anyhow::Result<()> {
-        if value < 0 {
-            anyhow::bail!("'{key}' must be >= 0")
-        }
-        if let Some(limit) = max {
-            if limit < 0 {
-                anyhow::bail!("Configured coordinate limit for '{key}' must be >= 0")
-            }
-            if value > limit {
-                anyhow::bail!("'{key}'={value} exceeds configured limit {limit}")
-            }
-        }
-        Ok(())
-    }
-
-    fn read_required_i64(
-        &self,
-        params: &serde_json::Map<String, Value>,
-        key: &str,
-    ) -> anyhow::Result<i64> {
-        params
-            .get(key)
-            .and_then(Value::as_i64)
-            .ok_or_else(|| anyhow::anyhow!("Missing or invalid '{key}' parameter"))
-    }
-
     fn validate_output_path(&self, key: &str, path: &str) -> anyhow::Result<()> {
         let trimmed = path.trim();
         if trimmed.is_empty() {
@@ -789,124 +763,19 @@ impl BrowserTool {
         action: &str,
         params: &serde_json::Map<String, Value>,
     ) -> anyhow::Result<()> {
-        match action {
-            "open" => {
-                params
-                    .get("url")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'url' for open action"))?;
+        if action == "screen_capture" {
+            if let Some(path) = params.get("path").and_then(Value::as_str) {
+                self.validate_output_path("path", path)?;
             }
-            "mouse_move" | "mouse_click" => {
-                let x = self.read_required_i64(params, "x")?;
-                let y = self.read_required_i64(params, "y")?;
-                self.validate_coordinate("x", x, self.computer_use.max_coordinate_x)?;
-                self.validate_coordinate("y", y, self.computer_use.max_coordinate_y)?;
-            }
-            "mouse_drag" => {
-                let from_x = self.read_required_i64(params, "from_x")?;
-                let from_y = self.read_required_i64(params, "from_y")?;
-                let to_x = self.read_required_i64(params, "to_x")?;
-                let to_y = self.read_required_i64(params, "to_y")?;
-                self.validate_coordinate("from_x", from_x, self.computer_use.max_coordinate_x)?;
-                self.validate_coordinate("to_x", to_x, self.computer_use.max_coordinate_x)?;
-                self.validate_coordinate("from_y", from_y, self.computer_use.max_coordinate_y)?;
-                self.validate_coordinate("to_y", to_y, self.computer_use.max_coordinate_y)?;
-            }
-            "key_type" => {
-                let text = params
-                    .get("text")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'text' for key_type action"))?;
-                if text.trim().is_empty() {
-                    anyhow::bail!("'text' for key_type must not be empty");
-                }
-                if text.len() > 4096 {
-                    anyhow::bail!("'text' for key_type exceeds maximum length (4096 chars)");
-                }
-            }
-            "key_press" => {
-                let key = params
-                    .get("key")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'key' for key_press action"))?;
-                let valid = !key.trim().is_empty()
-                    && key.len() <= 32
-                    && key
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '+'));
-                if !valid {
-                    anyhow::bail!("'key' for key_press must be 1-32 chars of [A-Za-z0-9_+]");
-                }
-            }
-            "screen_capture" => {
-                if let Some(path) = params.get("path").and_then(Value::as_str) {
-                    self.validate_output_path("path", path)?;
-                }
-            }
-            "window_list" => {
-                if let Some(query) = params.get("query").and_then(Value::as_str) {
-                    if query.len() > 256 {
-                        anyhow::bail!("'query' for window_list exceeds maximum length (256 chars)");
-                    }
-                }
-            }
-            "window_focus" | "window_close" => {
-                let has_window_id = params
-                    .get("window_id")
-                    .and_then(Value::as_str)
-                    .is_some_and(|value| !value.trim().is_empty() && value.len() <= 128);
-                let has_window_title = params
-                    .get("window_title")
-                    .and_then(Value::as_str)
-                    .is_some_and(|value| !value.trim().is_empty() && value.len() <= 256);
-                let has_app = params
-                    .get("app")
-                    .and_then(Value::as_str)
-                    .is_some_and(|value| !value.trim().is_empty() && value.len() <= 256);
-                if !(has_window_id || has_window_title || has_app) {
-                    anyhow::bail!("'{action}' requires one of: window_id, window_title, or app");
-                }
-            }
-            "app_launch" => {
-                let app = params
-                    .get("app")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'app' for app_launch action"))?;
-                if app.trim().is_empty() || app.len() > 256 {
-                    anyhow::bail!("'app' for app_launch must be 1-256 chars");
-                }
-                if let Some(arguments) = params.get("args") {
-                    let args = arguments
-                        .as_array()
-                        .ok_or_else(|| anyhow::anyhow!("'args' for app_launch must be an array"))?;
-                    if args.len() > 32 {
-                        anyhow::bail!("'args' for app_launch exceeds maximum length (32 items)");
-                    }
-                    for arg in args {
-                        let value = arg.as_str().ok_or_else(|| {
-                            anyhow::anyhow!("all 'args' entries for app_launch must be strings")
-                        })?;
-                        if value.len() > 256 {
-                            anyhow::bail!(
-                                "an app_launch argument exceeds maximum length (256 chars)"
-                            );
-                        }
-                    }
-                }
-            }
-            "app_terminate" => {
-                let has_app = params
-                    .get("app")
-                    .and_then(Value::as_str)
-                    .is_some_and(|value| !value.trim().is_empty() && value.len() <= 256);
-                let has_pid = params.get("pid").and_then(Value::as_i64).is_some();
-                if !(has_app || has_pid) {
-                    anyhow::bail!("'app_terminate' requires either 'app' or 'pid'");
-                }
-            }
-            _ => {}
+            return Ok(());
         }
-        Ok(())
+        super::sidecar_client::validate_computer_use_action(
+            action,
+            params,
+            self.computer_use.max_coordinate_x,
+            self.computer_use.max_coordinate_y,
+        )
+        .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     async fn execute_computer_use_action(
@@ -933,22 +802,16 @@ impl BrowserTool {
             }
         }
 
-        let payload = json!({
-            "action": action,
-            "params": params,
-            "policy": {
-                "allowed_domains": self.allowed_domains.read().clone(),
-                "window_allowlist": self.computer_use.window_allowlist,
-                "max_coordinate_x": self.computer_use.max_coordinate_x,
-                "max_coordinate_y": self.computer_use.max_coordinate_y,
-            },
-            "metadata": {
-                "session_name": self.session_name,
-                "source": "topclaw.browser",
-                "version": env!("CARGO_PKG_VERSION"),
-                "platform": std::env::consts::OS,
-            }
-        });
+        let payload = super::sidecar_client::build_sidecar_payload(
+            action,
+            Value::Object(params),
+            &self.allowed_domains.read().clone(),
+            &self.computer_use.window_allowlist,
+            self.computer_use.max_coordinate_x,
+            self.computer_use.max_coordinate_y,
+            self.session_name.as_deref(),
+            "topclaw.browser",
+        );
 
         let response = super::sidecar_client::post_sidecar_action(
             endpoint.as_str(),
@@ -959,23 +822,19 @@ impl BrowserTool {
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        let success = response
-            .get("success")
-            .and_then(Value::as_bool)
-            .unwrap_or(true);
+        let (success, data, error) = super::sidecar_client::parse_sidecar_response(&response);
 
         if success {
-            let output = response
-                .get("data")
-                .map(|data| serde_json::to_string_pretty(data).unwrap_or_default())
-                .unwrap_or_else(|| {
-                    serde_json::to_string_pretty(&json!({
-                        "backend": "computer_use",
-                        "action": action,
-                        "ok": true,
-                    }))
-                    .unwrap_or_default()
-                });
+            let output = if data.is_null() {
+                serde_json::to_string_pretty(&json!({
+                    "backend": "computer_use",
+                    "action": action,
+                    "ok": true,
+                }))
+                .unwrap_or_default()
+            } else {
+                serde_json::to_string_pretty(&data).unwrap_or_default()
+            };
             return Ok(ToolResult {
                 success: true,
                 output,
@@ -983,16 +842,10 @@ impl BrowserTool {
             });
         }
 
-        let error = response
-            .get("error")
-            .and_then(Value::as_str)
-            .map(String::from)
-            .unwrap_or_else(|| "computer-use sidecar returned success=false".to_string());
-
         Ok(ToolResult {
             success: false,
             output: String::new(),
-            error: Some(error),
+            error,
         })
     }
 

@@ -52,6 +52,7 @@ fn required_helpers(action: &str) -> &'static [&'static str] {
 pub struct ComputerUseTool {
     security: Arc<SecurityPolicy>,
     config: BrowserComputerUseConfig,
+    allowed_domains: Vec<String>,
     topclaw_dir: PathBuf,
     session_name: Option<String>,
 }
@@ -60,12 +61,14 @@ impl ComputerUseTool {
     pub fn new(
         security: Arc<SecurityPolicy>,
         config: BrowserComputerUseConfig,
+        allowed_domains: Vec<String>,
         topclaw_dir: PathBuf,
         session_name: Option<String>,
     ) -> Self {
         Self {
             security,
             config,
+            allowed_domains,
             topclaw_dir,
             session_name,
         }
@@ -75,22 +78,17 @@ impl ComputerUseTool {
         sidecar_client::derive_health_url(&self.config.endpoint)
     }
 
-    fn policy_envelope(&self) -> Value {
-        json!({
-            "allowed_domains": Vec::<String>::new(),
-            "window_allowlist": self.config.window_allowlist,
-            "max_coordinate_x": self.config.max_coordinate_x,
-            "max_coordinate_y": self.config.max_coordinate_y,
-        })
-    }
-
-    fn metadata_envelope(&self) -> Value {
-        json!({
-            "source": "topclaw.computer_use",
-            "version": env!("CARGO_PKG_VERSION"),
-            "platform": std::env::consts::OS,
-            "session_name": self.session_name,
-        })
+    fn post_action_payload(&self, action: &str, params: Value) -> Value {
+        sidecar_client::build_sidecar_payload(
+            action,
+            params,
+            &self.allowed_domains,
+            &self.config.window_allowlist,
+            self.config.max_coordinate_x,
+            self.config.max_coordinate_y,
+            self.session_name.as_deref(),
+            "topclaw.computer_use",
+        )
     }
 
     /// Ensure the sidecar is healthy. If not and `auto_start` is on, spawn
@@ -131,12 +129,7 @@ impl ComputerUseTool {
     }
 
     async fn post_action(&self, action: &str, params: Value) -> Result<Value, String> {
-        let body = json!({
-            "action": action,
-            "params": params,
-            "policy": self.policy_envelope(),
-            "metadata": self.metadata_envelope(),
-        });
+        let body = self.post_action_payload(action, params);
         sidecar_client::post_sidecar_action(
             &self.config.endpoint,
             self.config.api_key.as_deref(),
@@ -422,16 +415,13 @@ impl Tool for ComputerUseTool {
             Err(e) => return Ok(fail(&e)),
         };
 
-        let success = response
-            .get("success")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
+        let (success, _data, error) = sidecar_client::parse_sidecar_response(&response);
         if !success {
-            let err = response
-                .get("error")
-                .and_then(Value::as_str)
-                .unwrap_or("sidecar reported failure without message");
-            return Ok(fail(err));
+            return Ok(fail(
+                error
+                    .as_deref()
+                    .unwrap_or("sidecar reported failure without message"),
+            ));
         }
 
         info!(
@@ -498,7 +488,13 @@ mod tests {
 
     fn tool(config: BrowserComputerUseConfig) -> ComputerUseTool {
         let tmp = tempfile::tempdir().unwrap();
-        ComputerUseTool::new(security(), config, tmp.path().to_path_buf(), None)
+        ComputerUseTool::new(
+            security(),
+            config,
+            Vec::new(),
+            tmp.path().to_path_buf(),
+            None,
+        )
     }
 
     #[test]
@@ -668,32 +664,6 @@ mod tests {
 
     // Bootstrap module tests are in src/tools/bootstrap.rs
 
-    #[test]
-    fn desktop_helper_probe_is_structured() {
-        let probe = bootstrap::probe_desktop_helpers();
-        #[cfg(target_os = "linux")]
-        {
-            assert_eq!(probe.checked_helpers, bootstrap::LINUX_HELPERS.to_vec());
-            assert!(probe
-                .missing_helpers
-                .iter()
-                .all(|helper| probe.checked_helpers.contains(helper)));
-            if probe.package_manager.is_some() && !probe.missing_helpers.is_empty() {
-                assert!(!probe.packages_to_install.is_empty());
-                assert!(probe.install_command.is_some());
-            }
-        }
-
-        #[cfg(not(target_os = "linux"))]
-        {
-            assert!(probe.checked_helpers.is_empty());
-            assert!(probe.missing_helpers.is_empty());
-            assert!(probe.package_manager.is_none());
-            assert!(probe.packages_to_install.is_empty());
-            assert!(probe.install_command.is_none());
-        }
-    }
-
     // Bootstrap tests moved to src/tools/bootstrap.rs for proper separation
 
     #[cfg(target_os = "linux")]
@@ -726,7 +696,13 @@ mod tests {
             ..SecurityPolicy::default()
         });
         let tmp = tempfile::tempdir().unwrap();
-        let t = ComputerUseTool::new(sec, cfg_default(), tmp.path().to_path_buf(), None);
+        let t = ComputerUseTool::new(
+            sec,
+            cfg_default(),
+            Vec::new(),
+            tmp.path().to_path_buf(),
+            None,
+        );
         let r = t.execute(json!({"action": "window_list"})).await.unwrap();
         assert!(!r.success);
         assert!(r.error.unwrap().to_lowercase().contains("read-only"));
@@ -853,7 +829,13 @@ mod tests {
             ..SecurityPolicy::default()
         });
         let tmp = tempfile::tempdir().unwrap();
-        let t = ComputerUseTool::new(sec, cfg_default(), tmp.path().to_path_buf(), None);
+        let t = ComputerUseTool::new(
+            sec,
+            cfg_default(),
+            Vec::new(),
+            tmp.path().to_path_buf(),
+            None,
+        );
         // Even bootstrap (which doesn't need sidecar) should be blocked by rate limit
         let r = t.execute(json!({"action": "bootstrap"})).await.unwrap();
         assert!(!r.success);
@@ -945,7 +927,7 @@ mod tests {
         // Valid config should not panic when creating tool
         let result = std::panic::catch_unwind(|| {
             let tmp = tempfile::tempdir().unwrap();
-            ComputerUseTool::new(security(), c, tmp.path().to_path_buf(), None)
+            ComputerUseTool::new(security(), c, Vec::new(), tmp.path().to_path_buf(), None)
         });
         assert!(result.is_ok(), "should not panic with valid allowlist");
     }
@@ -970,6 +952,12 @@ mod tests {
 
     fn t() -> ComputerUseTool {
         let tmp = tempfile::tempdir().unwrap();
-        ComputerUseTool::new(security(), cfg_default(), tmp.path().to_path_buf(), None)
+        ComputerUseTool::new(
+            security(),
+            cfg_default(),
+            Vec::new(),
+            tmp.path().to_path_buf(),
+            None,
+        )
     }
 }

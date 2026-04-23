@@ -1210,7 +1210,7 @@ fn check_environment(items: &mut Vec<DiagItem>) {
 /// helper warnings whenever either path is active.
 pub fn is_computer_use_active(config: &Config) -> bool {
     let backend_is_cu =
-        config.browser.backend == "computer_use" || config.browser.backend == "computer-use";
+        crate::tools::sidecar_client::is_computer_use_backend(&config.browser.backend);
     backend_is_cu || config.browser.computer_use.enabled
 }
 

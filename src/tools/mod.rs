@@ -501,6 +501,7 @@ fn build_tools_with_runtime(
         tool_arcs.push(Arc::new(ComputerUseTool::new(
             security.clone(),
             browser_config.computer_use.clone(),
+            browser_config.allowed_domains.clone(),
             topclaw_dir.clone(),
             browser_config.session_name.clone(),
         )));

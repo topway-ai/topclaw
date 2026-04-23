@@ -35,13 +35,6 @@ impl ChannelsConfig {
         ]
     }
 
-    /// Legacy alias retained for existing call sites that mean "runtime channels".
-    pub fn channels_except_webhook(
-        &self,
-    ) -> Vec<(Box<dyn crate::config::traits::ConfigHandle>, bool)> {
-        self.launchable_channels()
-    }
-
     /// Auxiliary gateway/config surfaces that are not part of the default
     /// Telegram/Discord message runtime.
     #[rustfmt::skip]

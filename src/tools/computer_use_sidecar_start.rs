@@ -103,7 +103,7 @@ impl Tool for ComputerUseSidecarStartTool {
             }
         };
 
-        let health_url = format!("http://{bind}/health");
+        let health_url = sidecar_client::derive_health_url(&format!("http://{bind}/v1/actions"));
         if sidecar_client::probe_health(&health_url).await {
             return Ok(ToolResult {
                 success: true,
@@ -124,7 +124,7 @@ impl Tool for ComputerUseSidecarStartTool {
         };
         let pid = child.id();
 
-        let health_url = format!("http://{bind}/health");
+        let health_url = sidecar_client::derive_health_url(&format!("http://{bind}/v1/actions"));
         let healthy = sidecar_client::wait_for_healthy(&health_url).await;
 
         let reason = args.get("reason").and_then(Value::as_str);

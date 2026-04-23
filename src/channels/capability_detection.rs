@@ -544,15 +544,223 @@ pub(crate) fn extract_json_object(text: &str) -> Option<&str> {
     }
 }
 
+fn extract_loaded_skill_names_from_system_prompt(system_prompt: &str) -> Vec<String> {
+    let Some(section_start) = system_prompt.find("<available_skills>") else {
+        return Vec::new();
+    };
+    let after_start = &system_prompt[section_start + "<available_skills>".len()..];
+    let Some(section_end) = after_start.find("</available_skills>") else {
+        return Vec::new();
+    };
+    let mut remaining = &after_start[..section_end];
+    let mut names = Vec::new();
+
+    while let Some(skill_start) = remaining.find("<skill>") {
+        let after_skill_start = &remaining[skill_start + "<skill>".len()..];
+        let Some(skill_end) = after_skill_start.find("</skill>") else {
+            break;
+        };
+        let skill_block = &after_skill_start[..skill_end];
+        if let Some(name_start) = skill_block.find("<name>") {
+            let after_name_start = &skill_block[name_start + "<name>".len()..];
+            if let Some(name_end) = after_name_start.find("</name>") {
+                let name = after_name_start[..name_end].trim();
+                if !name.is_empty() {
+                    names.push(name.to_string());
+                }
+            }
+        }
+        remaining = &after_skill_start[skill_end + "</skill>".len()..];
+    }
+
+    names.sort();
+    names.dedup();
+    names
+}
+
+pub(crate) fn build_local_capability_response(
+    content: &str,
+    system_prompt: &str,
+    provider_name: &str,
+    model_name: &str,
+    visible_tool_names: &[String],
+) -> Option<String> {
+    if looks_like_current_model_question(content) {
+        return Some(format!(
+            "I'm currently using provider `{provider_name}` with model `{model_name}`."
+        ));
+    }
+
+    if looks_like_rate_limit_question(content) {
+        return Some(format!(
+            "The default action budget is {} actions per hour, configured by `autonomy.max_actions_per_hour`.",
+            crate::config::AutonomyConfig::default().max_actions_per_hour
+        ));
+    }
+
+    if looks_like_tools_and_skills_question(content) {
+        let skill_names = extract_loaded_skill_names_from_system_prompt(system_prompt);
+        let tool_section = if visible_tool_names.is_empty() {
+            "Visible tools in this runtime turn: (none).".to_string()
+        } else {
+            format!(
+                "Visible tools in this runtime turn ({}): {}.",
+                visible_tool_names.len(),
+                visible_tool_names
+                    .iter()
+                    .map(|name| format!("`{name}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+        let skill_section = if skill_names.is_empty() {
+            "Loaded skills in the current prompt: (none).".to_string()
+        } else {
+            format!(
+                "Loaded skills in the current prompt ({}): {}.",
+                skill_names.len(),
+                skill_names
+                    .iter()
+                    .map(|name| format!("`{name}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+
+        return Some(format!(
+            "{tool_section}\n{skill_section}\n`computer_use` is a runtime tool when compiled and allowed, not a marketplace skill."
+        ));
+    }
+
+    if looks_like_tool_inventory_question(content) {
+        if visible_tool_names.is_empty() {
+            return Some(
+                "Visible tools in this runtime turn: (none). I can still answer from chat context, but I should not claim tool access that is not actually loaded."
+                    .to_string(),
+            );
+        }
+
+        return Some(format!(
+            "Visible tools in this runtime turn ({}): {}.",
+            visible_tool_names.len(),
+            visible_tool_names
+                .iter()
+                .map(|name| format!("`{name}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+
+    if looks_like_computer_use_availability_question(content) {
+        let has_computer_use = visible_tool_names
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case("computer_use"));
+        let availability = if has_computer_use {
+            "`computer_use` is currently loaded as a runtime tool in this turn."
+        } else {
+            "`computer_use` is not currently loaded in this runtime turn."
+        };
+
+        return Some(format!(
+            "{availability} `computer_use` is a tool, not a skill. A separate curated skill such as `desktop-computer-use` can document workflows around that tool, but it does not replace the compiled runtime tool itself."
+        ));
+    }
+
+    if looks_like_loaded_skills_question(content) {
+        let skill_names = extract_loaded_skill_names_from_system_prompt(system_prompt);
+        if skill_names.is_empty() {
+            return Some(
+                "I don't have any advertised skills loaded in the current runtime prompt."
+                    .to_string(),
+            );
+        }
+
+        let visible = skill_names
+            .iter()
+            .take(8)
+            .map(|name| format!("- `{name}`"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let remaining = skill_names.len().saturating_sub(8);
+        let suffix = if remaining > 0 {
+            format!("\n- ... {remaining} more")
+        } else {
+            String::new()
+        };
+
+        return Some(format!(
+            "I currently have {} advertised skills loaded:\n{}{suffix}\n\nAsk about any one by name, or just tell me the task and I'll use what fits.",
+            skill_names.len(),
+            visible
+        ));
+    }
+
+    if looks_like_audio_capability_question(content) {
+        let skill_names = extract_loaded_skill_names_from_system_prompt(system_prompt);
+        let skill_creator_suffix = if skill_names
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case("skill-creator"))
+        {
+            " If you want a reusable workflow around local audio files, I can also use `skill-creator` to help scaffold one."
+        } else {
+            ""
+        };
+
+        let attachment_prefix = if content.to_ascii_lowercase().contains("[audio:") {
+            "That looks like an attached audio file, not a plain-text document. "
+        } else {
+            "An m4a/audio file is not plain text. "
+        };
+
+        return Some(format!(
+            "{attachment_prefix}I can't read it the way I would a `.txt` or `.md` file. \
+            If channel transcription is enabled, I can transcribe supported audio uploads \
+            such as m4a, mp3, wav, flac, ogg, opus, and webm, then summarize or analyze the transcript. \
+            If transcription is not enabled, I need a transcription tool or service first.{skill_creator_suffix}"
+        ));
+    }
+
+    if looks_like_skill_workflow_advisory_question(content) {
+        let skill_names = extract_loaded_skill_names_from_system_prompt(system_prompt);
+        let has_skill_creator = skill_names
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case("skill-creator"));
+        let skill_creator_step = if has_skill_creator {
+            "If no installed or curated local skill fits, I would use `skill-creator` next."
+        } else {
+            "If no installed or curated local skill fits, I would scaffold the new skill directly in the workspace."
+        };
+
+        return Some(format!(
+            "I would check installed and curated local skills first, not `skills.sh` and not any desktop/browser tool. {skill_creator_step} \
+            For a planning-only question like this, I do not need `skills.sh` as the first step."
+        ));
+    }
+
+    None
+}
+
+pub(crate) fn should_answer_local_capability_response_immediately(content: &str) -> bool {
+    looks_like_current_model_question(content)
+        || looks_like_tools_and_skills_question(content)
+        || looks_like_tool_inventory_question(content)
+        || looks_like_computer_use_availability_question(content)
+        || looks_like_loaded_skills_question(content)
+        || looks_like_audio_capability_question(content)
+        || looks_like_skill_workflow_advisory_question(content)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        contains_make_command_hint, looks_like_audio_capability_question,
-        looks_like_audio_file_question, looks_like_computer_use_availability_question,
-        looks_like_desktop_computer_use_task, looks_like_repo_metrics_task, looks_like_shell_task,
+        build_local_capability_response, contains_make_command_hint,
+        looks_like_audio_capability_question, looks_like_audio_file_question,
+        looks_like_computer_use_availability_question, looks_like_desktop_computer_use_task,
+        looks_like_repo_metrics_task, looks_like_shell_task,
         looks_like_skill_workflow_advisory_question, looks_like_skill_workflow_request,
         looks_like_tool_inventory_question, looks_like_tools_and_skills_question,
-        looks_like_web_task, should_try_llm_capability_recovery,
+        looks_like_web_task, should_answer_local_capability_response_immediately,
+        should_try_llm_capability_recovery,
     };
 
     #[test]
@@ -665,5 +873,71 @@ mod tests {
         assert!(!looks_like_computer_use_availability_question(
             "Open Google Chrome with computer_use."
         ));
+    }
+
+    #[test]
+    fn build_local_capability_response_answers_model_question() {
+        let response = build_local_capability_response(
+            "which model are you using?",
+            "",
+            "openai",
+            "gpt-4",
+            &[],
+        );
+        assert!(response.is_some());
+        assert!(response.unwrap().contains("openai"));
+    }
+
+    #[test]
+    fn build_local_capability_response_answers_tool_inventory_question() {
+        let tools: Vec<String> = vec!["browser_open".into(), "shell".into()];
+        let response = build_local_capability_response(
+            "what tools do you have?",
+            "",
+            "openai",
+            "gpt-4",
+            &tools,
+        );
+        assert!(response.is_some());
+        let text = response.unwrap();
+        assert!(text.contains("browser_open"));
+    }
+
+    #[test]
+    fn build_local_capability_response_returns_none_for_non_capability_question() {
+        let response = build_local_capability_response(
+            "what is the weather today?",
+            "",
+            "openai",
+            "gpt-4",
+            &[],
+        );
+        assert!(response.is_none());
+    }
+
+    #[test]
+    fn should_answer_local_capability_response_matches_detection() {
+        assert!(should_answer_local_capability_response_immediately(
+            "which model are you using?"
+        ));
+        assert!(should_answer_local_capability_response_immediately(
+            "what tools do you have?"
+        ));
+        assert!(!should_answer_local_capability_response_immediately(
+            "hello world"
+        ));
+    }
+
+    #[test]
+    fn extract_skill_names_from_system_prompt() {
+        let prompt = "<available_skills><skill><name>foo</name></skill><skill><name>bar</name></skill></available_skills>";
+        let names = super::extract_loaded_skill_names_from_system_prompt(prompt);
+        assert_eq!(names, vec!["bar", "foo"]);
+    }
+
+    #[test]
+    fn extract_skill_names_returns_empty_without_section() {
+        let names = super::extract_loaded_skill_names_from_system_prompt("no skills here");
+        assert!(names.is_empty());
     }
 }
