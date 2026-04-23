@@ -20,6 +20,8 @@
 // ============================================================================
 
 pub mod apply_patch;
+#[cfg(feature = "computer-use-sidecar")]
+pub mod bootstrap;
 #[cfg(feature = "browser-native")]
 pub mod browser;
 pub mod browser_open;
@@ -62,14 +64,11 @@ pub mod pdf_read;
 mod policy_gate;
 pub mod process;
 pub mod proxy_config;
-pub mod schedule;
 pub mod schema;
 pub mod screenshot;
+pub mod shell;
 #[cfg(feature = "computer-use-sidecar")]
 pub mod sidecar_client;
-#[cfg(feature = "computer-use-sidecar")]
-pub mod bootstrap;
-pub mod shell;
 pub mod subagent_list;
 pub mod subagent_manage;
 pub mod subagent_registry;
@@ -119,7 +118,6 @@ pub use model_routing_config::ModelRoutingConfigTool;
 pub use pdf_read::PdfReadTool;
 pub use process::ProcessTool;
 pub use proxy_config::ProxyConfigTool;
-pub use schedule::ScheduleTool;
 #[allow(unused_imports)]
 pub use schema::{CleaningStrategy, SchemaCleanr};
 pub use screenshot::ScreenshotTool;
@@ -201,7 +199,6 @@ fn core_work_non_shell_tool_arcs(
             Arc::new(CronUpdateTool::new(config.clone(), security.clone())),
             Arc::new(CronRunTool::new(config.clone(), security.clone())),
             Arc::new(CronRunsTool::new(config.clone())),
-            Arc::new(ScheduleTool::new(security.clone(), root_config.clone())),
         ]);
     }
 
@@ -716,7 +713,6 @@ mod tests {
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(!names.contains(&"browser_open"));
         assert!(!names.contains(&"discord_history_fetch"));
-        assert!(!names.contains(&"schedule"));
         assert!(names.contains(&"image_info"));
         assert!(names.contains(&"model_routing_config"));
         assert!(!names.contains(&"pushover"));
@@ -897,7 +893,6 @@ mod tests {
         let disabled_names: Vec<&str> = disabled_tools.iter().map(|t| t.name()).collect();
         assert!(!disabled_names.contains(&"cron_add"));
         assert!(!disabled_names.contains(&"cron_list"));
-        assert!(!disabled_names.contains(&"schedule"));
 
         let mut enabled_cfg = test_config(&tmp);
         enabled_cfg.cron.enabled = true;
@@ -918,7 +913,6 @@ mod tests {
         let enabled_names: Vec<&str> = enabled_tools.iter().map(|t| t.name()).collect();
         assert!(enabled_names.contains(&"cron_add"));
         assert!(enabled_names.contains(&"cron_list"));
-        assert!(enabled_names.contains(&"schedule"));
     }
 
     #[test]

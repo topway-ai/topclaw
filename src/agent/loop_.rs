@@ -1595,11 +1595,7 @@ pub async fn run(
         ));
     }
     tool_descs.push((
-        "schedule",
-        "Manage scheduled tasks (create/list/get/cancel/pause/resume). Supports recurring cron and one-shot delays.",
-    ));
-    tool_descs.push((
-        "model_routing_config",
+            "model_routing_config",
         "Configure default model, scenario routing, and delegate agents. Use for natural-language requests like: 'set conversation to kimi and coding to gpt-5.3-codex'.",
     ));
     if !config.agents.is_empty() {
@@ -1974,4 +1970,3 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
 #[cfg(test)]
 #[path = "loop_/loop_tests.rs"]
 mod tests;
-

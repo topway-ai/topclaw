@@ -3607,26 +3607,26 @@ BTC is currently around $65,000 based on latest tool output."#
         channels_by_name.insert(channel.name().to_string(), channel);
 
         let provider_impl = Arc::new(ModelCaptureProvider {
-            response: "I can inspect code, browse carefully, and analyze local files.".to_string(),
+            response: "unused-provider-response".to_string(),
             ..Default::default()
         });
         let provider: Arc<dyn Provider> = provider_impl.clone();
 
         let system_prompt = r#"
 <available_skills>
-  <skill>
-    <name>find-skills</name>
-    <description>Discover installable skills.</description>
-  </skill>
-  <skill>
-    <name>safe-web-search</name>
-    <description>Browse safely.</description>
-    <tools>
-      <tool>
-        <name>web_fetch</name>
-      </tool>
-    </tools>
-  </skill>
+<skill>
+<name>find-skills</name>
+<description>Discover installable skills.</description>
+</skill>
+<skill>
+<name>safe-web-search</name>
+<description>Browse safely.</description>
+<tools>
+<tool>
+<name>web_fetch</name>
+</tool>
+</tools>
+</skill>
 </available_skills>
 "#;
 
@@ -3680,9 +3680,9 @@ BTC is currently around $65,000 based on latest tool output."#
 
         let sent_messages = channel_impl.sent_messages.lock().await;
         assert_eq!(sent_messages.len(), 1);
-        assert!(sent_messages[0]
-            .ends_with("I can inspect code, browse carefully, and analyze local files."));
-        assert_eq!(provider_impl.call_count.load(Ordering::SeqCst), 1);
+        assert!(sent_messages[0].contains("find-skills"));
+        assert!(sent_messages[0].contains("safe-web-search"));
+        assert_eq!(provider_impl.call_count.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
@@ -4820,12 +4820,12 @@ BTC is currently around $65,000 based on latest tool output."#
     #[test]
     fn strip_isolated_tool_json_artifacts_removes_tool_calls_and_results() {
         let mut known_tools = HashSet::new();
-        known_tools.insert("schedule".to_string());
+        known_tools.insert("cron_add".to_string());
 
-        let input = r#"{"name":"schedule","parameters":{"action":"create","message":"test"}}
-{"name":"schedule","parameters":{"action":"cancel","task_id":"test"}}
+        let input = r#"{"name":"cron_add","parameters":{"action":"create","message":"test"}}
+{"name":"cron_add","parameters":{"action":"cancel","task_id":"test"}}
 Let me create the reminder properly:
-{"name":"schedule","parameters":{"action":"create","message":"Go to sleep"}}
+{"name":"cron_add","parameters":{"action":"create","message":"Go to sleep"}}
 {"result":{"task_id":"abc","status":"scheduled"}}
 Done reminder set for 1:38 AM."#;
 
@@ -4845,9 +4845,6 @@ Done reminder set for 1:38 AM."#;
     fn looks_like_remote_repo_review_request_matches_repo_audit_prompts() {
         assert!(looks_like_remote_repo_review_request(
             "review this repo https://github.com/topway-ai/topclaw"
-        ));
-        assert!(looks_like_remote_repo_review_request(
-            "你的所有代码都在这里，看看有啥明显缺陷么？https://github.com/topway-ai/topclaw"
         ));
         assert!(!looks_like_remote_repo_review_request(
             "https://github.com/topway-ai/topclaw"

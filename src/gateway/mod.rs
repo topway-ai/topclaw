@@ -1857,16 +1857,16 @@ mod tests {
         assert_eq!(key, "test_sender-42_msg-123");
     }
 
-    struct MockScheduleTool;
+    struct MockCronAddTool;
 
     #[async_trait]
-    impl Tool for MockScheduleTool {
+    impl Tool for MockCronAddTool {
         fn name(&self) -> &str {
-            "schedule"
+            "cron_add"
         }
 
         fn description(&self) -> &str {
-            "Mock schedule tool"
+            "Mock cron_add tool"
         }
 
         fn parameters_schema(&self) -> serde_json::Value {
@@ -1895,7 +1895,7 @@ mod tests {
     fn sanitize_gateway_response_removes_tool_call_tags() {
         let input = r#"Before
 <tool_call>
-{"name":"schedule","arguments":{"action":"create"}}
+{"name":"cron_add","arguments":{"action":"create"}}
 </tool_call>
 After"#;
 
@@ -1912,8 +1912,8 @@ After"#;
 
     #[test]
     fn sanitize_gateway_response_removes_isolated_tool_json_artifacts() {
-        let tools: Vec<Box<dyn Tool>> = vec![Box::new(MockScheduleTool)];
-        let input = r#"{"name":"schedule","parameters":{"action":"create"}}
+        let tools: Vec<Box<dyn Tool>> = vec![Box::new(MockCronAddTool)];
+        let input = r#"{"name":"cron_add","parameters":{"action":"create"}}
 {"result":{"status":"scheduled"}}
 Reminder set successfully."#;
 

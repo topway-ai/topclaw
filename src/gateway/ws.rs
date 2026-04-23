@@ -553,16 +553,16 @@ mod tests {
         assert!(extract_ws_bearer_token(&headers).is_none());
     }
 
-    struct MockScheduleTool;
+    struct MockCronAddTool;
 
     #[async_trait]
-    impl Tool for MockScheduleTool {
+    impl Tool for MockCronAddTool {
         fn name(&self) -> &str {
-            "schedule"
+            "cron_add"
         }
 
         fn description(&self) -> &str {
-            "Mock schedule tool"
+            "Mock cron_add tool"
         }
 
         fn parameters_schema(&self) -> serde_json::Value {
@@ -587,7 +587,7 @@ mod tests {
     fn sanitize_ws_response_removes_tool_call_tags() {
         let input = r#"Before
 <tool_call>
-{"name":"schedule","arguments":{"action":"create"}}
+{"name":"cron_add","arguments":{"action":"create"}}
 </tool_call>
 After"#;
 
@@ -604,8 +604,8 @@ After"#;
 
     #[test]
     fn sanitize_ws_response_removes_isolated_tool_json_artifacts() {
-        let tools: Vec<Box<dyn Tool>> = vec![Box::new(MockScheduleTool)];
-        let input = r#"{"name":"schedule","parameters":{"action":"create"}}
+        let tools: Vec<Box<dyn Tool>> = vec![Box::new(MockCronAddTool)];
+        let input = r#"{"name":"cron_add","parameters":{"action":"create"}}
 {"result":{"status":"scheduled"}}
 Reminder set successfully."#;
 
@@ -617,7 +617,7 @@ Reminder set successfully."#;
 
     #[test]
     fn finalize_ws_response_uses_prompt_mode_tool_output_when_final_text_empty() {
-        let tools: Vec<Box<dyn Tool>> = vec![Box::new(MockScheduleTool)];
+        let tools: Vec<Box<dyn Tool>> = vec![Box::new(MockCronAddTool)];
         let history = vec![
             ChatMessage::system("sys"),
             ChatMessage::user(
@@ -633,7 +633,7 @@ Reminder set successfully."#;
 
     #[test]
     fn finalize_ws_response_uses_native_tool_message_output_when_final_text_empty() {
-        let tools: Vec<Box<dyn Tool>> = vec![Box::new(MockScheduleTool)];
+        let tools: Vec<Box<dyn Tool>> = vec![Box::new(MockCronAddTool)];
         let history = vec![ChatMessage {
             role: "tool".to_string(),
             content: r#"{"tool_call_id":"call_1","content":"Filesystem /dev/disk3s1: 210G free"}"#
@@ -647,7 +647,7 @@ Reminder set successfully."#;
 
     #[test]
     fn finalize_ws_response_uses_static_fallback_when_nothing_available() {
-        let tools: Vec<Box<dyn Tool>> = vec![Box::new(MockScheduleTool)];
+        let tools: Vec<Box<dyn Tool>> = vec![Box::new(MockCronAddTool)];
         let history = vec![ChatMessage::system("sys")];
 
         let result = finalize_ws_response("", &history, &tools);

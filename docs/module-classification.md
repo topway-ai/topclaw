@@ -116,7 +116,6 @@ against a known boundary.
 | `tools/subagent_registry.rs` | T | Sub-agent registry |
 | `tools/task_plan.rs` | T | Task planning tool |
 | `tools/cron_*.rs` | T | Cron add/list/remove/run/update/runs tools |
-| `tools/schedule.rs` | T | Schedule tool |
 | `tools/config_patch.rs` | T | Config patch tool |
 | `tools/config_grant_browser_domain.rs` | T | Browser domain grant tool |
 | `tools/proxy_config.rs` | T | Proxy configuration tool |

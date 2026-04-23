@@ -9,21 +9,22 @@ for older layouts).
 
 ```
 ~/.topclaw/
-├── config.toml                          # Primary configuration file
-├── .secret_key                          # Encryption key for at-rest secrets
-├── active_workspace.toml                # Workspace marker (which profile is active)
-├── estop-state.json                     # Emergency stop state
-├── browser-allowed-domains-grants.json  # Persistent browser domain approvals
-├── workspace/                           # Default workspace directory
-│   └── skills/                          # Skill definitions
-│       └── <name>/
-│           └── SKILL.md
-├── repositories/
-│   └── topclaw/                         # Curated skills repo checkout
-├── state/                               # Runtime state directory
-│   └── runtime-trace.jsonl              # Runtime trace log
-└── [per-workspace config dirs]          # Named workspace profiles
+├── config.toml # Primary configuration file
+├── .secret_key # Encryption key for at-rest secrets
+├── active_workspace.toml # Workspace marker (which profile is active)
+├── estop-state.json # Emergency stop state
+├── browser-allowed-domains-grants.json # Persistent browser domain approvals
+├── workspace/ # Default workspace directory
+│ └── skills/ # Skill definitions
+│ └── <name>/
+│ └── SKILL.md
+└── [per-workspace config dirs] # Named workspace profiles
     └── config.toml
+
+~/.cache/topclaw/               # XDG cache dir (ephemeral, regenerable)
+├── repositories/
+│   └── topclaw/                # Curated skills repo checkout (can re-clone)
+└── runtime-trace.jsonl         # Runtime trace log (auto-pruned)
 ```
 
 ## State Classification
@@ -43,8 +44,8 @@ Each entry is classified by:
 | `browser-allowed-domains-grants.json` | global | dynamic | important | `config::browser_domain_grants` | User-approved browser domains |
 | `workspace/` | global | dynamic | essential | `config` | Default workspace root |
 | `workspace/skills/` | global | dynamic | important | `skills` | User skill definitions |
-| `repositories/topclaw/` | global | ephemeral | cosmetic | `skills` | Curated skills repo (can re-clone) |
-| `state/runtime-trace.jsonl` | global | ephemeral | cosmetic | `observability` | Debug trace log (auto-pruned) |
+| `~/.cache/topclaw/repositories/topclaw/` | global | ephemeral | cosmetic | `skills` | Curated skills repo (can re-clone) |
+| `~/.cache/topclaw/runtime-trace.jsonl` | global | ephemeral | cosmetic | `observability` | Debug trace log (auto-pruned) |
 
 ## Removed State (Legacy Cleanup)
 
@@ -85,23 +86,24 @@ the legacy `../.topclaw/` fallback.
 
 ## Narrowing Opportunities
 
+The following state has been moved out of `.topclaw/` into cache (completed this pass):
+
+1. **`repositories/topclaw/`** — MOVED to `~/.cache/topclaw/repositories/topclaw/`.
+   Ephemeral; can be re-cloned. XDG cache is the correct location.
+
+2. **`state/runtime-trace.jsonl`** — MOVED to `~/.cache/topclaw/runtime-trace.jsonl`.
+   Ephemeral; auto-pruned by max entries. Config default changed to empty string
+   which resolves to XDG cache dir via `xdg_cache_dir()`.
+
 The following state can be further narrowed in future versions:
 
-1. **`estop-state.json`** — Currently a standalone file. Could be merged into
+3. **`estop-state.json`** — Currently a standalone file. Could be merged into
    `config.toml` as a `[estop]` section or into `active_workspace.toml` as an
    additional field, reducing the number of top-level files.
 
-2. **`browser-allowed-domains-grants.json`** — Currently a standalone file.
-   Could be merged into `config.toml` as a `[browser.granted_domains]` section
+4. **`browser-allowed-domains-grants.json`** — Currently a standalone file.  Could be merged into `config.toml` as a `[browser.granted_domains]` section
    or into `active_workspace.toml`. This would eliminate a separate
    read-modify-write path.
-
-3. **`repositories/topclaw/`** — Ephemeral; can be re-cloned. Could be moved
-   to `~/.cache/topclaw/` to separate cache from state, following XDG
-   conventions.
-
-4. **`state/runtime-trace.jsonl`** — Ephemeral; auto-pruned by max entries.
-   Could be moved to `~/.cache/topclaw/` for XDG compliance.
 
 5. **`.secret_key`** — The encryption key file is separate from config for
    security (different file permissions). This should remain a standalone

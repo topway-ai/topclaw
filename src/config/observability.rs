@@ -20,6 +20,8 @@ pub struct ObservabilityConfig {
     pub runtime_trace_mode: String,
 
     /// Runtime trace file path. Relative paths are resolved under workspace_dir.
+    /// When empty (the default), the trace file is placed in the XDG cache
+    /// directory (`~/.cache/topclaw/runtime-trace.jsonl` on Linux).
     #[serde(default = "default_runtime_trace_path")]
     pub runtime_trace_path: String,
 
@@ -46,7 +48,7 @@ fn default_runtime_trace_mode() -> String {
 }
 
 fn default_runtime_trace_path() -> String {
-    "state/runtime-trace.jsonl".to_string()
+    String::new()
 }
 
 fn default_runtime_trace_max_entries() -> usize {

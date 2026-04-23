@@ -12,16 +12,16 @@ use tracing::info;
 
 /// Linux desktop helpers the sidecar shells out to.
 pub const LINUX_HELPERS: &[&str] = &[
-    "xdotool",  // window/workspace control, mouse/keyboard simulation
-    "wmctrl",   // window list, focus, close
-    "scrot",    // screenshot capture
-    // NOTE: xdg-open is not probed here because:
-    // 1. The sidecar (linux.rs) uses xdg-open via std::process::Command::new("xdg-open")
-    // 2. xdg-open ships in xdg-utils package, but xdg-open binary is usually available
-    //    on most desktop Linux systems by default
-    // 3. app_launch with URLs doesn't require xdg-open to be pre-probed - the tool
-    //    will return an error at runtime if xdg-open fails, which is informative
-    //    rather than silently succeeding
+    "xdotool", // window/workspace control, mouse/keyboard simulation
+    "wmctrl",  // window list, focus, close
+    "scrot",   // screenshot capture
+               // NOTE: xdg-open is not probed here because:
+               // 1. The sidecar (linux.rs) uses xdg-open via std::process::Command::new("xdg-open")
+               // 2. xdg-open ships in xdg-utils package, but xdg-open binary is usually available
+               //    on most desktop Linux systems by default
+               // 3. app_launch with URLs doesn't require xdg-open to be pre-probed - the tool
+               //    will return an error at runtime if xdg-open fails, which is informative
+               //    rather than silently succeeding
 ];
 
 /// Probe result for Linux desktop helper readiness.
@@ -65,7 +65,8 @@ pub fn probe_desktop_helpers() -> DesktopHelperProbe {
         let packages = package_manager
             .map(|m| packages_for_missing(&missing, m))
             .unwrap_or_default();
-        let install_cmd = package_manager.map(|m| format!("sudo {}", install_command_string(m, &packages)));
+        let install_cmd =
+            package_manager.map(|m| format!("sudo {}", install_command_string(m, &packages)));
 
         DesktopHelperProbe {
             checked_helpers: LINUX_HELPERS.to_vec(),
@@ -120,7 +121,8 @@ async fn run_bootstrap_impl_with_mode(allow_interactive_sudo: bool) -> ToolResul
     if probe.missing_helpers.is_empty() {
         return ToolResult {
             success: true,
-            output: "All Linux desktop helpers (xdotool, wmctrl, scrot) are already installed.".into(),
+            output: "All Linux desktop helpers (xdotool, wmctrl, scrot) are already installed."
+                .into(),
             error: None,
         };
     }
@@ -168,7 +170,10 @@ async fn run_bootstrap_impl_with_mode(allow_interactive_sudo: bool) -> ToolResul
             .await
         {
             Ok(status) if status.success() => bootstrap_install_success(manager, &pkgs),
-            Ok(status) => fail(&format!("{manager} install failed (exit {:?}).", status.code())),
+            Ok(status) => fail(&format!(
+                "{manager} install failed (exit {:?}).",
+                status.code()
+            )),
             Err(e) => fail(&format!("failed to run sudo {manager}: {e}")),
         }
     } else {
@@ -217,7 +222,10 @@ fn bootstrap_install_success(manager: &str, pkgs: &[&str]) -> ToolResult {
         );
         ToolResult {
             success: true,
-            output: format!("Installed {} via {manager}. Desktop helpers ready.", pkgs.join(" ")),
+            output: format!(
+                "Installed {} via {manager}. Desktop helpers ready.",
+                pkgs.join(" ")
+            ),
             error: None,
         }
     } else {
@@ -345,9 +353,18 @@ mod tests {
     #[test]
     fn install_argv_shapes_by_manager() {
         let s = |v: Vec<&str>| -> Vec<String> { v.into_iter().map(String::from).collect() };
-        assert_eq!(install_argv("apt-get", &["xdotool"]), s(vec!["apt-get", "install", "-y", "xdotool"]));
-        assert_eq!(install_argv("pacman", &["xdotool", "wmctrl"]), s(vec!["pacman", "-S", "--noconfirm", "xdotool", "wmctrl"]));
-        assert_eq!(install_argv("dnf", &["scrot"]), s(vec!["dnf", "install", "-y", "scrot"]));
+        assert_eq!(
+            install_argv("apt-get", &["xdotool"]),
+            s(vec!["apt-get", "install", "-y", "xdotool"])
+        );
+        assert_eq!(
+            install_argv("pacman", &["xdotool", "wmctrl"]),
+            s(vec!["pacman", "-S", "--noconfirm", "xdotool", "wmctrl"])
+        );
+        assert_eq!(
+            install_argv("dnf", &["scrot"]),
+            s(vec!["dnf", "install", "-y", "scrot"])
+        );
     }
 
     #[cfg(target_os = "linux")]

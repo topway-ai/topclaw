@@ -167,11 +167,21 @@ pub(crate) async fn persist_active_workspace_config_dir(config_dir: &Path) -> Re
         return Ok(());
     }
 
-    // Primary marker lives with the selected config root to keep custom-home
-    // layouts self-contained and writable in restricted environments.
-    write_active_workspace_marker(config_dir, config_dir).await?;
-
-    Ok(())
+    // Prefer writing the marker to the default config dir so that
+    // load_or_init() can discover it on next startup.  Fall back to the
+    // selected config root when the default dir is not writable (e.g.
+    // restricted home or blocklisted by overlay mount).
+    match write_active_workspace_marker(&default_config_dir, config_dir).await {
+        Ok(()) => Ok(()),
+        Err(default_err) => {
+            tracing::debug!(
+                path = %default_config_dir.display(),
+                error = %default_err,
+                "Cannot write active workspace marker to default config dir; falling back to selected config root"
+            );
+            write_active_workspace_marker(config_dir, config_dir).await
+        }
+    }
 }
 
 /// Resolve the config directory for a given workspace directory.

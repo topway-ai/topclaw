@@ -1093,7 +1093,7 @@ mod tests {
             Vec::new(),
         );
         mgr.create_non_cli_pending_request(
-            "schedule",
+            "cron_add",
             "alice",
             "telegram",
             "chat-2",

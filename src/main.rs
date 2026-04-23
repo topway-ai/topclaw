@@ -63,8 +63,8 @@ fn auxiliary_surfaces_configured(config: &Config) -> bool {
 
 mod main_handlers;
 use main_handlers::{
-    handle_auth_command, handle_estop_command, handle_uninstall_command,
-    handle_workspace_command, write_shell_completion,
+    handle_auth_command, handle_estop_command, handle_uninstall_command, handle_workspace_command,
+    write_shell_completion,
 };
 use std::ffi::OsString;
 
@@ -436,7 +436,6 @@ Examples:
         #[arg(long = "tool")]
         tools: Vec<String>,
     },
-
 
     /// Manage scheduled tasks
     #[command(long_about = "\
@@ -931,7 +930,7 @@ async fn main() -> Result<()> {
         // that should work unconditionally (not gated on is_computer_use_active).
         #[cfg(feature = "computer-use-sidecar")]
         if install_desktop_helpers {
-            let missing = topclaw::tools::computer_use::missing_linux_helpers();
+            let missing = topclaw::tools::bootstrap::missing_helpers();
             if missing.is_empty() {
                 println!("✅ All desktop helpers already installed");
             } else {
@@ -940,7 +939,7 @@ async fn main() -> Result<()> {
                     missing.join(", ")
                 );
                 let result =
-                    topclaw::tools::computer_use::install_desktop_helpers_for_user_request().await;
+                    topclaw::tools::bootstrap::install_desktop_helpers_for_user_request().await;
                 println!("{result}");
             }
         }
@@ -1064,7 +1063,7 @@ async fn main() -> Result<()> {
             #[cfg(feature = "computer-use-sidecar")]
             let (desktop_helpers_ready, desktop_missing) = {
                 if doctor::is_computer_use_active(&config) {
-                    let missing = topclaw::tools::computer_use::missing_linux_helpers();
+                    let missing = topclaw::tools::bootstrap::missing_helpers();
                     (missing.is_empty(), missing)
                 } else {
                     (true, Vec::new())
@@ -1644,7 +1643,7 @@ mod tests {
         assert!(provider_rdy, "provider should be ready with API key set");
 
         let (desktop_helpers_ready, _) = if doctor::is_computer_use_active(&config) {
-            let missing = topclaw::tools::computer_use::missing_linux_helpers();
+            let missing = topclaw::tools::bootstrap::missing_helpers();
             (missing.is_empty(), missing)
         } else {
             (true, Vec::new())

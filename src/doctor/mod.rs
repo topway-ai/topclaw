@@ -149,7 +149,7 @@ pub async fn run_desktop_helpers(config: &Config, install: bool) -> Result<()> {
         return Ok(());
     }
 
-    let missing = crate::tools::computer_use::missing_linux_helpers();
+    let missing = crate::tools::bootstrap::missing_helpers();
 
     if missing.is_empty() {
         println!("✅ All desktop helpers installed (xdotool, wmctrl, scrot, xdg-open)");
@@ -160,11 +160,11 @@ pub async fn run_desktop_helpers(config: &Config, install: bool) -> Result<()> {
 
     if install {
         println!("📦 Installing missing desktop helpers…");
-        let result = crate::tools::computer_use::install_desktop_helpers_for_user_request().await;
+        let result = crate::tools::bootstrap::install_desktop_helpers_for_user_request().await;
         println!("{result}");
 
         // Re-check after install attempt
-        let still_missing = crate::tools::computer_use::missing_linux_helpers();
+        let still_missing = crate::tools::bootstrap::missing_helpers();
         if still_missing.is_empty() {
             println!("✅ All desktop helpers now installed");
         } else {
@@ -1209,8 +1209,8 @@ fn check_environment(items: &mut Vec<DiagItem>) {
 /// independently of `browser.backend`, so the doctor should surface desktop
 /// helper warnings whenever either path is active.
 pub fn is_computer_use_active(config: &Config) -> bool {
-    let backend_is_cu = config.browser.backend == "computer_use"
-        || config.browser.backend == "computer-use";
+    let backend_is_cu =
+        config.browser.backend == "computer_use" || config.browser.backend == "computer-use";
     backend_is_cu || config.browser.computer_use.enabled
 }
 
@@ -1223,7 +1223,7 @@ fn check_desktop_helpers(config: &Config, items: &mut Vec<DiagItem>) {
         return;
     }
 
-    let missing = crate::tools::computer_use::missing_linux_helpers();
+    let missing = crate::tools::bootstrap::missing_helpers();
     if missing.is_empty() {
         items.push(DiagItem::ok(
             cat,
@@ -1723,7 +1723,7 @@ mod tests {
     fn desktop_helpers_check_reports_ok_when_all_installed() {
         // Guard: skip on Linux hosts where helpers are actually missing,
         // because we can't control the host environment in unit tests.
-        if !crate::tools::computer_use::missing_linux_helpers().is_empty() {
+        if !crate::tools::bootstrap::missing_helpers().is_empty() {
             return;
         }
         let mut config = Config::default();
@@ -1750,7 +1750,7 @@ mod tests {
     #[cfg(feature = "computer-use-sidecar")]
     async fn run_desktop_helpers_reports_all_installed_when_configured() {
         // Guard: skip on Linux hosts where helpers are actually missing.
-        if !crate::tools::computer_use::missing_linux_helpers().is_empty() {
+        if !crate::tools::bootstrap::missing_helpers().is_empty() {
             return;
         }
         let mut config = Config::default();

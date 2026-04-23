@@ -198,10 +198,6 @@ pub(crate) fn build_channel_tool_descriptions(
         ),
         // ── Scheduling ──
         (
-            "schedule",
-            "Manage local scheduled tasks (cron, one-shot, interval). Use when: scheduling shell commands to run later or on a recurring basis. Output is logged locally. Don't use when: you need results delivered to a chat channel — use cron_add instead.",
-        ),
-        (
             "cron_add",
             "Create scheduled jobs (shell or agent) with optional channel delivery. Use when: scheduling tasks that should announce results in Discord/Telegram/Slack/etc. Supports cron expressions, at-syntax, and interval schedules.",
         ),

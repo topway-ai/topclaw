@@ -9,7 +9,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, RwLock};
 use uuid::Uuid;
 
-const DEFAULT_TRACE_REL_PATH: &str = "state/runtime-trace.jsonl";
+const DEFAULT_TRACE_REL_PATH: &str = "runtime-trace.jsonl";
+
+fn xdg_cache_dir() -> Option<PathBuf> {
+    directories::BaseDirs::new().map(|bd| bd.cache_dir().join("topclaw"))
+}
 
 /// Runtime trace storage policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -162,9 +166,11 @@ pub fn storage_mode_from_config(config: &ObservabilityConfig) -> RuntimeTraceSto
 /// Resolve runtime trace path from config.
 pub fn resolve_trace_path(config: &ObservabilityConfig, workspace_dir: &Path) -> PathBuf {
     let raw = config.runtime_trace_path.trim();
-    let fallback = workspace_dir.join(DEFAULT_TRACE_REL_PATH);
     if raw.is_empty() {
-        return fallback;
+        if let Some(cache) = xdg_cache_dir() {
+            return cache.join(DEFAULT_TRACE_REL_PATH);
+        }
+        return workspace_dir.join("state").join(DEFAULT_TRACE_REL_PATH);
     }
 
     let configured = PathBuf::from(raw);
@@ -323,14 +329,30 @@ mod tests {
             otel_endpoint: None,
             otel_service_name: None,
             runtime_trace_mode: "rolling".to_string(),
-            runtime_trace_path: "state/runtime-trace.jsonl".to_string(),
+            runtime_trace_path: String::new(),
             runtime_trace_max_entries: 3,
         }
     }
 
     #[test]
-    fn resolve_trace_path_relative_joins_workspace() {
+    fn resolve_trace_path_default_uses_xdg_cache() {
         let cfg = test_observability_config();
+        let workspace = tempfile::tempdir().unwrap();
+        let path = resolve_trace_path(&cfg, workspace.path());
+        if let Some(cache) = xdg_cache_dir() {
+            assert_eq!(path, cache.join(DEFAULT_TRACE_REL_PATH));
+        } else {
+            assert_eq!(
+                path,
+                workspace.path().join("state").join(DEFAULT_TRACE_REL_PATH)
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_trace_path_relative_joins_workspace() {
+        let mut cfg = test_observability_config();
+        cfg.runtime_trace_path = "state/runtime-trace.jsonl".to_string();
         let workspace = tempfile::tempdir().unwrap();
         let path = resolve_trace_path(&cfg, workspace.path());
         assert_eq!(path, workspace.path().join("state/runtime-trace.jsonl"));

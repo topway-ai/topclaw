@@ -11,14 +11,13 @@
 
 use super::bootstrap;
 use super::sidecar_client;
-use super::traits::{Tool, ToolResult};
+use super::traits::{tool_fail, Tool, ToolResult};
 use crate::config::BrowserComputerUseConfig;
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
 use tracing::info;
 
 const ACTIONS: &[&str] = &[
@@ -78,6 +77,7 @@ impl ComputerUseTool {
 
     fn policy_envelope(&self) -> Value {
         json!({
+            "allowed_domains": Vec::<String>::new(),
             "window_allowlist": self.config.window_allowlist,
             "max_coordinate_x": self.config.max_coordinate_x,
             "max_coordinate_y": self.config.max_coordinate_y,
@@ -91,12 +91,6 @@ impl ComputerUseTool {
             "platform": std::env::consts::OS,
             "session_name": self.session_name,
         })
-    }
-
-    fn http_client(&self) -> anyhow::Result<reqwest::Client> {
-        Ok(reqwest::Client::builder()
-            .timeout(Duration::from_millis(self.config.timeout_ms))
-            .build()?)
     }
 
     /// Ensure the sidecar is healthy. If not and `auto_start` is on, spawn
@@ -117,25 +111,23 @@ impl ComputerUseTool {
                 self.config.endpoint
             ));
         }
-        let bind = sidecar_client::bind_addr_from_endpoint(&self.config.endpoint).ok_or_else(|| {
-            format!(
-                "cannot derive bind address from endpoint: {}",
-                self.config.endpoint
-            )
-        })?;
+        let bind =
+            sidecar_client::bind_addr_from_endpoint(&self.config.endpoint).ok_or_else(|| {
+                format!(
+                    "cannot derive bind address from endpoint: {}",
+                    self.config.endpoint
+                )
+            })?;
         sidecar_client::spawn_sidecar_process(&bind, self.config.api_key.as_deref())?;
 
-        let start = std::time::Instant::now();
-        while start.elapsed() < sidecar_client::HEALTH_POLL_TIMEOUT {
-            if sidecar_client::probe_health(&health).await {
-                return Ok(());
-            }
-            tokio::time::sleep(sidecar_client::HEALTH_POLL_INTERVAL).await;
+        let health = self.health_url();
+        if sidecar_client::wait_for_healthy(&health).await {
+            return Ok(());
         }
         Err(format!(
-            "spawned computer-use sidecar but /health at {health} did not become ready within {}s; ensure xdotool/wmctrl/scrot are installed (Linux) or the platform equivalents",
-            sidecar_client::HEALTH_POLL_TIMEOUT.as_secs()
-        ))
+        "spawned computer-use sidecar but /health at {health} did not become ready within {}s; ensure xdotool/wmctrl/scrot are installed (Linux) or the platform equivalents",
+        sidecar_client::HEALTH_POLL_TIMEOUT.as_secs()
+    ))
     }
 
     async fn post_action(&self, action: &str, params: Value) -> Result<Value, String> {
@@ -145,27 +137,13 @@ impl ComputerUseTool {
             "policy": self.policy_envelope(),
             "metadata": self.metadata_envelope(),
         });
-        let client = self
-            .http_client()
-            .map_err(|e| format!("http client: {e}"))?;
-        let mut req = client.post(&self.config.endpoint).json(&body);
-        if let Some(key) = self.config.api_key.as_ref().filter(|k| !k.is_empty()) {
-            req = req.bearer_auth(key);
-        }
-        let resp = req
-            .send()
-            .await
-            .map_err(|e| format!("sidecar request failed: {e}"))?;
-        let status = resp.status();
-        let text = resp
-            .text()
-            .await
-            .map_err(|e| format!("sidecar read body: {e}"))?;
-        if !status.is_success() {
-            return Err(format!("sidecar returned HTTP {status}: {text}"));
-        }
-        serde_json::from_str::<Value>(&text)
-            .map_err(|e| format!("sidecar invalid JSON: {e} -- body: {text}"))
+        sidecar_client::post_sidecar_action(
+            &self.config.endpoint,
+            self.config.api_key.as_deref(),
+            self.config.timeout_ms,
+            &body,
+        )
+        .await
     }
 
     fn capture_path(&self) -> PathBuf {
@@ -377,6 +355,12 @@ impl Tool for ComputerUseTool {
                     Some(s) if !s.is_empty() => s.to_string(),
                     _ => return Ok(fail("key_press requires 'key'")),
                 };
+                let valid = k
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '+');
+                if !valid {
+                    return Ok(fail("key_press 'key' must contain only [A-Za-z0-9_+]"));
+                }
                 (json!({ "key": k }), None)
             }
             _ => unreachable!(),
@@ -475,11 +459,7 @@ enum PostProcess {
 }
 
 fn fail(msg: &str) -> ToolResult {
-    ToolResult {
-        success: false,
-        output: String::new(),
-        error: Some(msg.to_string()),
-    }
+    tool_fail(msg)
 }
 
 fn format_screenshot_output(path: &Path, response: &Value) -> String {
@@ -500,29 +480,6 @@ fn format_generic_output(action: &str, response: &Value) -> String {
 
 fn compact_json(v: &Value) -> String {
     serde_json::to_string(v).unwrap_or_else(|_| "{}".into())
-}
-
-/// Re-export bootstrap types for external callers (doctor, etc.).
-pub use bootstrap::{DesktopHelperProbe, LINUX_HELPERS};
-
-/// Detect which Linux desktop helpers are missing.
-pub fn missing_linux_helpers() -> Vec<&'static str> {
-    bootstrap::missing_helpers()
-}
-
-/// Probe desktop helper readiness.
-pub fn probe_desktop_helpers() -> DesktopHelperProbe {
-    bootstrap::probe_desktop_helpers()
-}
-
-/// Install missing Linux desktop helpers (daemon-safe).
-pub async fn install_desktop_helpers() -> String {
-    bootstrap::install_desktop_helpers().await
-}
-
-/// Install missing Linux desktop helpers (user-driven, may prompt).
-pub async fn install_desktop_helpers_for_user_request() -> String {
-    bootstrap::install_desktop_helpers_for_user_request().await
 }
 
 #[cfg(test)]
@@ -663,6 +620,44 @@ mod tests {
         assert!(r.error.unwrap().contains("'key'"));
     }
 
+    #[tokio::test]
+    async fn key_press_rejects_invalid_characters() {
+        let mut c = cfg_default();
+        c.auto_start = false;
+        c.endpoint = "http://192.0.2.1:8787/v1/actions".into();
+        let t = tool(c);
+        let r = t
+            .execute(json!({"action": "key_press", "key": "Ctrl-Alt"}))
+            .await
+            .unwrap();
+        assert!(!r.success);
+        let err = r.error.unwrap();
+        assert!(
+            err.contains("[A-Za-z0-9_+]"),
+            "error should describe allowed charset: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn key_press_accepts_valid_key_names() {
+        let mut c = cfg_default();
+        c.auto_start = false;
+        c.endpoint = "http://192.0.2.1:8787/v1/actions".into();
+        let t = tool(c);
+        for key in &["Enter", "Escape", "ctrl+l", "Tab", "ctrl+shift+t"] {
+            let r = t
+                .execute(json!({"action": "key_press", "key": key}))
+                .await
+                .unwrap();
+            assert!(!r.success);
+            let err = r.error.as_ref().unwrap();
+            assert!(
+                !err.contains("[A-Za-z0-9_+]"),
+                "valid key '{key}' should not be rejected by charset: {err}"
+            );
+        }
+    }
+
     #[test]
     fn schema_includes_bootstrap_action() {
         let t = tool(cfg_default());
@@ -675,10 +670,10 @@ mod tests {
 
     #[test]
     fn desktop_helper_probe_is_structured() {
-        let probe = probe_desktop_helpers();
+        let probe = bootstrap::probe_desktop_helpers();
         #[cfg(target_os = "linux")]
         {
-            assert_eq!(probe.checked_helpers, LINUX_HELPERS.to_vec());
+            assert_eq!(probe.checked_helpers, bootstrap::LINUX_HELPERS.to_vec());
             assert!(probe
                 .missing_helpers
                 .iter()
@@ -749,8 +744,14 @@ mod tests {
         let r = t.execute(json!({"action": "window_list"})).await.unwrap();
         assert!(!r.success);
         let err = r.error.unwrap();
-        assert!(err.contains("not reachable"), "error should mention sidecar not reachable: {err}");
-        assert!(err.contains("auto_start"), "error should mention auto_start option: {err}");
+        assert!(
+            err.contains("not reachable"),
+            "error should mention sidecar not reachable: {err}"
+        );
+        assert!(
+            err.contains("auto_start"),
+            "error should mention auto_start option: {err}"
+        );
     }
 
     #[tokio::test]
@@ -762,10 +763,14 @@ mod tests {
         let r = t.execute(json!({"action": "window_list"})).await.unwrap();
         assert!(!r.success);
         let err = r.error.unwrap();
-        assert!(err.contains("auto_start only spawns a local sidecar"),
-            "error should explain auto_start limitation: {err}");
-        assert!(err.contains("Start the remote sidecar manually"),
-            "error should suggest manual start: {err}");
+        assert!(
+            err.contains("auto_start only spawns a local sidecar"),
+            "error should explain auto_start limitation: {err}"
+        );
+        assert!(
+            err.contains("Start the remote sidecar manually"),
+            "error should suggest manual start: {err}"
+        );
     }
 
     #[tokio::test]
@@ -780,8 +785,10 @@ mod tests {
         assert!(!r.success);
         let err = r.error.as_ref().expect("error must be present");
         // Error should explain that auto_start can't handle this endpoint
-        assert!(err.contains("auto_start") || err.contains("local"),
-            "error should be descriptive: {err}");
+        assert!(
+            err.contains("auto_start") || err.contains("local"),
+            "error should be descriptive: {err}"
+        );
     }
 
     #[tokio::test]
@@ -794,7 +801,10 @@ mod tests {
         let r = t.execute(json!({"action": "app_terminate"})).await.unwrap();
         assert!(!r.success);
         let err = r.error.as_ref().expect("error must be present");
-        assert!(err.contains("app") || err.contains("pid"), "error should mention missing app/pid: {err}");
+        assert!(
+            err.contains("app") || err.contains("pid"),
+            "error should mention missing app/pid: {err}"
+        );
     }
 
     #[tokio::test]
@@ -807,21 +817,30 @@ mod tests {
         let r = t.execute(json!({"action": "window_focus"})).await.unwrap();
         assert!(!r.success);
         let err = r.error.as_ref().expect("error must be present");
-        assert!(err.contains("requires"), "error should mention missing selector: {err}");
+        assert!(
+            err.contains("requires"),
+            "error should mention missing selector: {err}"
+        );
     }
 
     #[tokio::test]
     async fn mouse_drag_requires_all_coords() {
         let t = tool(cfg_default());
-        let r = t.execute(json!({
-            "action": "mouse_drag",
-            "from_x": 0,
-            "from_y": 0
-            // missing to_x, to_y
-        })).await.unwrap();
+        let r = t
+            .execute(json!({
+                "action": "mouse_drag",
+                "from_x": 0,
+                "from_y": 0
+                // missing to_x, to_y
+            }))
+            .await
+            .unwrap();
         assert!(!r.success);
         let err = r.error.as_ref().expect("error must be present");
-        assert!(err.contains("to_x") || err.contains("to_y"), "error should mention missing coords: {err}");
+        assert!(
+            err.contains("to_x") || err.contains("to_y"),
+            "error should mention missing coords: {err}"
+        );
     }
 
     #[tokio::test]
@@ -839,7 +858,10 @@ mod tests {
         let r = t.execute(json!({"action": "bootstrap"})).await.unwrap();
         assert!(!r.success);
         let err = r.error.as_ref().expect("error must be present");
-        assert!(err.contains("rate limit") || err.contains("exceeded"), "error should mention rate limit: {err}");
+        assert!(
+            err.contains("rate limit") || err.contains("exceeded"),
+            "error should mention rate limit: {err}"
+        );
     }
 
     // ── computer_use happy path tests (PART 5: protect mainline) ──────────────
@@ -851,13 +873,19 @@ mod tests {
         #[cfg(target_os = "linux")]
         {
             // Skip if helpers are actually missing (would try to run sudo)
-            if !missing_linux_helpers().is_empty() {
+            if !bootstrap::missing_helpers().is_empty() {
                 return;
             }
             let r = t().execute(json!({"action": "bootstrap"})).await.unwrap();
-            assert!(r.success, "bootstrap should succeed when helpers are present");
-            assert!(r.output.contains("already installed") || r.output.contains("ready"),
-                "bootstrap output should indicate success: {}", r.output);
+            assert!(
+                r.success,
+                "bootstrap should succeed when helpers are present"
+            );
+            assert!(
+                r.output.contains("already installed") || r.output.contains("ready"),
+                "bootstrap output should indicate success: {}",
+                r.output
+            );
         }
         #[cfg(not(target_os = "linux"))]
         {
@@ -873,9 +901,18 @@ mod tests {
         let t = t();
         let schema = t.parameters_schema();
         let required_actions = [
-            "screen_capture", "window_list", "window_focus", "window_close",
-            "app_launch", "app_terminate", "mouse_move", "mouse_click",
-            "mouse_drag", "key_type", "key_press", "bootstrap"
+            "screen_capture",
+            "window_list",
+            "window_focus",
+            "window_close",
+            "app_launch",
+            "app_terminate",
+            "mouse_move",
+            "mouse_click",
+            "mouse_drag",
+            "key_type",
+            "key_press",
+            "bootstrap",
         ];
         let enum_vals = schema["properties"]["action"]["enum"]
             .as_array()
@@ -891,8 +928,14 @@ mod tests {
     fn tool_has_descriptive_name_and_description() {
         let t = t();
         assert_eq!(t.name(), "computer_use");
-        assert!(!t.description().is_empty(), "description should not be empty");
-        assert!(t.description().len() > 100, "description should be comprehensive");
+        assert!(
+            !t.description().is_empty(),
+            "description should not be empty"
+        );
+        assert!(
+            t.description().len() > 100,
+            "description should be comprehensive"
+        );
     }
 
     #[test]
@@ -913,14 +956,14 @@ mod tests {
         // Localhost should be detected as local
         c.endpoint = "http://127.0.0.1:8787/v1/actions".into();
         assert!(c.endpoint_is_local());
-        
+
         c.endpoint = "http://localhost:8787/v1/actions".into();
         assert!(c.endpoint_is_local());
-        
+
         // Non-local should be detected as remote
         c.endpoint = "http://192.168.1.100:8787/v1/actions".into();
         assert!(!c.endpoint_is_local());
-        
+
         c.endpoint = "http://example.com:8787/v1/actions".into();
         assert!(!c.endpoint_is_local());
     }

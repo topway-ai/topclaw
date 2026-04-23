@@ -1,6 +1,15 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+/// Convenience constructor for a failed tool result.
+pub fn tool_fail(msg: impl Into<String>) -> ToolResult {
+    ToolResult {
+        success: false,
+        output: String::new(),
+        error: Some(msg.into()),
+    }
+}
+
 /// Result of a tool execution.
 ///
 /// `success = false` means the tool ran and produced a structured failure for

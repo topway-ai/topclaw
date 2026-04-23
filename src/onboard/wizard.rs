@@ -576,7 +576,7 @@ fn memory_config_defaults_for_backend(backend: &str) -> MemoryConfig {
         snapshot_enabled: false,
         snapshot_on_hygiene: false,
         auto_hydrate: true,
-        sqlite_open_timeout_secs: None
+        sqlite_open_timeout_secs: None,
     }
 }
 
@@ -666,8 +666,7 @@ fn resolve_quick_setup_dirs_with_home(home: &Path) -> (PathBuf, PathBuf) {
         }
     }
 
-    let config_dir = crate::config::default_config_dir()
-        .unwrap_or_else(|_| home.join(".topclaw"));
+    let config_dir = crate::config::default_config_dir().unwrap_or_else(|_| home.join(".topclaw"));
     (config_dir.clone(), config_dir.join("workspace"))
 }
 
@@ -1392,7 +1391,7 @@ async fn maybe_install_desktop_helpers(skill_selection: &SkillOnboardingSelectio
         return;
     }
 
-    let probe = crate::tools::computer_use::probe_desktop_helpers();
+    let probe = crate::tools::bootstrap::probe_desktop_helpers();
     if probe.missing_helpers.is_empty() {
         println!(
             "  {} Desktop helpers: {}",
@@ -1419,8 +1418,8 @@ async fn maybe_install_desktop_helpers(skill_selection: &SkillOnboardingSelectio
         print_bullet("TopClaw will now try to install those desktop helpers and may prompt for your sudo password.");
     }
 
-    let result = crate::tools::computer_use::install_desktop_helpers_for_user_request().await;
-    let final_probe = crate::tools::computer_use::probe_desktop_helpers();
+    let result = crate::tools::bootstrap::install_desktop_helpers_for_user_request().await;
+    let final_probe = crate::tools::bootstrap::probe_desktop_helpers();
     if final_probe.missing_helpers.is_empty() {
         println!(
             "  {} Desktop helpers: {}",
@@ -2837,6 +2836,7 @@ mod tests {
         let _env_guard = env_lock().lock().await;
         let _workspace_env = EnvVarGuard::unset("TOPCLAW_WORKSPACE");
         let _config_env = EnvVarGuard::unset("TOPCLAW_CONFIG_DIR");
+        let _home_env = EnvVarGuard::set("HOME", home.to_string_lossy().as_ref());
 
         Box::pin(run_quick_setup_with_home(
             credential_override,
@@ -3056,12 +3056,14 @@ mod tests {
         let _env_guard = env_lock().lock().await;
         let tmp = TempDir::new().unwrap();
         let workspace_root = tmp.path().join("topclaw-data");
-        let workspace_dir = workspace_root.join("workspace");
-        let expected_config_path = workspace_root.join(".topclaw").join("config.toml");
+        let env_workspace = workspace_root.join("env-ws");
+        let expected_workspace_dir = env_workspace.join("workspace");
+        let expected_config_path = env_workspace.join("config.toml");
 
+        let _home_env = EnvVarGuard::set("HOME", tmp.path().to_string_lossy().as_ref());
         let _workspace_env = EnvVarGuard::set(
             "TOPCLAW_WORKSPACE",
-            workspace_dir.to_string_lossy().as_ref(),
+            env_workspace.to_string_lossy().as_ref(),
         );
         let _config_env = EnvVarGuard::unset("TOPCLAW_CONFIG_DIR");
 
@@ -3076,7 +3078,7 @@ mod tests {
         .await
         .expect("quick setup should honor TOPCLAW_WORKSPACE");
 
-        assert_eq!(config.workspace_dir, workspace_dir);
+        assert_eq!(config.workspace_dir, expected_workspace_dir);
         assert_eq!(config.config_path, expected_config_path);
     }
 
@@ -4376,7 +4378,7 @@ mod tests {
     async fn maybe_install_desktop_helpers_does_not_panic_when_desktop_skill_selected() {
         // Guard: skip on Linux hosts where helpers are actually missing,
         // because the function would attempt sudo -n apt-get install.
-        if !crate::tools::computer_use::missing_linux_helpers().is_empty() {
+        if !crate::tools::bootstrap::missing_helpers().is_empty() {
             return;
         }
         let selection = SkillOnboardingSelection {

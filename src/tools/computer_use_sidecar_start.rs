@@ -18,7 +18,7 @@
 //!   without spawning a duplicate.
 
 use super::sidecar_client;
-use super::traits::{Tool, ToolResult};
+use super::traits::{tool_fail, Tool, ToolResult};
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -90,28 +90,16 @@ impl Tool for ComputerUseSidecarStartTool {
 
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {
         if !self.security.can_act() {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Action blocked: autonomy is read-only".into()),
-            });
+            return Ok(tool_fail("Action blocked: autonomy is read-only"));
         }
         if !self.security.record_action() {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Action blocked: rate limit exceeded".into()),
-            });
+            return Ok(tool_fail("Action blocked: rate limit exceeded"));
         }
 
         let bind = match extract_bind(&args) {
             Ok(b) => b,
             Err(e) => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(e),
-                });
+                return Ok(tool_fail(e));
             }
         };
 
@@ -131,25 +119,13 @@ impl Tool for ComputerUseSidecarStartTool {
         let mut child = match sidecar_client::spawn_sidecar_child(&bind, api_key) {
             Ok(c) => c,
             Err(e) => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(e),
-                });
+                return Ok(tool_fail(e));
             }
         };
         let pid = child.id();
 
-        // Poll /health until ready or timeout.
-        let start = std::time::Instant::now();
-        let mut healthy = false;
-        while start.elapsed() < sidecar_client::HEALTH_POLL_TIMEOUT {
-            if sidecar_client::probe_health(&health_url).await {
-                healthy = true;
-                break;
-            }
-            tokio::time::sleep(sidecar_client::HEALTH_POLL_INTERVAL).await;
-        }
+        let health_url = format!("http://{bind}/health");
+        let healthy = sidecar_client::wait_for_healthy(&health_url).await;
 
         let reason = args.get("reason").and_then(Value::as_str);
         info!(
@@ -163,8 +139,6 @@ impl Tool for ComputerUseSidecarStartTool {
         );
 
         if healthy {
-            // Detach a reaper so the Child handle can be dropped without
-            // leaving a zombie. The sidecar continues running until killed.
             tokio::spawn(async move {
                 let _ = child.wait().await;
             });
@@ -176,18 +150,12 @@ impl Tool for ComputerUseSidecarStartTool {
                 error: None,
             })
         } else {
-            // Sidecar never became healthy — kill it so we don't leave a
-            // half-started process around.
             let _ = child.kill().await;
             let _ = child.wait().await;
-            Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!(
-                    "spawned sidecar (pid {pid:?}) but /health at {health_url} did not become ready within {}s; check xdotool/wmctrl/scrot are installed and X session is available",
-                    sidecar_client::HEALTH_POLL_TIMEOUT.as_secs()
-                )),
-            })
+            Ok(tool_fail(format!(
+            "spawned sidecar (pid {pid:?}) but /health at {health_url} did not become ready within {}s; check xdotool/wmctrl/scrot are installed and X session is available",
+            sidecar_client::HEALTH_POLL_TIMEOUT.as_secs()
+        )))
         }
     }
 }

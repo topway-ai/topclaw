@@ -642,17 +642,13 @@ pub(super) async fn process_channel_message_with_options(
             None
         };
 
-        if let Some((
-            canary_enabled,
-            semantic_enabled,
-            semantic_collection,
-            semantic_threshold,
-        )) = semantic_cfg
+        if let Some((canary_enabled, semantic_enabled, semantic_collection, semantic_threshold)) =
+            semantic_cfg
         {
             canary_enabled_for_turn = canary_enabled;
             if semantic_enabled {
                 let semantic_guard = crate::security::SemanticGuard::new(semantic_enabled);
-                if let Some(detection) = semantic_guard.detect(&msg.content).await {
+                if let Some(detection) = semantic_guard.detect(&msg.content) {
                     runtime_trace::record_event(
                         "channel_message_blocked_semantic_guard",
                         Some(msg.channel.as_str()),

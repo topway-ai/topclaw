@@ -1129,7 +1129,9 @@ mod tests {
 
     #[tokio::test]
     async fn shell_captures_stderr_output() {
-        let tool = ShellTool::new(test_security(AutonomyLevel::Full), test_runtime());
+        let security =
+            test_security_with_redirect_policy(AutonomyLevel::Full, ShellRedirectPolicy::Allow);
+        let tool = ShellTool::new(security, test_runtime());
         let result = tool
             .execute(json!({"command": "echo error_msg >&2"}))
             .await

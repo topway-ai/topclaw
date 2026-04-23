@@ -216,11 +216,17 @@ classified into exactly one category. No vague wording. No preserved aliases.
 - **Flags:** CURRENT_MAINLINE
 - **Why it exists:** Metrics, tracing, runtime trace logging.
 - **Current mainline needed:** Yes — observability is standard infrastructure.
-- **Legacy burden:** Low. Structure is reasonable. `runtime_trace.rs` → target for cache move.
-- **Next action:** Keep as-is. Move `runtime_trace.jsonl` to cache dir (see state model).
+- **Legacy burden:** Low. Structure is reasonable.
+- **Completed refactors (this pass):**
+  - `runtime_trace.jsonl` default path moved from `state/runtime-trace.jsonl` (under
+    workspace) to `~/.cache/topclaw/runtime-trace.jsonl` (XDG cache dir)
+  - `ObservabilityConfig.runtime_trace_path` default changed from `"state/runtime-trace.jsonl"`
+    to empty string; `resolve_trace_path()` now uses XDG cache when empty
+  - `xdg_cache_dir()` helper added using `directories::BaseDirs`
+- **Next action:** Keep as-is. Runtime trace is now in cache where it belongs.
 - **Files/dirs:** `mod.rs`, `log.rs`, `multi.rs`, `noop.rs`, `otel.rs`, `prometheus.rs`, `runtime_trace.rs`, `traits.rs`
 - **Risk:** LOW — observability infrastructure.
-- **Tests required:** Observer creation tests.
+- **Tests required:** Observer creation tests, trace path resolution tests.
 
 ---
 
@@ -313,19 +319,34 @@ classified into exactly one category. No vague wording. No preserved aliases.
 - **Current mainline needed:** Yes — sidecar is the execution engine for computer_use.
 - **Legacy burden:** `linux.rs` — Linux-specific backend. Keep for now.
 - **Assessment (this pass):** Structure is now cleaner with proper separation:
-  - `computer_use.rs` — ~650 lines, focused on tool facade + HTTP client
+  - `computer_use.rs` — tool facade, delegates HTTP to `sidecar_client::post_sidecar_action()`
   - `bootstrap.rs` — ~350 lines, Linux desktop helper detection/installation
-  - `sidecar_client.rs` — Clean utilities (health probe, spawn, URL)
+  - `sidecar_client.rs` — shared utilities (health probe, spawn, URL, action POST)
   - `sidecar/server.rs` — Clean axum router
   - `sidecar/linux.rs` — Clean action handlers
-- **Completed refactors:**
+- **Completed refactors (this pass):**
   - `bootstrap.rs` extracted from `computer_use.rs` (Linux helper detection, package
     manager detection, sudo handling)
-  - API stability preserved via re-exports in computer_use.rs
+  - Bootstrap re-exports in `computer_use.rs` REMOVED — callers now import
+    `tools::bootstrap` directly (doctor, main.rs, onboard/wizard.rs)
+  - Duplicate sidecar HTTP client in `browser.rs` REPLACED with delegation to
+    `sidecar_client::post_sidecar_action()` — single implementation
+  - `browser.rs` `endpoint_reachable()` (raw TCP check) REPLACED with
+    `sidecar_client::probe_health()` (proper HTTP /health check)
+  - `computer_use_available()` made async to support HTTP health probe
+  - `allowed_domains` added to `computer_use.rs` policy envelope (was missing;
+    sidecar protocol expects it)
+  - `key_press` character validation aligned: `browser.rs` removed `-` from
+    allowed set → now `[A-Za-z0-9_+]` matching sidecar's `key_name_ok`
+  - Defense-in-depth `key_press` validation added in `computer_use.rs`
+  - `fn fail()` consolidated into `tool_fail()` in `traits.rs`
+  - Health-poll loop consolidated into `wait_for_healthy()` in `sidecar_client.rs`
+  - Dead code deleted: `endpoint_reachable()`, `ComputerUseResponse` struct in
+    `browser.rs`; `http_client()` method and `Duration` import in `computer_use.rs`
 - **Next action:** Keep as-is. Structure is now honest for current product shape.
 - **Files/dirs:** `mod.rs`, `server.rs`, `linux.rs`
 - **Risk:** MEDIUM — sidecar handles desktop automation.
-- **Tests required:** Sidecar server tests.
+- **Tests required:** Sidecar server tests, sidecar_client unit tests, key_press validation tests.
 
 ---
 
@@ -347,19 +368,27 @@ classified into exactly one category. No vague wording. No preserved aliases.
 
 - **Classification:** KEEP
 - **Flags:** PROTECTED_CORE, TOO_BIG_OWNER
-- **Why it exists:** Agent-callable tool implementations. ~46 files.
+- **Why it exists:** Agent-callable tool implementations. ~45 files.
 - **Current mainline needed:** Yes — all tool execution goes through this.
 - **Legacy burden:** Largest subsystem. After analysis:
-  - `cron_*.rs` (6 files) — DIFFERENT capabilities, keep separate
-  - `memory_*.rs` (3 files) — DIFFERENT purposes, keep separate
-  - `lossless_*.rs` (2 files) — DIFFERENT purposes, keep separate
-  - `subagent_*.rs` (4 files) — registry is separate from tools, keep separate
-  - `delegate.rs` — Core delegate tool, keep
-  - `delegate_coordination_status.rs` — READ-ONLY observability tool, keep separate
-    (Different purpose: coordination status is read-only introspection, delegate is execution)
+- `cron_*.rs` (6 files) — DIFFERENT capabilities, keep separate
+- `memory_*.rs` (3 files) — DIFFERENT purposes, keep separate
+- `lossless_*.rs` (2 files) — DIFFERENT purposes, keep separate
+- `subagent_*.rs` (4 files) — registry is separate from tools, keep separate
+- `delegate.rs` — Core delegate tool, keep
+- `delegate_coordination_status.rs` — READ-ONLY observability tool, keep separate
+(Different purpose: coordination status is read-only introspection, delegate is execution)
+- `schedule.rs` — DELETED. Fully subsumed by `cron_add`/`cron_list`/`cron_remove`/etc.
+  Its own description said: "To send a scheduled message to Discord/Telegram, use the cron_add tool instead."
+- **Completed refactors (this pass):**
+  - `schedule.rs` (791 lines) DELETED — all scheduling capability moved to cron tools
+  - `pub mod schedule`, `pub use schedule::ScheduleTool`, `ScheduleTool::new()` removed from `mod.rs`
+  - Schedule tool descriptions removed from `agent/loop_.rs` and `channels/prompt.rs` system prompts
+  - Test references updated from `schedule` to `cron_add` across `channels/mod.rs`, `approval/mod.rs`, `gateway/mod.rs`, `gateway/ws.rs`
+  - `dev/config.template.toml` non_cli_excluded_tools list updated
 - **Next action:** Keep as-is. All tool files have distinct purposes and clear ownership.
-  No merges needed — current boundaries are honest for current product shape.
-- **Files/dirs:** ~46 files — see `src/tools/` tree
+No merges needed — current boundaries are honest for current product shape.
+- **Files/dirs:** ~45 files — see `src/tools/` tree
 - **Risk:** HIGH — tool changes affect agent capability.
 - **Tests required:** Tool registry tests, individual tool parameter validation tests.
 
@@ -452,6 +481,14 @@ classified into exactly one category. No vague wording. No preserved aliases.
 | Module/File | Classification | Reason |
 |---|---|---|
 | `config/browser_domain_grants.rs` | DELETED | BrowserAllowlist owns grants logic; this file was a thin wrapper |
+| `tools/schedule.rs` | DELETED | Fully subsumed by cron_add/cron_list/cron_remove/cron_run/cron_update/cron_runs; own description said to use cron_add instead |
+| `browser.rs` `endpoint_reachable()` | DELETED | Raw TCP check replaced by `sidecar_client::probe_health()` (proper HTTP /health) |
+| `browser.rs` `ComputerUseResponse` struct | DELETED | Duplicate response type; `post_sidecar_action()` returns `serde_json::Value` |
+| `browser.rs` duplicate `execute_computer_use_action` HTTP client | DELETED | Replaced by delegation to `sidecar_client::post_sidecar_action()` |
+| `computer_use.rs` `http_client()` method | DELETED | Replaced by `sidecar_client::post_sidecar_action()` |
+| `computer_use.rs` bootstrap re-exports | DELETED | Callers now import `tools::bootstrap` directly |
+| `computer_use.rs` duplicate `fn fail()` | DELETED | Consolidated into `tool_fail()` in `traits.rs` |
+| `computer_use.rs` + `computer_use_sidecar_start.rs` duplicate health-poll loops | DELETED | Consolidated into `wait_for_healthy()` in `sidecar_client.rs` |
 
 ## Merge List (this pass)
 
@@ -471,13 +508,14 @@ None identified — existing splits are intentional (cron tools have different c
 | Path | Action | Reason |
 |---|---|---|
 | `repositories/topclaw/` | MOVED_TO_CACHE | Ephemeral skills repo moved to `~/.cache/topclaw/repositories/topclaw`. Can be re-cloned; doesn't need durable state. |
+| `state/runtime-trace.jsonl` | MOVED_TO_CACHE | Ephemeral debug log; auto-pruned. Default path now `~/.cache/topclaw/runtime-trace.jsonl` via XDG. Config default changed to empty string. |
 | `browser-allowed-domains-grants.json` | KEEP_AS_ALTERNATE_PATH | BrowserAllowlist can use either `.topclaw/` or workspace dir. |
-| `state/runtime-trace.jsonl` | KEEP_PATH_BUT_NO_FILE | Ephemeral debug log; auto-pruned. Path kept for future cache move. |
 | `estop-state.json` | KEEP_PATH | Used by security/estop.rs; not safe to merge in this pass |
 | `active_workspace.toml` | KEEP_PATH | Active workspace marker is current mainline |
 
 **Completed state model changes:**
 - `repositories/topclaw/` → `~/.cache/topclaw/repositories/topclaw` (updated in src/skills/mod.rs, scripts/bootstrap.sh, scripts/install-release.sh, docs/config-reference.md)
+- `state/runtime-trace.jsonl` → `~/.cache/topclaw/runtime-trace.jsonl` (updated in src/config/observability.rs, src/observability/runtime_trace.rs; config default is now empty string which resolves to XDG cache dir)
 
 **State model is honest:** Single resolution model in place, no fallback to `../.topclaw`.
 Current resolution order: `TOPCLAW_CONFIG_DIR` > `TOPCLAW_WORKSPACE` > active_workspace.toml > defaults.
@@ -486,28 +524,36 @@ Current resolution order: `TOPCLAW_CONFIG_DIR` > `TOPCLAW_WORKSPACE` > active_wo
 
 ## Summary
 
-**Delete:** None in this pass
+**Delete (this pass):** `tools/schedule.rs` (791 lines), `browser.rs` duplicate HTTP client, `endpoint_reachable()`, `ComputerUseResponse`, `computer_use.rs` `http_client()`, bootstrap re-exports, duplicate `fn fail()`, duplicate health-poll loops
 **Merge:** None — all tool files have distinct purposes and clear ownership
 **Split (this pass):**
-  - `computer_use.rs` bootstrap logic → extracted to `bootstrap.rs` (~350 lines)
-  - `computer_use.rs` now focused on tool facade + HTTP client (~650 lines)
+- `computer_use.rs` bootstrap logic → extracted to `bootstrap.rs` (~350 lines)
+- `computer_use.rs` now focused on tool facade, delegates HTTP to `sidecar_client` (~650 lines)
 
-**Completed refactors:**
-  - `bootstrap.rs` created with Linux desktop helper detection/installation
-  - API stability preserved via re-exports in computer_use.rs
-  - Unused imports removed from computer_use.rs
-  - xdg-open documented as intentionally excluded from LINUX_HELPERS
+**Completed refactors (this pass):**
+- `bootstrap.rs` created with Linux desktop helper detection/installation
+- Bootstrap re-exports in `computer_use.rs` REMOVED; callers import `tools::bootstrap` directly
+- Duplicate sidecar HTTP client in `browser.rs` REPLACED with `sidecar_client::post_sidecar_action()`
+- `browser.rs` `endpoint_reachable()` REPLACED with `sidecar_client::probe_health()`
+- `allowed_domains` added to `computer_use.rs` policy envelope (was missing)
+- `key_press` validation aligned between `computer_use.rs` and `browser.rs`
+- `fn fail()` consolidated into `tool_fail()` in `traits.rs`
+- Health-poll loops consolidated into `wait_for_healthy()` in `sidecar_client.rs`
+- `schedule.rs` DELETED — subsumed by cron tools
+- Unused imports removed from `computer_use.rs`
+- xdg-open documented as intentionally excluded from LINUX_HELPERS
 
 **State model narrowed:**
-  - `repositories/topclaw/` moved to `~/.cache/topclaw/repositories/topclaw`
-  - Updated in src/skills/mod.rs, scripts/bootstrap.sh, scripts/install-release.sh
+- `repositories/topclaw/` moved to `~/.cache/topclaw/repositories/topclaw`
+- `state/runtime-trace.jsonl` moved to `~/.cache/topclaw/runtime-trace.jsonl` (XDG cache)
+- Updated in src/skills/mod.rs, scripts/bootstrap.sh, scripts/install-release.sh, src/config/observability.rs, src/observability/runtime_trace.rs
 
-**Tests added (PART 5):**
-  - Happy path: bootstrap_succeeds_when_helpers_present, schema_has_all_required_actions,
-    tool_has_descriptive_name_and_description, app_launch_accepts_valid_config,
-    endpoint_locality_detection_works
-  - Failure path: sidecar_unreachable, remote_endpoint_blocks_auto_start, etc.
-  - All 36 computer_use + bootstrap tests pass
+**Tests added:**
+- Happy path: bootstrap_succeeds_when_helpers_present, schema_has_all_required_actions,
+tool_has_descriptive_name_and_description, app_launch_accepts_valid_config,
+endpoint_locality_detection_works, resolve_trace_path_default_uses_xdg_cache
+- Failure path: sidecar_unreachable, remote_endpoint_blocks_auto_start, etc.
+- All computer_use + bootstrap + sidecar_client + observability tests pass
 
 **Keep as-is:** All cron, memory, lossless, subagent, delegate, sidecar tools
 

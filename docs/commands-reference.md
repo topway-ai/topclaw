@@ -171,8 +171,8 @@ Notes:
 
 Notes:
 
-- Mutating schedule/cron actions require `cron.enabled = true`.
-- Shell command payloads for schedule creation (`create` / `add` / `once`) are validated by security command policy before job persistence.
+- Mutating cron actions require `cron.enabled = true`.
+- Shell command payloads for cron creation (`add` / `add-at` / `add-every` / `once`) are validated by security command policy before job persistence.
 
 ### `models`
 

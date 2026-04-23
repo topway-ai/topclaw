@@ -19,11 +19,9 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{ErrorKind, IsTerminal};
-use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::process::Command;
 use tracing::debug;
 
@@ -115,17 +113,6 @@ impl BrowserDomainApprovalChoice {
 struct AgentBrowserResponse {
     success: bool,
     data: Option<Value>,
-    error: Option<String>,
-}
-
-/// Response format from computer-use sidecar.
-#[derive(Debug, Deserialize)]
-struct ComputerUseResponse {
-    #[serde(default)]
-    success: Option<bool>,
-    #[serde(default)]
-    data: Option<Value>,
-    #[serde(default)]
     error: Option<String>,
 }
 
@@ -320,9 +307,10 @@ impl BrowserTool {
         Ok(parsed)
     }
 
-    fn computer_use_available(&self) -> anyhow::Result<bool> {
+    async fn computer_use_available(&self) -> anyhow::Result<bool> {
         let endpoint = self.computer_use_endpoint_url()?;
-        Ok(endpoint_reachable(&endpoint, Duration::from_millis(500)))
+        let health_url = super::sidecar_client::derive_health_url(endpoint.as_str());
+        Ok(super::sidecar_client::probe_health(&health_url).await)
     }
 
     async fn resolve_backend(&self) -> anyhow::Result<ResolvedBackend> {
@@ -353,7 +341,7 @@ impl BrowserTool {
                 Ok(ResolvedBackend::RustNative)
             }
             BrowserBackendKind::ComputerUse => {
-                if !self.computer_use_available()? {
+                if !self.computer_use_available().await? {
                     anyhow::bail!(
                         "browser.backend='computer_use' but sidecar endpoint is unreachable. Check browser.computer_use.endpoint and sidecar status"
                     );
@@ -368,7 +356,7 @@ impl BrowserTool {
                     return Ok(ResolvedBackend::AgentBrowser);
                 }
 
-                let computer_use_err = match self.computer_use_available() {
+                let computer_use_err = match self.computer_use_available().await {
                     Ok(true) => return Ok(ResolvedBackend::ComputerUse),
                     Ok(false) => None,
                     Err(err) => Some(err.to_string()),
@@ -845,9 +833,9 @@ impl BrowserTool {
                     && key.len() <= 32
                     && key
                         .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '+'));
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '+'));
                 if !valid {
-                    anyhow::bail!("'key' for key_press must be 1-32 chars of [A-Za-z0-9_+-]");
+                    anyhow::bail!("'key' for key_press must be 1-32 chars of [A-Za-z0-9_+]");
                 }
             }
             "screen_capture" => {
@@ -962,85 +950,49 @@ impl BrowserTool {
             }
         });
 
-        let client = crate::config::build_runtime_proxy_client("tool.browser");
-        let mut request = client
-            .post(endpoint)
-            .timeout(Duration::from_millis(self.computer_use.timeout_ms))
-            .json(&payload);
+        let response = super::sidecar_client::post_sidecar_action(
+            endpoint.as_str(),
+            self.computer_use.api_key.as_deref(),
+            self.computer_use.timeout_ms,
+            &payload,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        if let Some(api_key) = self.computer_use.api_key.as_deref() {
-            let token = api_key.trim();
-            if !token.is_empty() {
-                request = request.bearer_auth(token);
-            }
-        }
+        let success = response
+            .get("success")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
 
-        let response = request.send().await.with_context(|| {
-            format!(
-                "Failed to call computer-use sidecar at {}",
-                self.computer_use.endpoint
-            )
-        })?;
-
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .context("Failed to read computer-use sidecar response body")?;
-
-        if let Ok(parsed) = serde_json::from_str::<ComputerUseResponse>(&body) {
-            if status.is_success() && parsed.success.unwrap_or(true) {
-                let output = parsed
-                    .data
-                    .map(|data| serde_json::to_string_pretty(&data).unwrap_or_default())
-                    .unwrap_or_else(|| {
-                        serde_json::to_string_pretty(&json!({
-                            "backend": "computer_use",
-                            "action": action,
-                            "ok": true,
-                        }))
-                        .unwrap_or_default()
-                    });
-
-                return Ok(ToolResult {
-                    success: true,
-                    output,
-                    error: None,
+        if success {
+            let output = response
+                .get("data")
+                .map(|data| serde_json::to_string_pretty(data).unwrap_or_default())
+                .unwrap_or_else(|| {
+                    serde_json::to_string_pretty(&json!({
+                        "backend": "computer_use",
+                        "action": action,
+                        "ok": true,
+                    }))
+                    .unwrap_or_default()
                 });
-            }
-
-            let error = parsed.error.or_else(|| {
-                if status.is_success() && parsed.success == Some(false) {
-                    Some("computer-use sidecar returned success=false".to_string())
-                } else {
-                    Some(format!(
-                        "computer-use sidecar request failed with status {status}"
-                    ))
-                }
-            });
-
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error,
-            });
-        }
-
-        if status.is_success() {
             return Ok(ToolResult {
                 success: true,
-                output: body,
+                output,
                 error: None,
             });
         }
 
+        let error = response
+            .get("error")
+            .and_then(Value::as_str)
+            .map(String::from)
+            .unwrap_or_else(|| "computer-use sidecar returned success=false".to_string());
+
         Ok(ToolResult {
             success: false,
             output: String::new(),
-            error: Some(format!(
-                "computer-use sidecar request failed with status {status}: {}",
-                body.trim()
-            )),
+            error: Some(error),
         })
     }
 
@@ -2445,30 +2397,6 @@ fn normalize_domains(domains: Vec<String>) -> Vec<String> {
         .collect()
 }
 
-fn endpoint_reachable(endpoint: &reqwest::Url, timeout: Duration) -> bool {
-    let host = match endpoint.host_str() {
-        Some(host) if !host.is_empty() => host,
-        _ => return false,
-    };
-
-    let port = match endpoint.port_or_known_default() {
-        Some(port) => port,
-        None => return false,
-    };
-
-    let mut addrs = match (host, port).to_socket_addrs() {
-        Ok(addrs) => addrs,
-        Err(_) => return false,
-    };
-
-    let addr = match addrs.next() {
-        Some(addr) => addr,
-        None => return false,
-    };
-
-    std::net::TcpStream::connect_timeout(&addr, timeout).is_ok()
-}
-
 async fn prompt_browser_domain_approval(host: &str) -> anyhow::Result<String> {
     let interactive = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
     if !interactive {
@@ -3077,6 +3005,89 @@ mod tests {
             let err = anyhow::anyhow!(message);
             assert!(!is_recoverable_rust_native_error(&err), "{message}");
         }
+    }
+
+    #[test]
+    fn key_press_validation_rejects_hyphen() {
+        let security = Arc::new(SecurityPolicy::default());
+        let tool = BrowserTool::new_with_backend(
+            security,
+            vec!["example.com".into()],
+            None,
+            "computer_use".into(),
+            true,
+            "http://127.0.0.1:9515".into(),
+            None,
+            BrowserComputerUseConfig::default(),
+        );
+        let hyphen_key = serde_json::json!({"key": "Ctrl-Alt"});
+        assert!(
+            tool.validate_computer_use_action("key_press", hyphen_key.as_object().unwrap())
+                .is_err(),
+            "hyphen in key_press should be rejected"
+        );
+        let valid_key = serde_json::json!({"key": "ctrl+alt"});
+        assert!(
+            tool.validate_computer_use_action("key_press", valid_key.as_object().unwrap())
+                .is_ok(),
+            "plus in key_press should be accepted"
+        );
+    }
+
+    #[tokio::test]
+    async fn computer_use_available_uses_http_health_probe() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/health"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let security = Arc::new(SecurityPolicy::default());
+        let endpoint = format!("{}/v1/actions", server.uri());
+        let tool = BrowserTool::new_with_backend(
+            security,
+            vec!["example.com".into()],
+            None,
+            "computer_use".into(),
+            true,
+            "http://127.0.0.1:9515".into(),
+            None,
+            BrowserComputerUseConfig {
+                endpoint,
+                ..BrowserComputerUseConfig::default()
+            },
+        );
+        let result = tool.computer_use_available().await;
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "mock /health should report available");
+    }
+
+    #[tokio::test]
+    async fn computer_use_available_returns_false_when_health_fails() {
+        let security = Arc::new(SecurityPolicy::default());
+        let tool = BrowserTool::new_with_backend(
+            security,
+            vec!["example.com".into()],
+            None,
+            "computer_use".into(),
+            true,
+            "http://127.0.0.1:9515".into(),
+            None,
+            BrowserComputerUseConfig {
+                endpoint: "http://192.0.2.1:8787/v1/actions".into(),
+                ..BrowserComputerUseConfig::default()
+            },
+        );
+        let result = tool.computer_use_available().await;
+        assert!(result.is_ok());
+        assert!(
+            !result.unwrap(),
+            "unreachable sidecar should report unavailable"
+        );
     }
 
     #[cfg(feature = "browser-native")]

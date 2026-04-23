@@ -1,6 +1,6 @@
 use crate::{
-    AuthCommands, Cli, CompletionShell, EstopLevelArg, EstopSubcommands,
-    ServiceCommands, WorkspaceCommands, WorkspaceTokenCommands,
+    AuthCommands, Cli, CompletionShell, EstopLevelArg, EstopSubcommands, ServiceCommands,
+    WorkspaceCommands, WorkspaceTokenCommands,
 };
 use anyhow::{bail, Context, Result};
 use dialoguer::{Input, Password};
@@ -365,7 +365,6 @@ pub(crate) fn write_shell_completion<W: Write>(
     writer.flush()?;
     Ok(())
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PendingOAuthLogin {

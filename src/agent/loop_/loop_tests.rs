@@ -214,9 +214,7 @@ impl Provider for StreamingScriptedProvider {
         _model: &str,
         _temperature: f64,
     ) -> anyhow::Result<String> {
-        anyhow::bail!(
-            "chat_with_system should not be used in streaming scripted provider tests"
-        );
+        anyhow::bail!("chat_with_system should not be used in streaming scripted provider tests");
     }
 
     async fn chat(
@@ -239,10 +237,8 @@ impl Provider for StreamingScriptedProvider {
         _model: &str,
         _temperature: f64,
         options: StreamOptions,
-    ) -> futures_util::stream::BoxStream<
-        'static,
-        crate::providers::traits::StreamResult<StreamChunk>,
-    > {
+    ) -> futures_util::stream::BoxStream<'static, crate::providers::traits::StreamResult<StreamChunk>>
+    {
         self.stream_calls.fetch_add(1, Ordering::SeqCst);
         if !options.enabled {
             return Box::pin(futures_util::stream::empty());
@@ -330,10 +326,8 @@ impl Provider for StreamingNativeToolEventProvider {
         _model: &str,
         _temperature: f64,
         options: StreamOptions,
-    ) -> futures_util::stream::BoxStream<
-        'static,
-        crate::providers::traits::StreamResult<StreamEvent>,
-    > {
+    ) -> futures_util::stream::BoxStream<'static, crate::providers::traits::StreamResult<StreamEvent>>
+    {
         self.stream_calls.fetch_add(1, Ordering::SeqCst);
         if request.tools.is_some_and(|tools| !tools.is_empty()) {
             self.stream_tool_requests.fetch_add(1, Ordering::SeqCst);
@@ -349,12 +343,10 @@ impl Provider for StreamingNativeToolEventProvider {
             .pop_front()
             .expect("streaming turns should have scripted output");
         match turn {
-            NativeStreamTurn::ToolCall(tool_call) => {
-                Box::pin(futures_util::stream::iter(vec![
-                    Ok(StreamEvent::ToolCall(tool_call)),
-                    Ok(StreamEvent::Final),
-                ]))
-            }
+            NativeStreamTurn::ToolCall(tool_call) => Box::pin(futures_util::stream::iter(vec![
+                Ok(StreamEvent::ToolCall(tool_call)),
+                Ok(StreamEvent::Final),
+            ])),
             NativeStreamTurn::Text(text) => Box::pin(futures_util::stream::iter(vec![
                 Ok(StreamEvent::TextDelta(StreamChunk::delta(text))),
                 Ok(StreamEvent::Final),
@@ -413,10 +405,8 @@ impl Provider for RouteAwareStreamingProvider {
         model: &str,
         _temperature: f64,
         options: StreamOptions,
-    ) -> futures_util::stream::BoxStream<
-        'static,
-        crate::providers::traits::StreamResult<StreamChunk>,
-    > {
+    ) -> futures_util::stream::BoxStream<'static, crate::providers::traits::StreamResult<StreamChunk>>
+    {
         self.stream_calls.fetch_add(1, Ordering::SeqCst);
         *self
             .last_model
@@ -466,10 +456,7 @@ impl Tool for CountingTool {
         })
     }
 
-    async fn execute(
-        &self,
-        args: serde_json::Value,
-    ) -> anyhow::Result<crate::tools::ToolResult> {
+    async fn execute(&self, args: serde_json::Value) -> anyhow::Result<crate::tools::ToolResult> {
         self.invocations.fetch_add(1, Ordering::SeqCst);
         let value = args
             .get("value")
@@ -516,10 +503,7 @@ impl Tool for FailingTool {
         })
     }
 
-    async fn execute(
-        &self,
-        _args: serde_json::Value,
-    ) -> anyhow::Result<crate::tools::ToolResult> {
+    async fn execute(&self, _args: serde_json::Value) -> anyhow::Result<crate::tools::ToolResult> {
         self.invocations.fetch_add(1, Ordering::SeqCst);
         Ok(crate::tools::ToolResult {
             success: false,
@@ -572,10 +556,7 @@ impl Tool for DelayTool {
         })
     }
 
-    async fn execute(
-        &self,
-        args: serde_json::Value,
-    ) -> anyhow::Result<crate::tools::ToolResult> {
+    async fn execute(&self, args: serde_json::Value) -> anyhow::Result<crate::tools::ToolResult> {
         let now_active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
         self.max_active.fetch_max(now_active, Ordering::SeqCst);
 
@@ -934,8 +915,7 @@ async fn run_tool_call_loop_returns_pending_non_cli_approval_error() {
     let approval_mgr = Arc::new(ApprovalManager::from_config(
         &crate::config::AutonomyConfig::default(),
     ));
-    let (prompt_tx, mut prompt_rx) =
-        tokio::sync::mpsc::unbounded_channel::<NonCliApprovalPrompt>();
+    let (prompt_tx, mut prompt_rx) = tokio::sync::mpsc::unbounded_channel::<NonCliApprovalPrompt>();
 
     let mut history = vec![
         ChatMessage::system("test-system"),
@@ -973,8 +953,8 @@ async fn run_tool_call_loop_returns_pending_non_cli_approval_error() {
     .await
     .expect_err("tool loop should fail fast while waiting for non-cli approval");
 
-    let pending = is_non_cli_approval_pending(&result)
-        .expect("non-cli approval error should be surfaced");
+    let pending =
+        is_non_cli_approval_pending(&result).expect("non-cli approval error should be surfaced");
     assert_eq!(pending.tool_name, "current execution plan");
     let prompt = prompt_rx
         .recv()
@@ -1141,8 +1121,7 @@ async fn run_tool_call_loop_full_telegram_approval_to_shell_cycle() {
     let approval_mgr = Arc::new(ApprovalManager::from_config(
         &crate::config::AutonomyConfig::default(),
     ));
-    let (prompt_tx, mut prompt_rx) =
-        tokio::sync::mpsc::unbounded_channel::<NonCliApprovalPrompt>();
+    let (prompt_tx, mut prompt_rx) = tokio::sync::mpsc::unbounded_channel::<NonCliApprovalPrompt>();
 
     let mut history = vec![
         ChatMessage::system("test-system"),
@@ -1180,8 +1159,7 @@ async fn run_tool_call_loop_full_telegram_approval_to_shell_cycle() {
     .await
     .expect_err("first turn must return pending approval error");
 
-    let pending =
-        is_non_cli_approval_pending(&err).expect("error should be NonCliApprovalPending");
+    let pending = is_non_cli_approval_pending(&err).expect("error should be NonCliApprovalPending");
     assert_eq!(pending.tool_name, "current execution plan");
 
     let prompt = prompt_rx
@@ -1480,8 +1458,7 @@ async fn run_tool_call_loop_executes_non_cli_investigation_batch_without_prompt(
     let approval_mgr = Arc::new(ApprovalManager::from_config(
         &crate::config::AutonomyConfig::default(),
     ));
-    let (prompt_tx, mut prompt_rx) =
-        tokio::sync::mpsc::unbounded_channel::<NonCliApprovalPrompt>();
+    let (prompt_tx, mut prompt_rx) = tokio::sync::mpsc::unbounded_channel::<NonCliApprovalPrompt>();
 
     let mut history = vec![
         ChatMessage::system("test-system"),
@@ -1550,8 +1527,7 @@ async fn run_tool_call_loop_batches_non_cli_plan_into_single_prompt() {
     let approval_mgr = Arc::new(ApprovalManager::from_config(
         &crate::config::AutonomyConfig::default(),
     ));
-    let (prompt_tx, mut prompt_rx) =
-        tokio::sync::mpsc::unbounded_channel::<NonCliApprovalPrompt>();
+    let (prompt_tx, mut prompt_rx) = tokio::sync::mpsc::unbounded_channel::<NonCliApprovalPrompt>();
 
     let mut history = vec![
         ChatMessage::system("test-system"),
@@ -1718,8 +1694,7 @@ async fn run_tool_call_loop_shows_approval_prompt_for_unlisted_shell_command() {
     let approval_mgr = Arc::new(ApprovalManager::from_config(
         &crate::config::AutonomyConfig::default(),
     ));
-    let (prompt_tx, mut prompt_rx) =
-        tokio::sync::mpsc::unbounded_channel::<NonCliApprovalPrompt>();
+    let (prompt_tx, mut prompt_rx) = tokio::sync::mpsc::unbounded_channel::<NonCliApprovalPrompt>();
 
     let mut history = vec![
         ChatMessage::system("test-system"),
@@ -2226,8 +2201,7 @@ async fn run_tool_call_loop_native_mode_preserves_fallback_tool_call_ids() {
 
 #[tokio::test]
 async fn run_tool_call_loop_consumes_provider_stream_for_final_response() {
-    let provider =
-        StreamingScriptedProvider::from_text_responses(vec!["streamed final answer"]);
+    let provider = StreamingScriptedProvider::from_text_responses(vec!["streamed final answer"]);
     let tools_registry: Vec<Box<dyn Tool>> = Vec::new();
     let mut history = vec![
         ChatMessage::system("test-system"),
@@ -2840,8 +2814,7 @@ async fn build_context_ignores_legacy_assistant_autosave_entries() {
 
 #[test]
 fn detect_tool_call_parse_issue_flags_malformed_payloads() {
-    let response =
-        "<tool_call>{\"name\":\"shell\",\"arguments\":{\"command\":\"pwd\"}</tool_call>";
+    let response = "<tool_call>{\"name\":\"shell\",\"arguments\":{\"command\":\"pwd\"}</tool_call>";
     let issue = detect_tool_call_parse_issue(response, &[]);
     assert!(
         issue.is_some(),
@@ -3168,11 +3141,8 @@ fn build_native_assistant_history_from_parsed_calls_includes_reasoning_content()
         arguments: serde_json::json!({"command": "pwd"}),
         tool_call_id: Some("call_2".into()),
     }];
-    let result = build_native_assistant_history_from_parsed_calls(
-        "answer",
-        &calls,
-        Some("deep thought"),
-    );
+    let result =
+        build_native_assistant_history_from_parsed_calls("answer", &calls, Some("deep thought"));
     assert!(result.is_some());
     let parsed: serde_json::Value = serde_json::from_str(result.as_deref().unwrap()).unwrap();
     assert_eq!(parsed["content"].as_str(), Some("answer"));
