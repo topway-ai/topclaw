@@ -209,8 +209,6 @@ fn make_memory() -> Arc<dyn Memory> {
     Arc::from(memory::create_memory(&cfg, &std::env::temp_dir(), None).unwrap())
 }
 
-
-
 fn make_observer() -> Arc<dyn Observer> {
     Arc::from(NoopObserver {})
 }
@@ -257,10 +255,7 @@ fn build_agent_xml(provider: Box<dyn Provider>, tools: Vec<Box<dyn Tool>>) -> Ag
         .unwrap()
 }
 
-fn build_recording_agent(
-    provider: Box<dyn Provider>,
-    tools: Vec<Box<dyn Tool>>,
-) -> Agent {
+fn build_recording_agent(provider: Box<dyn Provider>, tools: Vec<Box<dyn Tool>>) -> Agent {
     Agent::builder()
         .provider(provider)
         .tools(tools)

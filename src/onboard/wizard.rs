@@ -62,11 +62,11 @@ use provider_setup::{
     advanced_provider_choices, prompt_advanced_provider_credentials,
     setup_advanced_custom_provider, setup_simple_named_provider,
 };
+#[cfg(any(test, feature = "computer-use-sidecar"))]
+use skill_selection::SkillOnboardingSelection;
 #[cfg(test)]
 use skill_selection::{apply_onboarding_skill_selection_key, default_selected_onboarding_skill};
-use skill_selection::{
-    apply_onboarding_skill_tool_defaults, setup_skills, SkillOnboardingSelection,
-};
+use skill_selection::{apply_onboarding_skill_tool_defaults, setup_skills};
 
 // ── SIMPLIFIED WIZARD: 4 Steps for Newbies ───────────────────────
 //
@@ -1579,8 +1579,8 @@ async fn setup_workspace() -> Result<(PathBuf, PathBuf)> {
 // ── Step 2: Provider & Authentication ────────────────────────────
 
 const SIMPLE_PROVIDER_OPTIONS: [(&str, &str); 4] = [
-    ("openrouter", "OpenRouter"),
     ("openai-codex", "OpenAI Codex"),
+    ("openrouter", "OpenRouter"),
     ("ollama", "Ollama (local)"),
     (
         "advanced",
@@ -4105,6 +4105,7 @@ mod tests {
 
         assert!(config.browser.enabled);
         assert_eq!(config.browser.backend, "agent_browser");
+        assert!(!config.browser.computer_use.enabled);
     }
 
     #[test]
@@ -4118,6 +4119,7 @@ mod tests {
 
         assert!(config.browser.enabled);
         assert_eq!(config.browser.backend, "computer_use");
+        assert!(config.browser.computer_use.enabled);
     }
 
     #[test]
@@ -4134,6 +4136,7 @@ mod tests {
 
         assert!(config.browser.enabled);
         assert_eq!(config.browser.backend, "auto");
+        assert!(config.browser.computer_use.enabled);
     }
 
     #[test]
@@ -4331,7 +4334,7 @@ mod tests {
             .collect();
         assert_eq!(
             ids,
-            vec!["openrouter", "openai-codex", "ollama", "advanced"]
+            vec!["openai-codex", "openrouter", "ollama", "advanced"]
         );
     }
 
@@ -4361,6 +4364,7 @@ mod tests {
     /// When no desktop-computer-use skill is selected, the function
     /// should return immediately without calling any external tools.
     #[tokio::test]
+    #[cfg(feature = "computer-use-sidecar")]
     async fn maybe_install_desktop_helpers_skips_when_no_desktop_skill() {
         let selection = SkillOnboardingSelection {
             selected_curated_slugs: vec!["safe-web-search".into()],
@@ -4373,6 +4377,7 @@ mod tests {
     /// should not panic. On hosts with missing helpers, skip to avoid
     /// triggering an actual sudo apt-get install during tests.
     #[tokio::test]
+    #[cfg(feature = "computer-use-sidecar")]
     async fn maybe_install_desktop_helpers_does_not_panic_when_desktop_skill_selected() {
         // Guard: skip on Linux hosts where helpers are actually missing,
         // because the function would attempt sudo -n apt-get install.

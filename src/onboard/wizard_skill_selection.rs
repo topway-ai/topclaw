@@ -176,6 +176,7 @@ pub(super) fn apply_onboarding_skill_tool_defaults(
     let wants_desktop_computer_use = has_skill("desktop-computer-use");
     if wants_browser_extension || wants_desktop_computer_use {
         config.browser.enabled = true;
+        config.browser.computer_use.enabled = wants_desktop_computer_use;
         config.browser.backend = match (wants_browser_extension, wants_desktop_computer_use) {
             (true, true) => "auto",
             (true, false) => "agent_browser",

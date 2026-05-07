@@ -396,7 +396,7 @@ Notes:
   - `find-skills`, `safe-web-search` -> `web_search.enabled = true`
   - `multi-search-engine` -> `web_fetch.enabled = true`
   - `agent-browser-extension` -> `browser.enabled = true`, `browser.backend = "agent_browser"`
-  - `desktop-computer-use` -> `browser.enabled = true`, `browser.backend = "computer_use"`
+  - `desktop-computer-use` -> `browser.enabled = true`, `browser.backend = "computer_use"`, `browser.computer_use.enabled = true`
   - selecting both browser skills together sets `browser.backend = "auto"`
   - `workspace-search`, `code-explainer`, `change-summary`, `skill-creator` -> remove `shell` from `autonomy.non_cli_excluded_tools`, auto-approve the related tools, append `"*"` to `autonomy.allowed_commands`, set `shell_redirect_policy = "allow"`, and disable medium-risk approval prompts for shell commands
   - `change-summary` also auto-approves `git_operations`
@@ -498,8 +498,13 @@ Notes:
 
 ### `[browser.computer_use]`
 
+Computer-use is an advanced Tier 3 surface. It is disabled by default and is
+available only when the `computer-use-sidecar` feature is compiled and config or
+skill selection explicitly enables it.
+
 | Key | Default | Purpose |
 |---|---|---|
+| `enabled` | `false` | Enable the standalone `computer_use` tool |
 | `endpoint` | `http://127.0.0.1:8787/v1/actions` | Sidecar endpoint for computer-use actions (OS-level mouse/keyboard/screenshot) |
 | `api_key` | unset | Optional bearer token for computer-use sidecar (stored encrypted) |
 | `timeout_ms` | `15000` | Per-action request timeout in milliseconds |

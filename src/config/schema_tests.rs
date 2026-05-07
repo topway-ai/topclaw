@@ -1508,7 +1508,7 @@ async fn browser_config_default_disabled() {
     assert!(b.computer_use.window_allowlist.is_empty());
     assert!(b.computer_use.max_coordinate_x.is_none());
     assert!(b.computer_use.max_coordinate_y.is_none());
-    assert!(b.computer_use.enabled);
+    assert!(!b.computer_use.enabled);
     assert!(b.computer_use.auto_start);
     assert!(b.computer_use.app_allowlist.is_empty());
 }

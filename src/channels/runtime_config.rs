@@ -777,7 +777,7 @@ mod tests {
     fn filtered_tool_specs_excludes_by_name() {
         use crate::tools::ToolSpec;
         let empty_schema = serde_json::Value::Object(serde_json::Map::new());
-        let specs = vec![
+        let specs = [
             ToolSpec {
                 name: "shell".to_string(),
                 description: "shell".to_string(),

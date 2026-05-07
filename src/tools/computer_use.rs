@@ -755,7 +755,7 @@ mod tests {
         c.auto_start = true;
         // Empty endpoint is treated as non-local, triggering auto_start block message
         // This is a descriptive error, not a panic
-        c.endpoint = "".into();
+        c.endpoint = String::new();
         let t = tool(c);
         let r = t.execute(json!({"action": "window_list"})).await.unwrap();
         assert!(!r.success);
@@ -900,7 +900,7 @@ mod tests {
             .as_array()
             .expect("enum array");
         let names: Vec<&str> = enum_vals.iter().filter_map(Value::as_str).collect();
-        for action in required_actions.iter() {
+        for action in &required_actions {
             assert!(names.contains(action), "missing action {action} in schema");
         }
         assert_eq!(names.len(), 12, "should have exactly 12 actions");

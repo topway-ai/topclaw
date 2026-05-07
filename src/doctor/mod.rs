@@ -1205,13 +1205,21 @@ fn check_environment(items: &mut Vec<DiagItem>) {
 /// Returns `true` when computer-use sidecar capability is actively in use.
 ///
 /// This checks both the browser backend setting **and** the dedicated
-/// `browser.computer_use.enabled` flag. The dedicated tool is registered
-/// independently of `browser.backend`, so the doctor should surface desktop
-/// helper warnings whenever either path is active.
+/// `browser.computer_use.enabled` flag. The dedicated tool is opt-in, so the
+/// doctor surfaces desktop helper warnings only when either explicit path is active.
 pub fn is_computer_use_active(config: &Config) -> bool {
-    let backend_is_cu =
-        crate::tools::sidecar_client::is_computer_use_backend(&config.browser.backend);
-    backend_is_cu || config.browser.computer_use.enabled
+    #[cfg(feature = "computer-use-sidecar")]
+    {
+        let backend_is_cu =
+            crate::tools::sidecar_client::is_computer_use_backend(&config.browser.backend);
+        backend_is_cu || config.browser.computer_use.enabled
+    }
+
+    #[cfg(not(feature = "computer-use-sidecar"))]
+    {
+        let _ = config;
+        false
+    }
 }
 
 #[cfg(feature = "computer-use-sidecar")]
@@ -1679,12 +1687,10 @@ mod tests {
     #[test]
     #[cfg(feature = "computer-use-sidecar")]
     fn desktop_helpers_check_fires_when_computer_use_enabled() {
-        let config = Config::default();
+        let mut config = Config::default();
+        config.browser.computer_use.enabled = true;
         let mut items = Vec::new();
         check_desktop_helpers(&config, &mut items);
-        // Default backend is "agent_browser" (not computer_use), but
-        // BrowserComputerUseConfig::default() sets enabled=true, so
-        // is_computer_use_active returns true and the check fires.
         assert!(!items.is_empty());
     }
 
@@ -1702,20 +1708,24 @@ mod tests {
 
     #[test]
     fn is_computer_use_active_checks_enabled_flag() {
-        // Default: backend is "agent_browser" but computer_use.enabled is true.
         let config = Config::default();
-        assert!(is_computer_use_active(&config));
+        assert!(!is_computer_use_active(&config));
 
-        // With computer_use.enabled = false, should be false.
-        let mut config_disabled = Config::default();
-        config_disabled.browser.computer_use.enabled = false;
-        assert!(!is_computer_use_active(&config_disabled));
+        let mut config_enabled = Config::default();
+        config_enabled.browser.computer_use.enabled = true;
+        #[cfg(feature = "computer-use-sidecar")]
+        assert!(is_computer_use_active(&config_enabled));
+        #[cfg(not(feature = "computer-use-sidecar"))]
+        assert!(!is_computer_use_active(&config_enabled));
 
         // With backend = computer_use, should be true regardless of enabled.
         let mut config_backend = Config::default();
         config_backend.browser.backend = "computer_use".into();
         config_backend.browser.computer_use.enabled = false;
+        #[cfg(feature = "computer-use-sidecar")]
         assert!(is_computer_use_active(&config_backend));
+        #[cfg(not(feature = "computer-use-sidecar"))]
+        assert!(!is_computer_use_active(&config_backend));
     }
 
     #[test]

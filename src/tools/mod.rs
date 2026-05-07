@@ -138,6 +138,43 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ToolTier {
+    /// Tier 0: safe/core context and memory tools.
+    Core,
+    /// Tier 1: coding-agent tools, approval-gated where needed.
+    CodingAgent,
+    /// Tier 2: network tools, enabled by explicit config.
+    Network,
+    /// Tier 3: advanced/admin/desktop/delegation tools.
+    Advanced,
+}
+
+impl ToolTier {
+    pub const fn is_default_channel_tier(self) -> bool {
+        matches!(self, Self::Core | Self::CodingAgent)
+    }
+}
+
+pub fn tool_tier(tool_name: &str) -> ToolTier {
+    match tool_name {
+        "memory_store" | "memory_recall" | "memory_forget" | "file_read" | "task_plan"
+        | "lossless_describe" | "lossless_search" | "pdf_read" => ToolTier::Core,
+        "shell" | "file_write" | "file_edit" | "apply_patch" | "glob_search" | "content_search"
+        | "git_operations" => ToolTier::CodingAgent,
+        "web_search_tool"
+        | "web_fetch"
+        | "http_request"
+        | "browser_open"
+        | "discord_history_fetch" => ToolTier::Network,
+        _ => ToolTier::Advanced,
+    }
+}
+
+pub fn default_channel_tool_tiers() -> &'static [ToolTier] {
+    &[ToolTier::Core, ToolTier::CodingAgent]
+}
+
 #[derive(Clone)]
 struct ArcDelegatingTool {
     inner: Arc<dyn Tool>,
@@ -421,11 +458,13 @@ fn build_tools_with_runtime(
             runtime.clone(),
             Some(syscall_detector.clone()),
         )));
-        tool_arcs.push(Arc::new(ProcessTool::new_with_syscall_detector(
-            security.clone(),
-            runtime.clone(),
-            Some(syscall_detector),
-        )));
+        if include_auxiliary_non_shell_tools {
+            tool_arcs.push(Arc::new(ProcessTool::new_with_syscall_detector(
+                security.clone(),
+                runtime.clone(),
+                Some(syscall_detector),
+            )));
+        }
         tool_arcs.push(Arc::new(GitOperationsTool::new(
             security.clone(),
             workspace_dir.to_path_buf(),
@@ -849,14 +888,38 @@ mod tests {
         assert!(names.contains(&"lossless_describe"));
         assert!(names.contains(&"lossless_search"));
         assert!(names.contains(&"shell"));
-        assert!(names.contains(&"process"));
         assert!(names.contains(&"git_operations"));
+        assert!(!names.contains(&"process"));
         assert!(!names.contains(&"model_routing_config"));
         assert!(!names.contains(&"proxy_config"));
         assert!(!names.contains(&"screenshot"));
         assert!(!names.contains(&"image_info"));
         assert!(!names.contains(&"pushover"));
         assert!(!names.contains(&"pdf_read"));
+        for name in names {
+            assert!(
+                tool_tier(name).is_default_channel_tier(),
+                "default channel registry should not include tier {:?} tool {name}",
+                tool_tier(name)
+            );
+        }
+    }
+
+    #[test]
+    fn tool_tiers_classify_default_network_and_advanced_surfaces() {
+        assert_eq!(tool_tier("memory_recall"), ToolTier::Core);
+        assert_eq!(tool_tier("file_read"), ToolTier::Core);
+        assert_eq!(tool_tier("shell"), ToolTier::CodingAgent);
+        assert_eq!(tool_tier("apply_patch"), ToolTier::CodingAgent);
+        assert_eq!(tool_tier("web_fetch"), ToolTier::Network);
+        assert_eq!(tool_tier("http_request"), ToolTier::Network);
+        assert_eq!(tool_tier("process"), ToolTier::Advanced);
+        assert_eq!(tool_tier("config_patch"), ToolTier::Advanced);
+        assert_eq!(tool_tier("computer_use"), ToolTier::Advanced);
+        assert_eq!(
+            default_channel_tool_tiers(),
+            &[ToolTier::Core, ToolTier::CodingAgent]
+        );
     }
 
     #[test]

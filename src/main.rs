@@ -469,15 +469,20 @@ Examples:
     },
 
     /// List available AI providers
-    Providers,
+    Providers {
+        /// Include advanced and compatibility providers
+        #[arg(long)]
+        advanced: bool,
+    },
 
     /// Manage messaging and chat channels
     #[command(long_about = "\
 Manage communication channels.
 
 Add, remove, list, and health-check channels that connect TopClaw \
-to messaging platforms. Supported channel types: telegram, discord, \
-webhook.
+to messaging platforms. Supported chat channels: telegram (primary) \
+and discord (secondary). Webhook/API traffic is managed separately by \
+the gateway surface.
 
 Examples:
   topclaw bootstrap --channels-only # guided channel setup without touching provider settings
@@ -1321,7 +1326,7 @@ async fn main() -> Result<()> {
             ModelCommands::Status => onboard::run_models_status(&config).await,
         },
 
-        Commands::Providers => {
+        Commands::Providers { advanced } => {
             let provider_list = providers::list_providers();
             let current = config
                 .default_provider
@@ -1329,7 +1334,14 @@ async fn main() -> Result<()> {
                 .unwrap_or(providers::DEFAULT_PROVIDER_NAME)
                 .trim()
                 .to_ascii_lowercase();
-            println!("Supported providers ({} total):\n", provider_list.len());
+            let mode = if advanced {
+                providers::ProviderVisibilityMode::Advanced
+            } else {
+                providers::ProviderVisibilityMode::Core
+            };
+            let visible_ids = providers::visible_provider_ids(mode);
+            let visible_count = visible_ids.len();
+            println!("Supported providers ({visible_count} visible):\n");
             let print_section = |title: &str, entries: Vec<&providers::ProviderInfo>| {
                 println!("  {title}");
                 println!("  ID (use in config)  DESCRIPTION");
@@ -1354,22 +1366,29 @@ async fn main() -> Result<()> {
                 println!();
             };
 
-            let product_priority: Vec<&providers::ProviderInfo> = provider_list
+            let core: Vec<&providers::ProviderInfo> = provider_list
                 .iter()
-                .filter(|provider| providers::is_product_priority_provider(provider.name))
+                .filter(|provider| providers::is_core_provider(provider.name))
                 .collect();
-            let additional: Vec<&providers::ProviderInfo> = provider_list
+            let advanced_providers: Vec<&providers::ProviderInfo> = provider_list
                 .iter()
-                .filter(|provider| !providers::is_product_priority_provider(provider.name))
+                .filter(|provider| !providers::is_core_provider(provider.name))
                 .collect();
 
             print_section(
-                "Product-priority providers (default product path: Codex -> OpenRouter -> Ollama)",
-                product_priority,
+                "Core providers (default visible path: Codex -> OpenRouter -> Ollama)",
+                core,
             );
-            print_section("Additional providers (advanced/compatibility)", additional);
-            println!("\n  custom:<URL>   Any OpenAI-compatible endpoint");
-            println!("  anthropic-custom:<URL>  Any Anthropic-compatible endpoint");
+            if advanced {
+                print_section(
+                    "Advanced providers (explicit compatibility surface)",
+                    advanced_providers,
+                );
+                println!("\n  custom:<URL>   Any OpenAI-compatible endpoint");
+                println!("  anthropic-custom:<URL>  Any Anthropic-compatible endpoint");
+            } else {
+                println!("  Run `topclaw providers --advanced` to list compatibility providers.");
+            }
             Ok(())
         }
 
@@ -1480,7 +1499,18 @@ mod tests {
             .expect("--providers should normalize to the providers subcommand");
 
         match cli.command {
-            Commands::Providers => {}
+            Commands::Providers { advanced } => assert!(!advanced),
+            other => panic!("expected providers command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn providers_advanced_flag_parses() {
+        let cli = Cli::try_parse_from(["topclaw", "providers", "--advanced"])
+            .expect("providers --advanced should parse");
+
+        match cli.command {
+            Commands::Providers { advanced } => assert!(advanced),
             other => panic!("expected providers command, got {other:?}"),
         }
     }
@@ -1491,6 +1521,20 @@ mod tests {
         let help = cmd.render_long_help().to_string();
         assert!(help.contains("`[OPTIONS]` and `<COMMAND>` are placeholders"));
         assert!(help.contains("topclaw --providers"));
+    }
+
+    #[test]
+    fn channel_help_separates_webhook_from_chat_channels() {
+        let mut cmd = Cli::command();
+        let channel = cmd
+            .find_subcommand_mut("channel")
+            .expect("channel subcommand must exist");
+        let help = channel.render_long_help().to_string();
+
+        assert!(help.contains("telegram (primary)"));
+        assert!(help.contains("discord (secondary)"));
+        assert!(help.contains("Webhook/API traffic is managed separately"));
+        assert!(!help.contains("Supported channel types: telegram, discord, webhook"));
     }
 
     #[test]
@@ -1676,9 +1720,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "computer-use-sidecar")]
     fn status_includes_desktop_helpers_when_computer_use_enabled() {
-        let config = Config::default();
-        // Default: backend is not computer_use, but computer_use.enabled is true.
+        let mut config = Config::default();
+        config.browser.computer_use.enabled = true;
         assert!(doctor::is_computer_use_active(&config));
     }
 

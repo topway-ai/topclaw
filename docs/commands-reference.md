@@ -10,7 +10,7 @@ Last verified: **March 24, 2026**.
 |---|---|
 | `bootstrap` | Initialize workspace/config quickly or interactively |
 | `agent` | Run interactive chat or single-message mode |
-| `gateway` | Start webhook HTTP gateway |
+| `gateway` | Start webhook/API gateway |
 | `daemon` | Start supervised runtime (gateway + channels + optional heartbeat/scheduler) |
 | `service` | Manage user-level OS service lifecycle |
 | `doctor` | Run diagnostics and freshness checks |
@@ -20,7 +20,7 @@ Last verified: **March 24, 2026**.
 | `estop` | Engage/resume emergency stop levels and inspect estop state |
 | `cron` | Manage scheduled tasks |
 | `models` | Refresh provider model catalogs |
-| `providers` | List provider IDs, aliases, and active provider |
+| `providers` | List core provider IDs, aliases, and active provider |
 | `channel` | Manage channels and channel health checks |
 | `uninstall` | Remove TopClaw from this machine |
 | `auth` | Manage provider authentication profiles |

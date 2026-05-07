@@ -84,11 +84,9 @@ impl BrowserComputerUseConfig {
 impl Default for BrowserComputerUseConfig {
     fn default() -> Self {
         Self {
-            // Enabled by default so a fresh TopClaw install can handle
-            // "open $app" / "click" / "take a screenshot" requests without
-            // asking the user to edit config.toml. Actions still flow
-            // through the normal approval + autonomy gates.
-            enabled: true,
+            // Desktop automation is an advanced/admin surface and must be
+            // explicitly enabled by config or skill selection.
+            enabled: false,
             auto_start: true,
             app_allowlist: Vec::new(),
             endpoint: default_computer_use_endpoint(),

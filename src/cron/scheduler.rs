@@ -2,6 +2,7 @@
 use crate::channels::DiscordChannel;
 #[cfg(feature = "channel-telegram")]
 use crate::channels::TelegramChannel;
+#[cfg(any(feature = "channel-discord", feature = "channel-telegram"))]
 use crate::channels::{Channel, SendMessage};
 use crate::config::Config;
 use crate::cron::{
@@ -324,43 +325,46 @@ pub(crate) async fn deliver_announcement(
     target: &str,
     output: &str,
 ) -> Result<()> {
-    match channel.to_ascii_lowercase().as_str() {
-        #[cfg(feature = "channel-telegram")]
-        "telegram" => {
-            let tg = config
-                .channels_config
-                .telegram
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("telegram channel not configured"))?;
-            let channel = TelegramChannel::new(
-                tg.bot_token.clone(),
-                tg.allowed_users.clone(),
-                tg.effective_group_reply_mode().requires_mention(),
-            )
-            .with_workspace_dir(config.workspace_dir.clone());
-            channel.send(&SendMessage::new(output, target)).await?;
-        }
-        #[cfg(feature = "channel-discord")]
-        "discord" => {
-            let dc = config
-                .channels_config
-                .discord
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("discord channel not configured"))?;
-            let channel = DiscordChannel::new(
-                dc.bot_token.clone(),
-                dc.guild_id.clone(),
-                dc.allowed_users.clone(),
-                dc.listen_to_bots,
-                dc.effective_group_reply_mode().requires_mention(),
-            )
-            .with_workspace_dir(config.workspace_dir.clone());
-            channel.send(&SendMessage::new(output, target)).await?;
-        }
-        other => anyhow::bail!("unsupported delivery channel: {other}"),
+    let requested = channel.to_ascii_lowercase();
+    let _ = (config, target, output);
+
+    #[cfg(feature = "channel-telegram")]
+    if requested == "telegram" {
+        let tg = config
+            .channels_config
+            .telegram
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("telegram channel not configured"))?;
+        let channel = TelegramChannel::new(
+            tg.bot_token.clone(),
+            tg.allowed_users.clone(),
+            tg.effective_group_reply_mode().requires_mention(),
+        )
+        .with_workspace_dir(config.workspace_dir.clone());
+        channel.send(&SendMessage::new(output, target)).await?;
+        return Ok(());
     }
 
-    Ok(())
+    #[cfg(feature = "channel-discord")]
+    if requested == "discord" {
+        let dc = config
+            .channels_config
+            .discord
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("discord channel not configured"))?;
+        let channel = DiscordChannel::new(
+            dc.bot_token.clone(),
+            dc.guild_id.clone(),
+            dc.allowed_users.clone(),
+            dc.listen_to_bots,
+            dc.effective_group_reply_mode().requires_mention(),
+        )
+        .with_workspace_dir(config.workspace_dir.clone());
+        channel.send(&SendMessage::new(output, target)).await?;
+        return Ok(());
+    }
+
+    anyhow::bail!("unsupported delivery channel: {requested}")
 }
 
 async fn run_job_command(

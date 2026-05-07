@@ -464,19 +464,12 @@ impl ApprovalManager {
         let mut pending = self.pending_non_cli_requests.lock();
         prune_expired_pending_requests(&mut pending);
 
-        if let Some(existing) = pending.values_mut().find(|req| {
+        if let Some(existing) = pending.values().find(|req| {
             req.tool_name == tool_name
                 && req.requested_by == requested_by
                 && req.requested_channel == requested_channel
                 && req.requested_reply_target == requested_reply_target
         }) {
-            if resume_request.is_some() {
-                existing.resume_request = resume_request;
-            }
-            if reason.is_some() {
-                existing.reason = reason;
-            }
-            existing.approved_shell_commands = approved_shell_commands;
             return existing.clone();
         }
 
@@ -940,6 +933,11 @@ mod tests {
             .consume_non_cli_turn_grant()
             .expect("turn grant should be queued");
         assert_eq!(grant.approved_shell_commands, vec!["git status"]);
+        assert_eq!(mgr.non_cli_allow_all_once_remaining(), 0);
+        assert!(
+            mgr.consume_non_cli_turn_grant().is_none(),
+            "approval turn grants must authorize exactly one resumed turn"
+        );
     }
 
     #[test]
@@ -985,6 +983,63 @@ mod tests {
         assert!(mgr
             .confirm_non_cli_pending_request(&req.request_id, "alice", "telegram", "chat-1")
             .is_err());
+    }
+
+    #[test]
+    fn duplicate_pending_non_cli_approval_keeps_original_payload_immutable() {
+        let mgr = ApprovalManager::from_config(&supervised_config());
+        let first = mgr.create_non_cli_pending_request(
+            "shell",
+            "alice",
+            "telegram",
+            "chat-1",
+            Some(PendingNonCliResumeRequest {
+                message_id: "msg-1".to_string(),
+                content: "run the first command".to_string(),
+                timestamp: 1,
+                thread_ts: None,
+            }),
+            Some("first reason".to_string()),
+            vec!["echo first".to_string()],
+        );
+
+        let duplicate = mgr.create_non_cli_pending_request(
+            "shell",
+            "alice",
+            "telegram",
+            "chat-1",
+            Some(PendingNonCliResumeRequest {
+                message_id: "msg-2".to_string(),
+                content: "run a different command".to_string(),
+                timestamp: 2,
+                thread_ts: None,
+            }),
+            Some("mutated reason".to_string()),
+            vec!["echo mutated".to_string()],
+        );
+
+        assert_eq!(duplicate.request_id, first.request_id);
+        assert_eq!(duplicate.reason.as_deref(), Some("first reason"));
+        assert_eq!(duplicate.approved_shell_commands, vec!["echo first"]);
+        assert_eq!(
+            duplicate
+                .resume_request
+                .as_ref()
+                .map(|resume| resume.message_id.as_str()),
+            Some("msg-1")
+        );
+
+        let confirmed = mgr
+            .confirm_non_cli_pending_request(&first.request_id, "alice", "telegram", "chat-1")
+            .expect("original immutable request should confirm");
+        assert_eq!(confirmed.approved_shell_commands, vec!["echo first"]);
+        assert_eq!(
+            confirmed
+                .resume_request
+                .as_ref()
+                .map(|resume| resume.message_id.as_str()),
+            Some("msg-1")
+        );
     }
 
     #[test]

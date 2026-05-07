@@ -1352,6 +1352,14 @@ pub const MODEL_CATALOG_PROVIDER_PRIORITY: [&str; 2] = ["openrouter", "ollama"];
 pub const DEFAULT_PROVIDER_NAME: &str = PRODUCT_PROVIDER_PRIORITY[0];
 pub const DEFAULT_PROVIDER_MODEL: &str = "gpt-5.4";
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProviderVisibilityMode {
+    /// New-user/core product surface: Codex, OpenRouter, Ollama.
+    Core,
+    /// Explicit advanced view: all known providers remain available.
+    Advanced,
+}
+
 pub fn canonical_provider_name(name: &str) -> &str {
     let (provider_name, _) = parse_provider_profile(name.trim());
 
@@ -1373,8 +1381,34 @@ pub fn canonical_provider_name(name: &str) -> &str {
     }
 }
 
-pub fn is_product_priority_provider(name: &str) -> bool {
+pub fn core_provider_ids() -> &'static [&'static str] {
+    &PRODUCT_PROVIDER_PRIORITY
+}
+
+pub fn advanced_provider_ids() -> Vec<&'static str> {
+    list_providers()
+        .into_iter()
+        .map(|provider| provider.name)
+        .filter(|name| !is_core_provider(name))
+        .collect()
+}
+
+pub fn is_core_provider(name: &str) -> bool {
     PRODUCT_PROVIDER_PRIORITY.contains(&canonical_provider_name(name))
+}
+
+pub fn is_product_priority_provider(name: &str) -> bool {
+    is_core_provider(name)
+}
+
+pub fn visible_provider_ids(mode: ProviderVisibilityMode) -> Vec<&'static str> {
+    match mode {
+        ProviderVisibilityMode::Core => core_provider_ids().to_vec(),
+        ProviderVisibilityMode::Advanced => list_providers()
+            .into_iter()
+            .map(|provider| provider.name)
+            .collect(),
+    }
 }
 
 pub fn supports_model_catalog_refresh(name: &str) -> bool {
@@ -2258,17 +2292,34 @@ mod tests {
         let providers = list_providers();
         let listed: Vec<&str> = providers
             .iter()
-            .take(PRODUCT_PROVIDER_PRIORITY.len())
+            .take(core_provider_ids().len())
             .map(|provider| provider.name)
             .collect();
 
-        assert_eq!(listed, PRODUCT_PROVIDER_PRIORITY);
-        for name in PRODUCT_PROVIDER_PRIORITY {
+        assert_eq!(listed, core_provider_ids());
+        for name in core_provider_ids() {
+            assert!(is_core_provider(name));
             assert!(is_product_priority_provider(name));
         }
-        assert!(is_product_priority_provider("codex"));
-        assert!(!is_product_priority_provider("anthropic"));
+        assert!(is_core_provider("codex"));
+        assert!(!is_core_provider("anthropic"));
         assert_eq!(canonical_provider_name("together-ai"), "together");
+    }
+
+    #[test]
+    fn provider_visibility_hides_advanced_providers_by_default() {
+        assert_eq!(
+            visible_provider_ids(ProviderVisibilityMode::Core),
+            vec!["openai-codex", "openrouter", "ollama"]
+        );
+
+        let advanced = advanced_provider_ids();
+        assert!(advanced.contains(&"anthropic"));
+        assert!(!advanced.contains(&"openai-codex"));
+
+        let visible_advanced = visible_provider_ids(ProviderVisibilityMode::Advanced);
+        assert!(visible_advanced.starts_with(core_provider_ids()));
+        assert!(visible_advanced.contains(&"anthropic"));
     }
 
     #[test]

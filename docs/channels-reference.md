@@ -4,7 +4,8 @@ This document is the canonical reference for channel configuration in TopClaw.
 
 Last verified: **March 23, 2026**.
 
-> **Implemented channels:** CLI, Telegram, Discord, Bridge, and Webhook.
+> **Implemented chat channels:** CLI, Telegram, and Discord.
+> Webhook support is a gateway/integration surface, not a first-class chat channel.
 > All other channel types (Slack, Mattermost, Matrix, etc.) were removed in v2026.3.22.
 
 ## Quick Paths
@@ -108,13 +109,12 @@ If a channel sub-table is present in config but the corresponding feature is not
 
 ## 2. Delivery Modes at a Glance
 
-| Channel | Receive mode | Public inbound port required? |
+| Surface | Receive mode | Public inbound port required? |
 |---|---|---|
 | CLI | local stdin/stdout | No |
-| Telegram | polling | No |
-| Discord | gateway/websocket | No |
-| Bridge | external bridge process | No |
-| Webhook | gateway endpoint (`/webhook`) | Usually yes |
+| Telegram (primary chat) | polling | No |
+| Discord (secondary chat) | gateway/websocket | No |
+| Webhook/API gateway | gateway endpoint (`/webhook`) | Usually yes |
 
 ---
 
@@ -187,9 +187,11 @@ mode = "all_messages"             # optional: all_messages | mention_only
 allowed_sender_ids = []           # optional: sender IDs that bypass mention gate
 ```
 
-### 4.3 Webhook (Gateway)
+### 4.3 Webhook/API Gateway Surface
 
-`channels_config.webhook` enables webhook-specific gateway behavior.
+`channels_config.webhook` enables webhook-specific gateway behavior. It is
+configured beside channel settings for historical compatibility, but operationally
+belongs to the gateway/API surface rather than the Telegram/Discord chat runtime.
 
 ```toml
 [channels_config.webhook]
@@ -226,7 +228,7 @@ If a channel appears connected but does not respond:
 3. Confirm tokens/secrets are valid (and not expired/revoked).
 4. Confirm transport mode assumptions:
    - polling/websocket channels do not need public inbound HTTP
-   - webhook channels do need reachable HTTPS callback
+   - webhook/API gateway integrations do need a reachable HTTPS callback
 5. Restart `topclaw daemon` after config changes.
 
 
@@ -254,7 +256,7 @@ rg -n "Telegram|Discord|Webhook|Channel" /tmp/topclaw.log
 |---|---|---|---|
 | Telegram | `Telegram channel listening for messages...` | `Telegram: ignoring message from unauthorized user:` | `Telegram poll error:` / `Telegram parse error:` / `Telegram polling conflict (409):` |
 | Discord | `Discord: connected and identified` | `Discord: ignoring message from unauthorized user:` | `Discord: received Reconnect (op 7)` / `Discord: received Invalid Session (op 9)` |
-| Webhook (gateway) | gateway startup log | `Webhook: rejected — not paired / invalid bearer token` / `Webhook: rejected request — invalid or missing X-Webhook-Secret` | `Webhook JSON parse error:` |
+| Webhook/API gateway | gateway startup log | `Webhook: rejected — not paired / invalid bearer token` / `Webhook: rejected request — invalid or missing X-Webhook-Secret` | `Webhook JSON parse error:` |
 
 ### 7.3 Runtime supervisor keywords
 

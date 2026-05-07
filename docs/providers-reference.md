@@ -10,6 +10,10 @@ Last verified: **March 24, 2026**.
 topclaw providers
 ```
 
+The default provider view is intentionally small: Codex first, OpenRouter
+second, Ollama third. Advanced and compatibility providers are still available
+through explicit config and `topclaw providers --advanced`.
+
 ## Credential Resolution Order
 
 Runtime resolution order is:
@@ -26,11 +30,11 @@ credential is not reused for fallback providers.
 
 | Canonical ID | Aliases | Local | Provider-specific env var(s) |
 |---|---|---:|---|
+| `openai-codex` | `openai_codex`, `codex` | No | (OAuth-based; see [OpenAI Codex Reasoning Level](#openai-codex-reasoning-level)) |
 | `openrouter` | — | No | `OPENROUTER_API_KEY` |
+| `ollama` | — | Yes | `OLLAMA_API_KEY` (optional) |
 | `anthropic` | — | No | `ANTHROPIC_OAUTH_TOKEN`, `ANTHROPIC_API_KEY` |
 | `openai` | — | No | `OPENAI_API_KEY` |
-| `openai-codex` | `openai_codex`, `codex` | No | (OAuth-based; see [OpenAI Codex Reasoning Level](#openai-codex-reasoning-level)) |
-| `ollama` | — | Yes | `OLLAMA_API_KEY` (optional) |
 | `gemini` | `google`, `google-gemini` | No | `GEMINI_API_KEY`, `GOOGLE_API_KEY` |
 | `venice` | — | No | `VENICE_API_KEY` |
 | `vercel` | `vercel-ai` | No | `VERCEL_API_KEY` |

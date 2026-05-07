@@ -159,19 +159,25 @@ rppal = { version = "0.22", optional = true }
 landlock = { version = "0.4", optional = true }
 
 [features]
-# Default: minimal set for smallest binary
-# Use: cargo build (default) for minimal binary
-# For full out-of-box experience: cargo build --features standard
-default = ["channel-telegram", "computer-use-sidecar"]
+# Default: Telegram-only runtime for the smallest normal binary.
+# Use: cargo build (default) for the core Telegram path.
+# For Telegram + Discord + HTML fetch + Discord tool: cargo build --features standard
+default = ["channel-telegram"]
 
-# Standard: Telegram-first + Discord-second core product path
-standard = ["channel-telegram", "channel-discord", "web-fetch-html2md", "tool-discord", "computer-use-sidecar"]
+# Standard: Telegram-first + Discord-second core product path.
+standard = ["channel-telegram", "channel-discord", "web-fetch-html2md", "tool-discord"]
 
 # Minimal: only essential channel (alias for default)
 minimal = ["channel-telegram"]
 
-# All: all channels
-all = ["channel-telegram", "channel-discord", "computer-use-sidecar"]
+# Desktop/computer-use: explicit opt-in desktop automation surface.
+desktop = ["computer-use-sidecar"]
+
+# Full: standard runtime plus explicitly advanced desktop automation.
+full = ["standard", "desktop"]
+
+# All: compatibility alias for all first-party channel/runtime surfaces.
+all = ["full"]
 
 # Computer-use sidecar: built-in `topclaw computer-use-sidecar` subcommand serving
 # the protocol at docs/computer-use-sidecar-protocol.md. Linux-only runtime backing
