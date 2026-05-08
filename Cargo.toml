@@ -57,7 +57,7 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png"]
 urlencoding = "2.1"
 
 # HTML conversion providers (web_fetch tool)
-fast_html2md = { version = "0.0.61", optional = true }
+fast_html2md = { version = "0.0.62", optional = true }
 nanohtml2text = { version = "0.2", optional = true }
 
 # Optional Rust-native browser automation backend
