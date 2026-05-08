@@ -57,6 +57,17 @@ pub struct PendingNonCliApprovalRequest {
     pub resume_request: Option<PendingNonCliResumeRequest>,
     #[serde(default)]
     pub approved_shell_commands: Vec<String>,
+    #[serde(default)]
+    pub approved_shell_metadata: Vec<PendingNonCliShellApproval>,
+}
+
+/// Immutable shell payload metadata captured at approval-request creation time.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingNonCliShellApproval {
+    pub command: String,
+    pub effective_command: String,
+    pub cwd: String,
+    pub risk_level: String,
 }
 
 /// Original non-CLI request payload to resume automatically after approval.
@@ -461,6 +472,30 @@ impl ApprovalManager {
         reason: Option<String>,
         approved_shell_commands: Vec<String>,
     ) -> PendingNonCliApprovalRequest {
+        self.create_non_cli_pending_request_with_shell_metadata(
+            tool_name,
+            requested_by,
+            requested_channel,
+            requested_reply_target,
+            resume_request,
+            reason,
+            approved_shell_commands,
+            Vec::new(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_non_cli_pending_request_with_shell_metadata(
+        &self,
+        tool_name: &str,
+        requested_by: &str,
+        requested_channel: &str,
+        requested_reply_target: &str,
+        resume_request: Option<PendingNonCliResumeRequest>,
+        reason: Option<String>,
+        approved_shell_commands: Vec<String>,
+        approved_shell_metadata: Vec<PendingNonCliShellApproval>,
+    ) -> PendingNonCliApprovalRequest {
         let mut pending = self.pending_non_cli_requests.lock();
         prune_expired_pending_requests(&mut pending);
 
@@ -491,6 +526,7 @@ impl ApprovalManager {
             expires_at: expires.to_rfc3339(),
             resume_request,
             approved_shell_commands,
+            approved_shell_metadata,
         };
         pending.insert(request_id.clone(), req.clone());
         tracing::info!(
@@ -1031,7 +1067,7 @@ mod tests {
     #[test]
     fn duplicate_pending_non_cli_approval_keeps_original_payload_immutable() {
         let mgr = ApprovalManager::from_config(&supervised_config());
-        let first = mgr.create_non_cli_pending_request(
+        let first = mgr.create_non_cli_pending_request_with_shell_metadata(
             "shell",
             "alice",
             "telegram",
@@ -1044,9 +1080,15 @@ mod tests {
             }),
             Some("first reason".to_string()),
             vec!["echo first".to_string()],
+            vec![PendingNonCliShellApproval {
+                command: "echo first".to_string(),
+                effective_command: "echo first".to_string(),
+                cwd: "/workspace/original".to_string(),
+                risk_level: "low".to_string(),
+            }],
         );
 
-        let duplicate = mgr.create_non_cli_pending_request(
+        let duplicate = mgr.create_non_cli_pending_request_with_shell_metadata(
             "shell",
             "alice",
             "telegram",
@@ -1059,11 +1101,26 @@ mod tests {
             }),
             Some("mutated reason".to_string()),
             vec!["echo mutated".to_string()],
+            vec![PendingNonCliShellApproval {
+                command: "echo mutated".to_string(),
+                effective_command: "echo mutated > hidden.txt".to_string(),
+                cwd: "/workspace/mutated".to_string(),
+                risk_level: "high".to_string(),
+            }],
         );
 
         assert_eq!(duplicate.request_id, first.request_id);
         assert_eq!(duplicate.reason.as_deref(), Some("first reason"));
         assert_eq!(duplicate.approved_shell_commands, vec!["echo first"]);
+        assert_eq!(
+            duplicate.approved_shell_metadata,
+            vec![PendingNonCliShellApproval {
+                command: "echo first".to_string(),
+                effective_command: "echo first".to_string(),
+                cwd: "/workspace/original".to_string(),
+                risk_level: "low".to_string(),
+            }]
+        );
         assert_eq!(
             duplicate
                 .resume_request
@@ -1076,6 +1133,20 @@ mod tests {
             .confirm_non_cli_pending_request(&first.request_id, "alice", "telegram", "chat-1")
             .expect("original immutable request should confirm");
         assert_eq!(confirmed.approved_shell_commands, vec!["echo first"]);
+        assert_eq!(
+            confirmed
+                .approved_shell_metadata
+                .first()
+                .map(|metadata| metadata.cwd.as_str()),
+            Some("/workspace/original")
+        );
+        assert_eq!(
+            confirmed
+                .approved_shell_metadata
+                .first()
+                .map(|metadata| metadata.risk_level.as_str()),
+            Some("low")
+        );
         assert_eq!(
             confirmed
                 .resume_request

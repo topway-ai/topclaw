@@ -49,8 +49,8 @@ Commands:
   lint          Run rustfmt + clippy correctness gate (container only)
   lint-strict   Run rustfmt + full clippy warnings gate (container only)
   lint-delta    Run strict lint delta gate on changed Rust lines (container only)
-  feature-matrix Run default/standard/sidecar/full cargo check/test matrix (container only)
-  feature-matrix-local Run default/standard/sidecar/full cargo check/test matrix on host
+  feature-matrix Run default/standard/desktop/full cargo check/test matrix (container only)
+  feature-matrix-local Run default/standard/desktop/full cargo check/test matrix on host
   test          Run cargo test (container only)
   build         Run release build smoke check (container only)
   audit         Run cargo audit (container only)
