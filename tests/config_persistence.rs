@@ -134,6 +134,21 @@ fn config_toml_roundtrip_preserves_provider() {
 }
 
 #[test]
+fn config_toml_parses_existing_advanced_provider_ids() {
+    let raw = r#"
+default_provider = "anthropic"
+default_model = "claude-sonnet-4-5"
+default_temperature = 0.7
+"#;
+
+    let parsed: Config = toml::from_str(raw).expect("advanced provider config should parse");
+
+    assert_eq!(parsed.default_provider.as_deref(), Some("anthropic"));
+    assert_eq!(parsed.default_model.as_deref(), Some("claude-sonnet-4-5"));
+    assert!((parsed.default_temperature - 0.7).abs() < f64::EPSILON);
+}
+
+#[test]
 fn config_toml_roundtrip_preserves_agent_config() {
     let mut config = Config::default();
     config.agent.max_tool_iterations = 5;

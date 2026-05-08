@@ -440,6 +440,17 @@ mod tests {
     use super::*;
     use crate::security::{AutonomyLevel, SecurityPolicy};
     use tempfile::TempDir;
+    use tokio::sync::Mutex;
+
+    static PROXY_CONFIG_TEST_LOCK: Mutex<()> = Mutex::const_new(());
+
+    struct RuntimeProxyReset;
+
+    impl Drop for RuntimeProxyReset {
+        fn drop(&mut self) {
+            set_runtime_proxy_config(ProxyConfig::default());
+        }
+    }
 
     fn test_security() -> Arc<SecurityPolicy> {
         Arc::new(SecurityPolicy {
@@ -475,6 +486,9 @@ mod tests {
 
     #[tokio::test]
     async fn set_scope_services_requires_services_entries() {
+        let _guard = PROXY_CONFIG_TEST_LOCK.lock().await;
+        let _reset = RuntimeProxyReset;
+        set_runtime_proxy_config(ProxyConfig::default());
         let tmp = TempDir::new().unwrap();
         let tool = ProxyConfigTool::new(test_config(&tmp).await, test_security());
 
@@ -498,6 +512,9 @@ mod tests {
 
     #[tokio::test]
     async fn set_and_get_round_trip_proxy_scope() {
+        let _guard = PROXY_CONFIG_TEST_LOCK.lock().await;
+        let _reset = RuntimeProxyReset;
+        set_runtime_proxy_config(ProxyConfig::default());
         let tmp = TempDir::new().unwrap();
         let tool = ProxyConfigTool::new(test_config(&tmp).await, test_security());
 
@@ -520,6 +537,9 @@ mod tests {
 
     #[tokio::test]
     async fn set_null_proxy_url_clears_existing_value() {
+        let _guard = PROXY_CONFIG_TEST_LOCK.lock().await;
+        let _reset = RuntimeProxyReset;
+        set_runtime_proxy_config(ProxyConfig::default());
         let tmp = TempDir::new().unwrap();
         let tool = ProxyConfigTool::new(test_config(&tmp).await, test_security());
 

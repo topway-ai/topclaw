@@ -49,6 +49,8 @@ Commands:
   lint          Run rustfmt + clippy correctness gate (container only)
   lint-strict   Run rustfmt + full clippy warnings gate (container only)
   lint-delta    Run strict lint delta gate on changed Rust lines (container only)
+  feature-matrix Run default/standard/sidecar/full cargo check/test matrix (container only)
+  feature-matrix-local Run default/standard/sidecar/full cargo check/test matrix on host
   test          Run cargo test (container only)
   build         Run release build smoke check (container only)
   audit         Run cargo audit (container only)
@@ -86,6 +88,14 @@ case "$1" in
     run_in_ci "./scripts/ci/rust_strict_delta_gate.sh"
     ;;
 
+  feature-matrix)
+    run_in_ci "./scripts/ci/feature_matrix.sh"
+    ;;
+
+  feature-matrix-local)
+    bash ./scripts/ci/feature_matrix.sh
+    ;;
+
   test)
     run_in_ci "cargo test --locked --verbose"
     ;;
@@ -114,6 +124,7 @@ case "$1" in
 
   all)
     run_in_ci "./scripts/ci/rust_quality_gate.sh"
+    run_in_ci "./scripts/ci/feature_matrix.sh"
     run_in_ci "cargo test --locked --verbose"
     run_in_ci "cargo build --release --locked --verbose"
     run_in_ci "cargo deny check licenses sources"

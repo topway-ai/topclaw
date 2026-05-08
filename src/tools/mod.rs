@@ -601,8 +601,10 @@ fn build_tools_with_runtime(
         }
     }
 
-    // Add delegation and sub-agent orchestration tools when agents are configured
-    if !agents.is_empty() {
+    // Add delegation and sub-agent orchestration tools only for explicit
+    // advanced/full registries. Telegram/Discord default registries stay
+    // focused on core coding-agent tools.
+    if include_auxiliary_non_shell_tools && !agents.is_empty() {
         let delegate_agents: HashMap<String, DelegateAgentConfig> = agents
             .iter()
             .map(|(name, cfg)| (name.clone(), cfg.clone()))
@@ -703,6 +705,18 @@ mod tests {
             config_path: tmp.path().join("config.toml"),
             ..Config::default()
         }
+    }
+
+    fn test_memory(tmp: &TempDir) -> Arc<dyn Memory> {
+        let mem_cfg = MemoryConfig {
+            backend: "markdown".into(),
+            ..MemoryConfig::default()
+        };
+        Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap())
+    }
+
+    fn tool_names(tools: &[Box<dyn Tool>]) -> Vec<&str> {
+        tools.iter().map(|tool| tool.name()).collect()
     }
 
     #[test]
@@ -853,12 +867,7 @@ mod tests {
     fn channel_tools_with_runtime_focus_on_core_work_tools() {
         let tmp = TempDir::new().unwrap();
         let security = Arc::new(SecurityPolicy::default());
-        let mem_cfg = MemoryConfig {
-            backend: "markdown".into(),
-            ..MemoryConfig::default()
-        };
-        let mem: Arc<dyn Memory> =
-            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+        let mem = test_memory(&tmp);
 
         std::fs::write(
             tmp.path().join(".env"),
@@ -883,7 +892,7 @@ mod tests {
             &cfg,
         );
 
-        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+        let names = tool_names(&tools);
         assert!(names.contains(&"task_plan"));
         assert!(names.contains(&"lossless_describe"));
         assert!(names.contains(&"lossless_search"));
@@ -906,6 +915,168 @@ mod tests {
     }
 
     #[test]
+    fn default_telegram_channel_registry_excludes_network_and_advanced_surfaces() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy::default());
+        let mem = test_memory(&tmp);
+        let cfg = test_config(&tmp);
+
+        let mut agents = HashMap::new();
+        agents.insert(
+            "researcher".to_string(),
+            DelegateAgentConfig {
+                provider: "ollama".to_string(),
+                model: "llama3".to_string(),
+                system_prompt: None,
+                api_key: None,
+                temperature: None,
+                max_depth: 3,
+                agentic: false,
+                allowed_tools: Vec::new(),
+                max_iterations: 10,
+            },
+        );
+
+        let tools = channel_tools_with_runtime(
+            Arc::new(cfg.clone()),
+            &security,
+            Arc::new(NativeRuntime::new()),
+            mem,
+            None,
+            None,
+            &cfg.browser,
+            &cfg.http_request,
+            &cfg.web_fetch,
+            tmp.path(),
+            &agents,
+            Some("delegate-test-credential"),
+            &cfg,
+        );
+
+        let names = tool_names(&tools);
+        let forbidden_defaults = [
+            "web_search_tool",
+            "web_fetch",
+            "http_request",
+            "browser_open",
+            "discord_history_fetch",
+            "process",
+            "config_patch",
+            "model_routing_config",
+            "proxy_config",
+            "computer_use_sidecar_start",
+            "cron_add",
+            "cron_list",
+            "cron_remove",
+            "cron_update",
+            "cron_run",
+            "cron_runs",
+            "delegate",
+            "delegate_coordination_status",
+            "subagent_spawn",
+            "subagent_list",
+            "subagent_manage",
+            "screenshot",
+            "image_info",
+            "computer_use",
+            "config_grant_browser_domain",
+        ];
+
+        for forbidden in forbidden_defaults {
+            assert!(
+                !names.contains(&forbidden),
+                "default Telegram/channel registry must not expose {forbidden}"
+            );
+        }
+    }
+
+    #[test]
+    fn channel_network_tools_require_explicit_config() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy::default());
+        let mem = test_memory(&tmp);
+        let mut cfg = test_config(&tmp);
+        cfg.web_search.enabled = true;
+
+        let browser = BrowserConfig {
+            enabled: true,
+            allowed_domains: vec!["example.com".into()],
+            ..BrowserConfig::default()
+        };
+        let http = crate::config::HttpRequestConfig {
+            enabled: true,
+            allowed_domains: vec!["example.com".into()],
+            ..crate::config::HttpRequestConfig::default()
+        };
+        let web_fetch = crate::config::WebFetchConfig {
+            enabled: true,
+            allowed_domains: vec!["example.com".into()],
+            ..crate::config::WebFetchConfig::default()
+        };
+
+        let tools = channel_tools_with_runtime(
+            Arc::new(cfg.clone()),
+            &security,
+            Arc::new(NativeRuntime::new()),
+            mem,
+            None,
+            None,
+            &browser,
+            &http,
+            &web_fetch,
+            tmp.path(),
+            &HashMap::new(),
+            None,
+            &cfg,
+        );
+        let names = tool_names(&tools);
+
+        for network_tool in [
+            "browser_open",
+            "http_request",
+            "web_fetch",
+            "web_search_tool",
+        ] {
+            assert!(
+                names.contains(&network_tool),
+                "{network_tool} should require and honor explicit config"
+            );
+            assert_eq!(tool_tier(network_tool), ToolTier::Network);
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "computer-use-sidecar")]
+    fn channel_computer_use_requires_explicit_feature_and_config() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy::default());
+        let cfg = test_config(&tmp);
+        let mut browser = cfg.browser.clone();
+        browser.computer_use.enabled = true;
+
+        let tools = channel_tools_with_runtime(
+            Arc::new(cfg.clone()),
+            &security,
+            Arc::new(NativeRuntime::new()),
+            test_memory(&tmp),
+            None,
+            None,
+            &browser,
+            &cfg.http_request,
+            &cfg.web_fetch,
+            tmp.path(),
+            &HashMap::new(),
+            None,
+            &cfg,
+        );
+
+        let names = tool_names(&tools);
+        assert!(names.contains(&"computer_use"));
+        assert_eq!(tool_tier("computer_use"), ToolTier::Advanced);
+        assert!(!names.contains(&"computer_use_sidecar_start"));
+    }
+
+    #[test]
     fn tool_tiers_classify_default_network_and_advanced_surfaces() {
         assert_eq!(tool_tier("memory_recall"), ToolTier::Core);
         assert_eq!(tool_tier("file_read"), ToolTier::Core);
@@ -915,6 +1086,13 @@ mod tests {
         assert_eq!(tool_tier("http_request"), ToolTier::Network);
         assert_eq!(tool_tier("process"), ToolTier::Advanced);
         assert_eq!(tool_tier("config_patch"), ToolTier::Advanced);
+        assert_eq!(tool_tier("model_routing_config"), ToolTier::Advanced);
+        assert_eq!(tool_tier("proxy_config"), ToolTier::Advanced);
+        assert_eq!(tool_tier("computer_use_sidecar_start"), ToolTier::Advanced);
+        assert_eq!(tool_tier("delegate"), ToolTier::Advanced);
+        assert_eq!(tool_tier("subagent_spawn"), ToolTier::Advanced);
+        assert_eq!(tool_tier("screenshot"), ToolTier::Advanced);
+        assert_eq!(tool_tier("image_info"), ToolTier::Advanced);
         assert_eq!(tool_tier("computer_use"), ToolTier::Advanced);
         assert_eq!(
             default_channel_tool_tiers(),

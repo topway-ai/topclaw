@@ -1192,8 +1192,6 @@ impl Channel for DiscordChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{routing::get, routing::post, Json, Router};
-    use serde_json::json as json_value;
 
     #[test]
     fn base64_decode_bot_id() {

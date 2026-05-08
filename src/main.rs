@@ -811,6 +811,94 @@ enum DoctorCommands {
     },
 }
 
+fn render_providers_output(config: &Config, advanced: bool) -> String {
+    use std::fmt::Write as _;
+
+    fn write_section(
+        out: &mut String,
+        title: &str,
+        entries: Vec<&providers::ProviderInfo>,
+        current: &str,
+    ) {
+        let _ = writeln!(out, "  {title}");
+        let _ = writeln!(out, "  ID (use in config)  DESCRIPTION");
+        let _ = writeln!(out, "  ─────────────────── ───────────");
+        for provider in entries {
+            let is_active = provider.name.eq_ignore_ascii_case(current)
+                || provider
+                    .aliases
+                    .iter()
+                    .any(|alias| alias.eq_ignore_ascii_case(current));
+            let marker = if is_active { " (active)" } else { "" };
+            let local_tag = if provider.local { " [local]" } else { "" };
+            let aliases = if provider.aliases.is_empty() {
+                String::new()
+            } else {
+                format!("  (aliases: {})", provider.aliases.join(", "))
+            };
+            let _ = writeln!(
+                out,
+                "  {:<19} {}{}{}{}",
+                provider.name, provider.display_name, local_tag, marker, aliases
+            );
+        }
+        let _ = writeln!(out);
+    }
+
+    let provider_list = providers::list_providers();
+    let current = config
+        .default_provider
+        .as_deref()
+        .unwrap_or(providers::DEFAULT_PROVIDER_NAME)
+        .trim()
+        .to_ascii_lowercase();
+    let mode = if advanced {
+        providers::ProviderVisibilityMode::Advanced
+    } else {
+        providers::ProviderVisibilityMode::Core
+    };
+    let visible_count = providers::visible_provider_ids(mode).len();
+
+    let mut out = String::new();
+    let _ = writeln!(out, "Supported providers ({visible_count} visible):\n");
+
+    let core: Vec<&providers::ProviderInfo> = provider_list
+        .iter()
+        .filter(|provider| providers::is_core_provider(provider.name))
+        .collect();
+    let advanced_providers: Vec<&providers::ProviderInfo> = provider_list
+        .iter()
+        .filter(|provider| !providers::is_core_provider(provider.name))
+        .collect();
+
+    write_section(
+        &mut out,
+        "Core providers (default visible path: Codex -> OpenRouter -> Ollama)",
+        core,
+        &current,
+    );
+    if advanced {
+        write_section(
+            &mut out,
+            "Advanced providers (explicit compatibility surface)",
+            advanced_providers,
+            &current,
+        );
+        let _ = writeln!(out, "\n  custom:<URL>   Any OpenAI-compatible endpoint");
+        let _ = writeln!(
+            out,
+            "  anthropic-custom:<URL>  Any Anthropic-compatible endpoint"
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "  Run `topclaw providers --advanced` to list compatibility providers."
+        );
+    }
+
+    out
+}
+
 #[tokio::main]
 #[allow(clippy::too_many_lines)]
 async fn main() -> Result<()> {
@@ -1327,68 +1415,7 @@ async fn main() -> Result<()> {
         },
 
         Commands::Providers { advanced } => {
-            let provider_list = providers::list_providers();
-            let current = config
-                .default_provider
-                .as_deref()
-                .unwrap_or(providers::DEFAULT_PROVIDER_NAME)
-                .trim()
-                .to_ascii_lowercase();
-            let mode = if advanced {
-                providers::ProviderVisibilityMode::Advanced
-            } else {
-                providers::ProviderVisibilityMode::Core
-            };
-            let visible_ids = providers::visible_provider_ids(mode);
-            let visible_count = visible_ids.len();
-            println!("Supported providers ({visible_count} visible):\n");
-            let print_section = |title: &str, entries: Vec<&providers::ProviderInfo>| {
-                println!("  {title}");
-                println!("  ID (use in config)  DESCRIPTION");
-                println!("  ─────────────────── ───────────");
-                for p in entries {
-                    let is_active = p.name.eq_ignore_ascii_case(&current)
-                        || p.aliases
-                            .iter()
-                            .any(|alias| alias.eq_ignore_ascii_case(&current));
-                    let marker = if is_active { " (active)" } else { "" };
-                    let local_tag = if p.local { " [local]" } else { "" };
-                    let aliases = if p.aliases.is_empty() {
-                        String::new()
-                    } else {
-                        format!("  (aliases: {})", p.aliases.join(", "))
-                    };
-                    println!(
-                        "  {:<19} {}{}{}{}",
-                        p.name, p.display_name, local_tag, marker, aliases
-                    );
-                }
-                println!();
-            };
-
-            let core: Vec<&providers::ProviderInfo> = provider_list
-                .iter()
-                .filter(|provider| providers::is_core_provider(provider.name))
-                .collect();
-            let advanced_providers: Vec<&providers::ProviderInfo> = provider_list
-                .iter()
-                .filter(|provider| !providers::is_core_provider(provider.name))
-                .collect();
-
-            print_section(
-                "Core providers (default visible path: Codex -> OpenRouter -> Ollama)",
-                core,
-            );
-            if advanced {
-                print_section(
-                    "Advanced providers (explicit compatibility surface)",
-                    advanced_providers,
-                );
-                println!("\n  custom:<URL>   Any OpenAI-compatible endpoint");
-                println!("  anthropic-custom:<URL>  Any Anthropic-compatible endpoint");
-            } else {
-                println!("  Run `topclaw providers --advanced` to list compatibility providers.");
-            }
+            print!("{}", render_providers_output(&config, advanced));
             Ok(())
         }
 
@@ -1513,6 +1540,35 @@ mod tests {
             Commands::Providers { advanced } => assert!(advanced),
             other => panic!("expected providers command, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn providers_default_output_shows_core_only_with_advanced_hint() {
+        let output = render_providers_output(&Config::default(), false);
+
+        assert!(output.contains(&format!(
+            "Supported providers ({} visible)",
+            providers::core_provider_ids().len()
+        )));
+        assert!(output.contains("Core providers"));
+        assert!(output.contains("openai-codex"));
+        assert!(output.contains("openrouter"));
+        assert!(output.contains("ollama"));
+        assert!(output.contains("Run `topclaw providers --advanced`"));
+        assert!(!output.contains("Advanced providers"));
+        assert!(!output.contains("anthropic"));
+        assert!(!output.contains("custom:<URL>"));
+    }
+
+    #[test]
+    fn providers_advanced_output_shows_compatibility_surface() {
+        let output = render_providers_output(&Config::default(), true);
+
+        assert!(output.contains("Core providers"));
+        assert!(output.contains("Advanced providers"));
+        assert!(output.contains("anthropic"));
+        assert!(output.contains("custom:<URL>"));
+        assert!(output.contains("anthropic-custom:<URL>"));
     }
 
     #[test]

@@ -941,6 +941,23 @@ mod tests {
     }
 
     #[test]
+    fn pending_non_cli_turn_grant_consumption_is_one_shot() {
+        let mgr = ApprovalManager::from_config(&supervised_config());
+        mgr.grant_non_cli_turn_grant(NonCliTurnApprovalGrant {
+            approved_shell_commands: vec!["cargo test".to_string()],
+        });
+
+        let first = mgr
+            .consume_non_cli_turn_grant()
+            .expect("first consume should return the grant");
+        assert_eq!(first.approved_shell_commands, vec!["cargo test"]);
+        assert!(
+            mgr.consume_non_cli_turn_grant().is_none(),
+            "grant must not be reusable after the approved turn starts"
+        );
+    }
+
+    #[test]
     fn persistent_runtime_grant_updates_policy_immediately() {
         let mgr = ApprovalManager::from_config(&supervised_config());
         assert!(mgr.needs_approval("shell"));
@@ -983,6 +1000,32 @@ mod tests {
         assert!(mgr
             .confirm_non_cli_pending_request(&req.request_id, "alice", "telegram", "chat-1")
             .is_err());
+    }
+
+    #[test]
+    fn stale_pending_non_cli_request_id_cannot_confirm_or_reject() {
+        let mgr = ApprovalManager::from_config(&supervised_config());
+        let req = mgr.create_non_cli_pending_request(
+            "shell",
+            "alice",
+            "telegram",
+            "chat-1",
+            None,
+            None,
+            Vec::new(),
+        );
+
+        mgr.confirm_non_cli_pending_request(&req.request_id, "alice", "telegram", "chat-1")
+            .expect("first confirmation should consume the request");
+
+        assert_eq!(
+            mgr.confirm_non_cli_pending_request(&req.request_id, "alice", "telegram", "chat-1"),
+            Err(PendingApprovalError::NotFound)
+        );
+        assert_eq!(
+            mgr.reject_non_cli_pending_request(&req.request_id, "alice", "telegram", "chat-1"),
+            Err(PendingApprovalError::NotFound)
+        );
     }
 
     #[test]
@@ -1063,6 +1106,36 @@ mod tests {
     }
 
     #[test]
+    fn denied_pending_non_cli_request_cannot_be_confirmed_later() {
+        let mgr = ApprovalManager::from_config(&supervised_config());
+        let req = mgr.create_non_cli_pending_request(
+            "shell",
+            "alice",
+            "telegram",
+            "chat-1",
+            Some(PendingNonCliResumeRequest {
+                message_id: "msg-deny".to_string(),
+                content: "run denied command".to_string(),
+                timestamp: 7,
+                thread_ts: None,
+            }),
+            Some("deny this exact payload".to_string()),
+            vec!["rm -rf /tmp/nope".to_string()],
+        );
+
+        let denied = mgr
+            .reject_non_cli_pending_request(&req.request_id, "alice", "telegram", "chat-1")
+            .expect("matching requester should deny");
+        assert_eq!(denied.request_id, req.request_id);
+        assert_eq!(denied.approved_shell_commands, vec!["rm -rf /tmp/nope"]);
+        assert_eq!(
+            mgr.confirm_non_cli_pending_request(&req.request_id, "alice", "telegram", "chat-1"),
+            Err(PendingApprovalError::NotFound)
+        );
+        assert!(!mgr.has_non_cli_pending_request(&req.request_id));
+    }
+
+    #[test]
     fn pending_non_cli_resolution_is_recorded_and_consumed() {
         let mgr = ApprovalManager::from_config(&supervised_config());
         let req = mgr.create_non_cli_pending_request(
@@ -1115,6 +1188,62 @@ mod tests {
             .confirm_non_cli_pending_request(&req.request_id, "alice", "telegram", "chat-2")
             .expect_err("mismatched reply target should fail");
         assert_eq!(err, PendingApprovalError::RequesterMismatch);
+    }
+
+    #[test]
+    fn pending_non_cli_approval_identity_mismatch_preserves_exact_payload() {
+        let mgr = ApprovalManager::from_config(&supervised_config());
+        let req = mgr.create_non_cli_pending_request(
+            "shell",
+            "alice",
+            "telegram",
+            "chat-1",
+            Some(PendingNonCliResumeRequest {
+                message_id: "msg-exact".to_string(),
+                content: "run exact command".to_string(),
+                timestamp: 42,
+                thread_ts: Some("thread-1".to_string()),
+            }),
+            Some("exact payload".to_string()),
+            vec!["echo exact".to_string()],
+        );
+
+        for (user, channel, reply_target) in [
+            ("bob", "telegram", "chat-1"),
+            ("alice", "discord", "chat-1"),
+            ("alice", "telegram", "chat-2"),
+        ] {
+            let err = mgr
+                .confirm_non_cli_pending_request(&req.request_id, user, channel, reply_target)
+                .expect_err("mismatched approval identity must not authorize");
+            assert_eq!(err, PendingApprovalError::RequesterMismatch);
+
+            let pending =
+                mgr.list_non_cli_pending_requests(Some("alice"), Some("telegram"), Some("chat-1"));
+            assert_eq!(pending.len(), 1);
+            assert_eq!(pending[0].request_id, req.request_id);
+            assert_eq!(pending[0].reason.as_deref(), Some("exact payload"));
+            assert_eq!(pending[0].approved_shell_commands, vec!["echo exact"]);
+            assert_eq!(
+                pending[0]
+                    .resume_request
+                    .as_ref()
+                    .map(|resume| resume.message_id.as_str()),
+                Some("msg-exact")
+            );
+        }
+
+        let confirmed = mgr
+            .confirm_non_cli_pending_request(&req.request_id, "alice", "telegram", "chat-1")
+            .expect("only exact requester/channel/reply target should confirm");
+        assert_eq!(confirmed.approved_shell_commands, vec!["echo exact"]);
+        assert_eq!(
+            confirmed
+                .resume_request
+                .as_ref()
+                .map(|resume| resume.content.as_str()),
+            Some("run exact command")
+        );
     }
 
     #[test]
