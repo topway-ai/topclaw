@@ -318,6 +318,7 @@ mod tests {
     };
     use std::any::Any;
     use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
     use std::time::{SystemTime, UNIX_EPOCH};
     use tempfile::TempDir;
 
@@ -394,6 +395,64 @@ mod tests {
 
             let mut cmd = tokio::process::Command::new("echo");
             cmd.arg(command);
+            cmd.current_dir(workspace_dir);
+            Ok(cmd)
+        }
+
+        fn build_exec_command(
+            &self,
+            program: &str,
+            args: &[String],
+            workspace_dir: &Path,
+        ) -> anyhow::Result<tokio::process::Command> {
+            let mut cmd = tokio::process::Command::new(program);
+            cmd.args(args);
+            cmd.current_dir(workspace_dir);
+            Ok(cmd)
+        }
+    }
+
+    struct RecordingRuntime {
+        built_shell_commands: Arc<Mutex<Vec<(String, PathBuf)>>>,
+    }
+
+    impl RuntimeAdapter for RecordingRuntime {
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+
+        fn name(&self) -> &str {
+            "recording-runtime"
+        }
+
+        fn has_shell_access(&self) -> bool {
+            true
+        }
+
+        fn has_filesystem_access(&self) -> bool {
+            true
+        }
+
+        fn storage_path(&self) -> PathBuf {
+            PathBuf::from("/tmp/recording-runtime")
+        }
+
+        fn supports_long_running(&self) -> bool {
+            true
+        }
+
+        fn build_shell_command(
+            &self,
+            command: &str,
+            workspace_dir: &Path,
+        ) -> anyhow::Result<tokio::process::Command> {
+            self.built_shell_commands
+                .lock()
+                .expect("recording lock should not be poisoned")
+                .push((command.to_string(), workspace_dir.to_path_buf()));
+
+            let mut cmd = tokio::process::Command::new("sh");
+            cmd.arg("-c").arg("printf recorded");
             cmd.current_dir(workspace_dir);
             Ok(cmd)
         }
@@ -1043,6 +1102,77 @@ mod tests {
             .path()
             .join("topclaw_shell_plan_mismatch_test")
             .exists());
+    }
+
+    #[tokio::test]
+    async fn shell_executes_exact_approved_command_in_exact_workspace() {
+        let workspace = tempfile::tempdir().expect("temp dir should be created");
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Supervised,
+            allowed_commands: Vec::new(),
+            workspace_dir: workspace.path().to_path_buf(),
+            ..SecurityPolicy::default()
+        });
+        let built_shell_commands = Arc::new(Mutex::new(Vec::new()));
+        let runtime = Arc::new(RecordingRuntime {
+            built_shell_commands: built_shell_commands.clone(),
+        });
+        let tool = ShellTool::new(security, runtime);
+        let approved_command = "touch exact-approved-command.txt";
+
+        let result = tool
+            .execute(json!({
+                "command": approved_command,
+                APPROVED_PLAN_SHELL_COMMANDS_ARG: [approved_command]
+            }))
+            .await
+            .expect("approved command should execute through runtime");
+        assert!(result.success);
+
+        let recorded = built_shell_commands
+            .lock()
+            .expect("recording lock should not be poisoned");
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].0, approved_command);
+        assert_eq!(recorded[0].1, workspace.path());
+    }
+
+    #[tokio::test]
+    async fn shell_rejects_mutated_command_after_approval_without_execution() {
+        let workspace = tempfile::tempdir().expect("temp dir should be created");
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Supervised,
+            allowed_commands: Vec::new(),
+            workspace_dir: workspace.path().to_path_buf(),
+            ..SecurityPolicy::default()
+        });
+        let built_shell_commands = Arc::new(Mutex::new(Vec::new()));
+        let runtime = Arc::new(RecordingRuntime {
+            built_shell_commands: built_shell_commands.clone(),
+        });
+        let tool = ShellTool::new(security, runtime);
+
+        let result = tool
+            .execute(json!({
+                "command": "touch mutated-after-approval.txt",
+                APPROVED_PLAN_SHELL_COMMANDS_ARG: ["touch originally-approved.txt"]
+            }))
+            .await
+            .expect("mismatched command should return a structured denial");
+
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("not allowed"));
+        assert!(
+            built_shell_commands
+                .lock()
+                .expect("recording lock should not be poisoned")
+                .is_empty(),
+            "mutated command must be rejected before runtime execution"
+        );
     }
 
     // ── §5.2 Shell timeout enforcement tests ─────────────────
