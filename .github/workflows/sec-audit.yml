@@ -236,7 +236,7 @@ jobs:
 
             - name: Upload deny policy artifacts
               if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: deny-policy-guard
                   path: artifacts/deny-policy-guard.*
@@ -245,7 +245,7 @@ jobs:
 
             - name: Upload deny policy audit event
               if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: deny-policy-audit-event
                   path: artifacts/audit-event-deny-policy-guard.json
@@ -346,7 +346,7 @@ jobs:
 
             - name: Upload deny policy artifacts
               if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: deny-policy-guard
                   path: artifacts/deny-policy-guard.*
@@ -355,7 +355,7 @@ jobs:
 
             - name: Upload deny policy audit event
               if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: deny-policy-audit-event
                   path: artifacts/audit-event-deny-policy-guard.json
@@ -492,7 +492,7 @@ jobs:
 
             - name: Upload secrets governance artifacts
               if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: secrets-governance-guard
                   path: artifacts/secrets-governance-guard.*
@@ -501,7 +501,7 @@ jobs:
 
             - name: Upload secrets governance audit event
               if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: secrets-governance-audit-event
                   path: artifacts/audit-event-secrets-governance-guard.json
@@ -600,7 +600,7 @@ jobs:
 
             - name: Upload gitleaks artifact
               if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: gitleaks-report
                   path: artifacts/gitleaks.sarif
@@ -623,7 +623,7 @@ jobs:
 
             - name: Upload gitleaks audit event
               if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: gitleaks-audit-event
                   path: artifacts/audit-event-gitleaks-scan.json
@@ -688,7 +688,7 @@ jobs:
 
             - name: Upload secrets governance artifacts
               if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: secrets-governance-guard
                   path: artifacts/secrets-governance-guard.*
@@ -697,7 +697,7 @@ jobs:
 
             - name: Upload secrets governance audit event
               if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: secrets-governance-audit-event
                   path: artifacts/audit-event-secrets-governance-guard.json
@@ -796,7 +796,7 @@ jobs:
 
             - name: Upload gitleaks artifact
               if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: gitleaks-report
                   path: artifacts/gitleaks.sarif
@@ -819,7 +819,7 @@ jobs:
 
             - name: Upload gitleaks audit event
               if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: gitleaks-audit-event
                   path: artifacts/audit-event-gitleaks-scan.json
@@ -857,7 +857,7 @@ jobs:
                   } >> "$GITHUB_STEP_SUMMARY"
 
             - name: Upload SBOM artifacts
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: sbom-snapshot
                   path: artifacts/topclaw.*.json
@@ -885,7 +885,7 @@ jobs:
 
             - name: Upload SBOM audit event
               if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: sbom-audit-event
                   path: artifacts/audit-event-sbom-snapshot.json
@@ -923,7 +923,7 @@ jobs:
                   } >> "$GITHUB_STEP_SUMMARY"
 
             - name: Upload SBOM artifacts
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: sbom-snapshot
                   path: artifacts/topclaw.*.json
@@ -951,7 +951,7 @@ jobs:
 
             - name: Upload SBOM audit event
               if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: sbom-audit-event
                   path: artifacts/audit-event-sbom-snapshot.json
@@ -1068,7 +1068,7 @@ jobs:
 
             - name: Upload unsafe policy guard artifacts
               if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: unsafe-policy-guard
                   path: artifacts/unsafe-policy-guard.*
@@ -1077,7 +1077,7 @@ jobs:
 
             - name: Upload unsafe debt audit artifact
               if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: unsafe-debt-audit
                   path: artifacts/unsafe-debt-audit.json
@@ -1086,7 +1086,7 @@ jobs:
 
             - name: Upload unsafe policy audit event
               if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: unsafe-policy-audit-event
                   path: artifacts/audit-event-unsafe-policy-guard.json
@@ -1095,7 +1095,7 @@ jobs:
 
             - name: Upload unsafe debt audit event
               if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: unsafe-debt-audit-event
                   path: artifacts/audit-event-unsafe-debt-audit.json
@@ -1212,7 +1212,7 @@ jobs:
 
             - name: Upload unsafe policy guard artifacts
               if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: unsafe-policy-guard
                   path: artifacts/unsafe-policy-guard.*
@@ -1221,7 +1221,7 @@ jobs:
 
             - name: Upload unsafe debt audit artifact
               if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: unsafe-debt-audit
                   path: artifacts/unsafe-debt-audit.json
@@ -1230,7 +1230,7 @@ jobs:
 
             - name: Upload unsafe policy audit event
               if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: unsafe-policy-audit-event
                   path: artifacts/audit-event-unsafe-policy-guard.json
@@ -1239,7 +1239,7 @@ jobs:
 
             - name: Upload unsafe debt audit event
               if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: unsafe-debt-audit-event
                   path: artifacts/audit-event-unsafe-debt-audit.json
