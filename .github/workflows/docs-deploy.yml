@@ -107,7 +107,7 @@ jobs:
           set -euo pipefail
           cp docs-deploy-guard.json audit-event-docs-deploy-guard.json
       - name: Upload guard artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: docs-deploy-guard
           retention-days: ${{ steps.guard.outputs.docs_guard_artifact_retention_days }}
@@ -165,7 +165,7 @@ jobs:
           find docs-built-site -maxdepth 2 -type f | sort | sed -n '1,120p'
       - name: Upload preview artifact
         if: needs.deploy-guard.outputs.deploy_target == 'preview'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: docs-preview
           retention-days: ${{ needs.deploy-guard.outputs.preview_retention_days }}
