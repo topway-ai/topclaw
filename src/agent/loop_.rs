@@ -59,9 +59,9 @@ use parsing::{
 };
 use provider_io::{call_provider_chat, consume_provider_streaming_response};
 use tool_helpers::{
-    build_non_cli_approval_plan_prompt, collect_planned_shell_commands,
-    maybe_inject_cron_add_delivery, qualifies_for_non_cli_investigation_batch,
-    truncate_tool_args_for_progress,
+    build_non_cli_approval_plan_prompt, collect_planned_shell_approval_snapshots,
+    collect_planned_shell_commands, maybe_inject_cron_add_delivery,
+    qualifies_for_non_cli_investigation_batch, truncate_tool_args_for_progress,
 };
 use utilities::autosave_memory_key;
 
@@ -378,6 +378,8 @@ pub(crate) async fn run_tool_call_loop(
     let approved_turn_grant = approval.and_then(|mgr| {
         if channel_name == "cli" {
             None
+        } else if let Some(ctx) = non_cli_approval_context.as_ref() {
+            mgr.consume_non_cli_turn_grant_for_context(&ctx.sender, channel_name, &ctx.reply_target)
         } else {
             mgr.consume_non_cli_turn_grant()
         }
@@ -1012,7 +1014,7 @@ pub(crate) async fn run_tool_call_loop(
                         } else if let Some(ctx) = non_cli_approval_context.as_ref() {
                             let (prompt_title, prompt_details) =
                                 build_non_cli_approval_plan_prompt(&tool_calls);
-                            let pending = mgr.create_non_cli_pending_request(
+                            let pending = mgr.create_non_cli_pending_request_with_shell_metadata(
                                 APPROVAL_ALL_TOOLS_ONCE_TOKEN,
                                 &ctx.sender,
                                 channel_name,
@@ -1025,6 +1027,10 @@ pub(crate) async fn run_tool_call_loop(
                                 }),
                                 approval_reason,
                                 collect_planned_shell_commands(&tool_calls),
+                                collect_planned_shell_approval_snapshots(
+                                    &tool_calls,
+                                    tools_registry,
+                                ),
                             );
 
                             let _ = ctx.prompt_tx.send(NonCliApprovalPrompt {

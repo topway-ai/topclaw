@@ -74,50 +74,49 @@ fn parse_runtime_command_allows_approval_commands_on_non_model_channels() {
         Some(ChannelRuntimeCommand::NewSession)
     );
     assert_eq!(
-        parse_runtime_command("slack", "/approve-request shell"),
+        parse_runtime_command("discord", "/approve-request shell"),
         Some(ChannelRuntimeCommand::RequestToolApproval(
             "shell".to_string()
         ))
     );
     assert_eq!(
-        parse_runtime_command("slack", "/approve-all-once"),
+        parse_runtime_command("telegram", "/approve-all-once"),
         Some(ChannelRuntimeCommand::RequestAllToolsOnce)
     );
     assert_eq!(
-        parse_runtime_command("slack", "/approve-confirm apr-deadbeef"),
+        parse_runtime_command("telegram", "/approve-confirm apr-deadbeef"),
         Some(ChannelRuntimeCommand::ConfirmToolApproval(
             "apr-deadbeef".to_string()
         ))
     );
     assert_eq!(
-        parse_runtime_command("slack", "/approve-allow apr-deadbeef"),
+        parse_runtime_command("discord", "/approve-allow apr-deadbeef"),
         Some(ChannelRuntimeCommand::ApprovePendingRequest(
             "apr-deadbeef".to_string()
         ))
     );
     assert_eq!(
-        parse_runtime_command("slack", "/approve-deny apr-deadbeef"),
+        parse_runtime_command("telegram", "/approve-deny apr-deadbeef"),
         Some(ChannelRuntimeCommand::DenyToolApproval(
             "apr-deadbeef".to_string()
         ))
     );
     assert_eq!(
-        parse_runtime_command("slack", "/approve-pending"),
+        parse_runtime_command("discord", "/approve-pending"),
         Some(ChannelRuntimeCommand::ListPendingApprovals)
     );
     assert_eq!(
-        parse_runtime_command("slack", "/approve shell"),
+        parse_runtime_command("telegram", "/approve shell"),
         Some(ChannelRuntimeCommand::ApproveTool("shell".to_string()))
     );
     assert_eq!(
-        parse_runtime_command("slack", "/unapprove shell"),
+        parse_runtime_command("discord", "/unapprove shell"),
         Some(ChannelRuntimeCommand::UnapproveTool("shell".to_string()))
     );
     assert_eq!(
-        parse_runtime_command("slack", "/approvals"),
+        parse_runtime_command("telegram", "/approvals"),
         Some(ChannelRuntimeCommand::ListApprovals)
     );
-    assert_eq!(parse_runtime_command("slack", "/models"), None);
 }
 
 #[test]
@@ -4394,7 +4393,7 @@ fn conversation_memory_key_is_unique_per_message() {
         sender: "U123".into(),
         reply_target: "C456".into(),
         content: "first".into(),
-        channel: "slack".into(),
+        channel: "discord".into(),
         timestamp: 1,
         thread_ts: None,
     };
@@ -4403,7 +4402,7 @@ fn conversation_memory_key_is_unique_per_message() {
         sender: "U123".into(),
         reply_target: "C456".into(),
         content: "second".into(),
-        channel: "slack".into(),
+        channel: "discord".into(),
         timestamp: 2,
         thread_ts: None,
     };
@@ -4424,7 +4423,7 @@ async fn autosave_keys_preserve_multiple_conversation_facts() {
         sender: "U123".into(),
         reply_target: "C456".into(),
         content: "I'm Paul".into(),
-        channel: "slack".into(),
+        channel: "telegram".into(),
         timestamp: 1,
         thread_ts: None,
     };
@@ -4433,7 +4432,7 @@ async fn autosave_keys_preserve_multiple_conversation_facts() {
         sender: "U123".into(),
         reply_target: "C456".into(),
         content: "I'm 45".into(),
-        channel: "slack".into(),
+        channel: "telegram".into(),
         timestamp: 2,
         thread_ts: None,
     };

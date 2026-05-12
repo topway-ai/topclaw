@@ -68,6 +68,16 @@ pub trait Tool: Send + Sync {
         Ok(())
     }
 
+    /// Capture immutable shell approval metadata for this call, if the tool
+    /// executes a shell command. The approval manager binds request identity
+    /// later when it creates the pending request.
+    fn shell_approval_snapshot(
+        &self,
+        _args: &serde_json::Value,
+    ) -> Result<Option<crate::approval::PendingNonCliShellApproval>, String> {
+        Ok(None)
+    }
+
     /// Get the full spec for LLM registration
     fn spec(&self) -> ToolSpec {
         ToolSpec {

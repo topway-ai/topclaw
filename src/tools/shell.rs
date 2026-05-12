@@ -18,6 +18,7 @@ const SAFE_ENV_VARS: &[&str] = &[
     "PATH", "HOME", "TERM", "LANG", "LC_ALL", "LC_CTYPE", "USER", "SHELL", "TMPDIR",
 ];
 pub(crate) const APPROVED_PLAN_SHELL_COMMANDS_ARG: &str = "__approved_plan_shell_commands";
+pub(crate) const APPROVED_SHELL_SNAPSHOTS_ARG: &str = "__approved_shell_snapshots";
 
 /// Shell command execution tool with sandboxing
 pub struct ShellTool {
@@ -87,6 +88,16 @@ pub(crate) fn extract_approved_plan_shell_commands(args: &serde_json::Value) -> 
         .unwrap_or_default()
 }
 
+fn extract_approved_shell_snapshots(
+    args: &serde_json::Value,
+) -> Result<Vec<crate::approval::PendingNonCliShellApproval>, String> {
+    match args.get(APPROVED_SHELL_SNAPSHOTS_ARG) {
+        None => Ok(Vec::new()),
+        Some(value) => serde_json::from_value(value.clone())
+            .map_err(|e| format!("Invalid approved shell snapshot metadata: {e}")),
+    }
+}
+
 fn extract_command_argument(args: &serde_json::Value) -> Option<String> {
     if let Some(command) = args
         .get("command")
@@ -120,6 +131,18 @@ fn extract_command_argument(args: &serde_json::Value) -> Option<String> {
         .map(str::trim)
         .filter(|cmd| !cmd.is_empty())
         .map(ToString::to_string)
+}
+
+fn risk_level_label(risk: crate::security::policy::CommandRiskLevel) -> &'static str {
+    match risk {
+        crate::security::policy::CommandRiskLevel::Low => "low",
+        crate::security::policy::CommandRiskLevel::Medium => "medium",
+        crate::security::policy::CommandRiskLevel::High => "high",
+    }
+}
+
+fn workspace_label(security: &SecurityPolicy) -> String {
+    security.workspace_dir.display().to_string()
 }
 
 #[async_trait]
@@ -177,17 +200,132 @@ impl Tool for ShellTool {
             .map_err(|e| format!("Failed to build runtime command: {e}"))
     }
 
+    fn shell_approval_snapshot(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<Option<crate::approval::PendingNonCliShellApproval>, String> {
+        let command = extract_command_argument(args)
+            .ok_or_else(|| "Missing 'command' parameter".to_string())?;
+        let effective_command = self.security.apply_shell_redirect_policy(&command);
+        let risk = self
+            .security
+            .validate_command_execution_with_temporary_allowlist(
+                &command,
+                true,
+                std::slice::from_ref(&command),
+            )?;
+        self.runtime
+            .build_shell_command(&effective_command, &self.security.workspace_dir)
+            .map_err(|e| format!("Failed to build runtime command: {e}"))?;
+
+        Ok(Some(crate::approval::PendingNonCliShellApproval {
+            request_id: String::new(),
+            requested_by: String::new(),
+            requested_channel: String::new(),
+            requested_reply_target: String::new(),
+            command,
+            effective_command,
+            cwd: workspace_label(&self.security),
+            risk_level: risk_level_label(risk).to_string(),
+        }))
+    }
+
     #[allow(clippy::incompatible_msrv)]
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
         let command = extract_command_argument(&args)
             .ok_or_else(|| anyhow::anyhow!("Missing 'command' parameter"))?;
         let effective_command = self.security.apply_shell_redirect_policy(&command);
-        let temporary_allowed_commands = extract_approved_plan_shell_commands(&args);
+        let approved_shell_snapshots = match extract_approved_shell_snapshots(&args) {
+            Ok(snapshots) => snapshots,
+            Err(reason) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(reason),
+                });
+            }
+        };
+        let mut snapshot_authorized = false;
+        if !approved_shell_snapshots.is_empty() {
+            match approved_shell_snapshots
+                .iter()
+                .find(|snapshot| snapshot.command == command)
+            {
+                Some(snapshot) => {
+                    let current_cwd = workspace_label(&self.security);
+                    let current_risk =
+                        risk_level_label(self.security.command_risk_level(&effective_command));
+                    if snapshot.request_id.trim().is_empty()
+                        || snapshot.requested_by.trim().is_empty()
+                        || snapshot.requested_channel.trim().is_empty()
+                        || snapshot.requested_reply_target.trim().is_empty()
+                    {
+                        return Ok(ToolResult {
+                            success: false,
+                            output: String::new(),
+                            error: Some(
+                                "Approved shell snapshot is missing approval identity metadata"
+                                    .to_string(),
+                            ),
+                        });
+                    }
+                    if snapshot.effective_command != effective_command {
+                        return Ok(ToolResult {
+                            success: false,
+                            output: String::new(),
+                            error: Some(
+                                "Approved shell snapshot effective command does not match execution"
+                                    .to_string(),
+                            ),
+                        });
+                    }
+                    if snapshot.cwd != current_cwd {
+                        return Ok(ToolResult {
+                            success: false,
+                            output: String::new(),
+                            error: Some(
+                                "Approved shell snapshot working directory does not match execution"
+                                    .to_string(),
+                            ),
+                        });
+                    }
+                    if snapshot.risk_level != current_risk {
+                        return Ok(ToolResult {
+                            success: false,
+                            output: String::new(),
+                            error: Some(
+                                "Approved shell snapshot risk level does not match execution"
+                                    .to_string(),
+                            ),
+                        });
+                    }
+                    snapshot_authorized = true;
+                }
+                None => {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(
+                            "Approved shell snapshot does not match requested command".to_string(),
+                        ),
+                    });
+                }
+            }
+        }
+        let temporary_allowed_commands = if approved_shell_snapshots.is_empty() {
+            extract_approved_plan_shell_commands(&args)
+        } else {
+            approved_shell_snapshots
+                .iter()
+                .map(|snapshot| snapshot.command.clone())
+                .collect()
+        };
         let approved = args
             .get("approved")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        let approved = approved
+        let approved = snapshot_authorized
+            || approved
             || self
                 .security
                 .command_matches_temporary_allowlist(&command, &temporary_allowed_commands);
@@ -1117,13 +1255,14 @@ mod tests {
         let runtime = Arc::new(RecordingRuntime {
             built_shell_commands: built_shell_commands.clone(),
         });
-        let tool = ShellTool::new(security, runtime);
+        let tool = ShellTool::new(security.clone(), runtime);
         let approved_command = "touch exact-approved-command.txt";
+        let snapshot = approved_shell_snapshot_json(&security, approved_command);
 
         let result = tool
             .execute(json!({
                 "command": approved_command,
-                APPROVED_PLAN_SHELL_COMMANDS_ARG: [approved_command]
+                APPROVED_SHELL_SNAPSHOTS_ARG: [snapshot]
             }))
             .await
             .expect("approved command should execute through runtime");
@@ -1151,11 +1290,15 @@ mod tests {
             built_shell_commands: built_shell_commands.clone(),
         });
         let tool = ShellTool::new(security, runtime);
+        let approved_command = "touch originally-approved.txt";
 
         let result = tool
             .execute(json!({
                 "command": "touch mutated-after-approval.txt",
-                APPROVED_PLAN_SHELL_COMMANDS_ARG: ["touch originally-approved.txt"]
+                APPROVED_SHELL_SNAPSHOTS_ARG: [approved_shell_snapshot_json(
+                    &tool.security,
+                    approved_command
+                )]
             }))
             .await
             .expect("mismatched command should return a structured denial");
@@ -1165,7 +1308,7 @@ mod tests {
             .error
             .as_deref()
             .unwrap_or("")
-            .contains("not allowed"));
+            .contains("does not match requested command"));
         assert!(
             built_shell_commands
                 .lock()
@@ -1173,6 +1316,105 @@ mod tests {
                 .is_empty(),
             "mutated command must be rejected before runtime execution"
         );
+    }
+
+    #[tokio::test]
+    async fn shell_rejects_mutated_cwd_after_approval_without_execution() {
+        let workspace = tempfile::tempdir().expect("temp dir should be created");
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Supervised,
+            allowed_commands: Vec::new(),
+            workspace_dir: workspace.path().to_path_buf(),
+            ..SecurityPolicy::default()
+        });
+        let built_shell_commands = Arc::new(Mutex::new(Vec::new()));
+        let tool = ShellTool::new(
+            security.clone(),
+            Arc::new(RecordingRuntime {
+                built_shell_commands: built_shell_commands.clone(),
+            }),
+        );
+        let command = "touch approved-cwd.txt";
+        let mut snapshot = approved_shell_snapshot_json(&security, command);
+        snapshot["cwd"] = json!("/tmp/different-workspace");
+
+        let result = tool
+            .execute(json!({
+                "command": command,
+                APPROVED_SHELL_SNAPSHOTS_ARG: [snapshot]
+            }))
+            .await
+            .expect("cwd mismatch should return a structured denial");
+
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("working directory does not match"));
+        assert!(built_shell_commands
+            .lock()
+            .expect("recording lock should not be poisoned")
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn shell_rejects_mutated_effective_command_after_approval_without_execution() {
+        let workspace = tempfile::tempdir().expect("temp dir should be created");
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Supervised,
+            allowed_commands: Vec::new(),
+            workspace_dir: workspace.path().to_path_buf(),
+            ..SecurityPolicy::default()
+        });
+        let built_shell_commands = Arc::new(Mutex::new(Vec::new()));
+        let tool = ShellTool::new(
+            security.clone(),
+            Arc::new(RecordingRuntime {
+                built_shell_commands: built_shell_commands.clone(),
+            }),
+        );
+        let command = "touch approved-effective.txt";
+        let mut snapshot = approved_shell_snapshot_json(&security, command);
+        snapshot["effective_command"] = json!("touch approved-effective.txt > hidden.txt");
+
+        let result = tool
+            .execute(json!({
+                "command": command,
+                APPROVED_SHELL_SNAPSHOTS_ARG: [snapshot]
+            }))
+            .await
+            .expect("effective command mismatch should return a structured denial");
+
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("effective command does not match"));
+        assert!(built_shell_commands
+            .lock()
+            .expect("recording lock should not be poisoned")
+            .is_empty());
+    }
+
+    fn approved_shell_snapshot_json(security: &SecurityPolicy, command: &str) -> serde_json::Value {
+        let effective_command = security.apply_shell_redirect_policy(command);
+        let temporary_allowed = [command.to_string()];
+        let risk = security
+            .validate_command_execution_with_temporary_allowlist(command, true, &temporary_allowed)
+            .expect("test command should be approvable");
+
+        json!({
+            "request_id": "apr-test",
+            "requested_by": "alice",
+            "requested_channel": "telegram",
+            "requested_reply_target": "chat-1",
+            "command": command,
+            "effective_command": effective_command,
+            "cwd": workspace_label(security),
+            "risk_level": risk_level_label(risk),
+        })
     }
 
     // ── §5.2 Shell timeout enforcement tests ─────────────────
