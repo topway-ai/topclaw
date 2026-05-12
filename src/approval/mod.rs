@@ -62,12 +62,36 @@ pub struct PendingNonCliApprovalRequest {
 }
 
 /// Immutable shell payload metadata captured at approval-request creation time.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PendingNonCliShellApproval {
+    #[serde(default)]
+    pub request_id: String,
+    #[serde(default)]
+    pub requested_by: String,
+    #[serde(default)]
+    pub requested_channel: String,
+    #[serde(default)]
+    pub requested_reply_target: String,
     pub command: String,
     pub effective_command: String,
     pub cwd: String,
     pub risk_level: String,
+}
+
+impl PendingNonCliShellApproval {
+    pub fn with_request_identity(
+        mut self,
+        request_id: &str,
+        requested_by: &str,
+        requested_channel: &str,
+        requested_reply_target: &str,
+    ) -> Self {
+        self.request_id = request_id.to_string();
+        self.requested_by = requested_by.to_string();
+        self.requested_channel = requested_channel.to_string();
+        self.requested_reply_target = requested_reply_target.to_string();
+        self
+    }
 }
 
 /// Original non-CLI request payload to resume automatically after approval.
@@ -90,7 +114,50 @@ pub enum PendingApprovalError {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NonCliTurnApprovalGrant {
     #[serde(default)]
+    pub request_id: Option<String>,
+    #[serde(default)]
+    pub requested_by: Option<String>,
+    #[serde(default)]
+    pub requested_channel: Option<String>,
+    #[serde(default)]
+    pub requested_reply_target: Option<String>,
+    #[serde(default)]
     pub approved_shell_commands: Vec<String>,
+    #[serde(default)]
+    pub approved_shell_metadata: Vec<PendingNonCliShellApproval>,
+}
+
+impl NonCliTurnApprovalGrant {
+    pub fn from_pending_request(req: &PendingNonCliApprovalRequest) -> Self {
+        Self {
+            request_id: Some(req.request_id.clone()),
+            requested_by: Some(req.requested_by.clone()),
+            requested_channel: Some(req.requested_channel.clone()),
+            requested_reply_target: Some(req.requested_reply_target.clone()),
+            approved_shell_commands: req.approved_shell_commands.clone(),
+            approved_shell_metadata: req.approved_shell_metadata.clone(),
+        }
+    }
+
+    fn matches_context(&self, requested_by: &str, channel: &str, reply_target: &str) -> bool {
+        match (
+            self.requested_by.as_deref(),
+            self.requested_channel.as_deref(),
+            self.requested_reply_target.as_deref(),
+        ) {
+            (Some(by), Some(ch), Some(target)) => {
+                by == requested_by && ch == channel && target == reply_target
+            }
+            (None, None, None) => true,
+            _ => false,
+        }
+    }
+
+    fn is_legacy_unscoped(&self) -> bool {
+        self.requested_by.is_none()
+            && self.requested_channel.is_none()
+            && self.requested_reply_target.is_none()
+    }
 }
 
 // ── ApprovalManager ──────────────────────────────────────────────
@@ -320,9 +387,29 @@ impl ApprovalManager {
         self.consume_non_cli_turn_grant().is_some()
     }
 
-    /// Consume one queued non-CLI turn grant.
+    /// Consume one legacy unscoped non-CLI turn grant.
     pub fn consume_non_cli_turn_grant(&self) -> Option<NonCliTurnApprovalGrant> {
-        self.non_cli_turn_grants.lock().pop_front()
+        let mut grants = self.non_cli_turn_grants.lock();
+        let idx = grants
+            .iter()
+            .position(NonCliTurnApprovalGrant::is_legacy_unscoped)?;
+        grants.remove(idx)
+    }
+
+    /// Consume one queued non-CLI turn grant only when it matches the current
+    /// sender/channel/chat scope. Scoped grants remain queued when an unrelated
+    /// message arrives first, preventing stale or cross-chat approval reuse.
+    pub fn consume_non_cli_turn_grant_for_context(
+        &self,
+        requested_by: &str,
+        channel: &str,
+        reply_target: &str,
+    ) -> Option<NonCliTurnApprovalGrant> {
+        let mut grants = self.non_cli_turn_grants.lock();
+        let idx = grants
+            .iter()
+            .position(|grant| grant.matches_context(requested_by, channel, reply_target))?;
+        grants.remove(idx)
     }
 
     /// Remaining one-time non-CLI "allow all tools/commands" tokens.
@@ -485,7 +572,7 @@ impl ApprovalManager {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn create_non_cli_pending_request_with_shell_metadata(
+    pub fn create_non_cli_pending_request_with_shell_metadata(
         &self,
         tool_name: &str,
         requested_by: &str,
@@ -514,6 +601,18 @@ impl ApprovalManager {
         while pending.contains_key(&request_id) {
             request_id = format!("apr-{}", &Uuid::new_v4().simple().to_string()[..8]);
         }
+
+        let approved_shell_metadata = approved_shell_metadata
+            .into_iter()
+            .map(|metadata| {
+                metadata.with_request_identity(
+                    &request_id,
+                    requested_by,
+                    requested_channel,
+                    requested_reply_target,
+                )
+            })
+            .collect();
 
         let req = PendingNonCliApprovalRequest {
             request_id: request_id.clone(),
@@ -962,6 +1061,7 @@ mod tests {
         let mgr = ApprovalManager::from_config(&supervised_config());
         let remaining = mgr.grant_non_cli_turn_grant(NonCliTurnApprovalGrant {
             approved_shell_commands: vec!["git status".to_string()],
+            ..NonCliTurnApprovalGrant::default()
         });
         assert_eq!(remaining, 1);
 
@@ -981,6 +1081,7 @@ mod tests {
         let mgr = ApprovalManager::from_config(&supervised_config());
         mgr.grant_non_cli_turn_grant(NonCliTurnApprovalGrant {
             approved_shell_commands: vec!["cargo test".to_string()],
+            ..NonCliTurnApprovalGrant::default()
         });
 
         let first = mgr
@@ -991,6 +1092,69 @@ mod tests {
             mgr.consume_non_cli_turn_grant().is_none(),
             "grant must not be reusable after the approved turn starts"
         );
+    }
+
+    #[test]
+    fn scoped_turn_grant_requires_same_sender_channel_and_reply_target() {
+        let mgr = ApprovalManager::from_config(&supervised_config());
+        let req = mgr.create_non_cli_pending_request_with_shell_metadata(
+            "shell",
+            "alice",
+            "telegram",
+            "chat-1",
+            None,
+            Some("exact shell approval".to_string()),
+            vec!["echo exact".to_string()],
+            vec![PendingNonCliShellApproval {
+                command: "echo exact".to_string(),
+                effective_command: "echo exact".to_string(),
+                cwd: "/workspace/exact".to_string(),
+                risk_level: "low".to_string(),
+                ..PendingNonCliShellApproval::default()
+            }],
+        );
+        let grant = NonCliTurnApprovalGrant::from_pending_request(&req);
+        assert_eq!(grant.request_id.as_deref(), Some(req.request_id.as_str()));
+        assert_eq!(grant.requested_by.as_deref(), Some("alice"));
+        assert_eq!(grant.requested_channel.as_deref(), Some("telegram"));
+        assert_eq!(grant.requested_reply_target.as_deref(), Some("chat-1"));
+        assert_eq!(
+            grant.approved_shell_metadata[0].request_id.as_str(),
+            req.request_id.as_str()
+        );
+        assert_eq!(grant.approved_shell_metadata[0].requested_by, "alice");
+
+        mgr.grant_non_cli_turn_grant(grant);
+        assert!(
+            mgr.consume_non_cli_turn_grant().is_none(),
+            "legacy unscoped consumer must not consume a scoped grant"
+        );
+        assert!(
+            mgr.consume_non_cli_turn_grant_for_context("bob", "telegram", "chat-1")
+                .is_none(),
+            "wrong user must not consume a scoped grant"
+        );
+        assert!(
+            mgr.consume_non_cli_turn_grant_for_context("alice", "discord", "chat-1")
+                .is_none(),
+            "wrong channel must not consume a scoped grant"
+        );
+        assert!(
+            mgr.consume_non_cli_turn_grant_for_context("alice", "telegram", "chat-2")
+                .is_none(),
+            "wrong chat/reply target must not consume a scoped grant"
+        );
+
+        let consumed = mgr
+            .consume_non_cli_turn_grant_for_context("alice", "telegram", "chat-1")
+            .expect("exact identity should consume grant");
+        assert_eq!(
+            consumed.request_id.as_deref(),
+            Some(req.request_id.as_str())
+        );
+        assert!(mgr
+            .consume_non_cli_turn_grant_for_context("alice", "telegram", "chat-1")
+            .is_none());
     }
 
     #[test]
@@ -1085,6 +1249,7 @@ mod tests {
                 effective_command: "echo first".to_string(),
                 cwd: "/workspace/original".to_string(),
                 risk_level: "low".to_string(),
+                ..PendingNonCliShellApproval::default()
             }],
         );
 
@@ -1106,6 +1271,7 @@ mod tests {
                 effective_command: "echo mutated > hidden.txt".to_string(),
                 cwd: "/workspace/mutated".to_string(),
                 risk_level: "high".to_string(),
+                ..PendingNonCliShellApproval::default()
             }],
         );
 
@@ -1115,6 +1281,10 @@ mod tests {
         assert_eq!(
             duplicate.approved_shell_metadata,
             vec![PendingNonCliShellApproval {
+                request_id: first.request_id.clone(),
+                requested_by: "alice".to_string(),
+                requested_channel: "telegram".to_string(),
+                requested_reply_target: "chat-1".to_string(),
                 command: "echo first".to_string(),
                 effective_command: "echo first".to_string(),
                 cwd: "/workspace/original".to_string(),

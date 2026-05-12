@@ -176,6 +176,21 @@ pub(super) fn collect_planned_shell_commands(tool_calls: &[ParsedToolCall]) -> V
         .collect()
 }
 
+pub(super) fn collect_planned_shell_approval_snapshots(
+    tool_calls: &[ParsedToolCall],
+    tools_registry: &[Box<dyn crate::tools::Tool>],
+) -> Vec<crate::approval::PendingNonCliShellApproval> {
+    tool_calls
+        .iter()
+        .filter_map(|call| {
+            let tool = tools_registry
+                .iter()
+                .find(|tool| tool.name() == call.name)?;
+            tool.shell_approval_snapshot(&call.arguments).ok().flatten()
+        })
+        .collect()
+}
+
 pub(super) fn maybe_inject_cron_add_delivery(
     tool_name: &str,
     tool_args: &mut serde_json::Value,

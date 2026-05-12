@@ -203,6 +203,17 @@ impl Tool for ArcDelegatingTool {
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
         self.inner.execute(args).await
     }
+
+    fn approval_precheck(&self, args: &serde_json::Value) -> Result<(), String> {
+        self.inner.approval_precheck(args)
+    }
+
+    fn shell_approval_snapshot(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<Option<crate::approval::PendingNonCliShellApproval>, String> {
+        self.inner.shell_approval_snapshot(args)
+    }
 }
 
 fn boxed_registry_from_arcs(tools: Vec<Arc<dyn Tool>>) -> Vec<Box<dyn Tool>> {

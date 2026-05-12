@@ -499,11 +499,9 @@ pub(super) async fn handle_runtime_command_if_needed(
                             let resume_request = req.resume_request.clone();
                             let approval_message = if tool_name == APPROVAL_ALL_TOOLS_ONCE_TOKEN {
                                 let _remaining = ctx.approval_manager.grant_non_cli_turn_grant(
-                                    crate::approval::NonCliTurnApprovalGrant {
-                                        approved_shell_commands: req
-                                            .approved_shell_commands
-                                            .clone(),
-                                    },
+                                    crate::approval::NonCliTurnApprovalGrant::from_pending_request(
+                                        &req,
+                                    ),
                                 );
                                 if resume_request.is_some() {
                                     String::new()
@@ -629,11 +627,7 @@ pub(super) async fn handle_runtime_command_if_needed(
 
                             // Turn grant so the current request executes immediately
                             let _remaining = ctx.approval_manager.grant_non_cli_turn_grant(
-                                crate::approval::NonCliTurnApprovalGrant {
-                                    approved_shell_commands: req
-                                        .approved_shell_commands
-                                        .clone(),
-                                },
+                                crate::approval::NonCliTurnApprovalGrant::from_pending_request(&req),
                             );
 
                             if tool_name != APPROVAL_ALL_TOOLS_ONCE_TOKEN {

@@ -16,4 +16,5 @@ run_step "cargo check --features desktop" cargo check --features desktop
 run_step "cargo check --features full" cargo check --features full
 run_step "cargo test" cargo test
 run_step "cargo test --features standard" cargo test --features standard
+run_step "cargo test --features desktop" cargo test --features desktop
 run_step "cargo test --features full" cargo test --features full

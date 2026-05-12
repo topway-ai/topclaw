@@ -1053,6 +1053,7 @@ async fn run_tool_call_loop_executes_approved_shell_command_from_turn_grant() {
     let approval_mgr = ApprovalManager::from_config(&crate::config::AutonomyConfig::default());
     approval_mgr.grant_non_cli_turn_grant(crate::approval::NonCliTurnApprovalGrant {
         approved_shell_commands: vec!["touch approved-turn-grant.txt".to_string()],
+        ..crate::approval::NonCliTurnApprovalGrant::default()
     });
 
     let mut history = vec![
@@ -1191,9 +1192,9 @@ async fn run_tool_call_loop_full_telegram_approval_to_shell_cycle() {
     let confirmed = approval_mgr
         .confirm_non_cli_pending_request(&req.request_id, "alice", "telegram", "chat-cycle")
         .expect("confirm should succeed");
-    approval_mgr.grant_non_cli_turn_grant(crate::approval::NonCliTurnApprovalGrant {
-        approved_shell_commands: confirmed.approved_shell_commands.clone(),
-    });
+    approval_mgr.grant_non_cli_turn_grant(
+        crate::approval::NonCliTurnApprovalGrant::from_pending_request(&confirmed),
+    );
 
     // Step 3: Resumed turn — should consume grant and execute shell
     let provider_turn2 = ScriptedProvider::from_text_responses(vec![
@@ -1210,7 +1211,9 @@ async fn run_tool_call_loop_full_telegram_approval_to_shell_cycle() {
         ChatMessage::user("create the file"),
     ];
 
-    let result = run_tool_call_loop(
+    let (resume_prompt_tx, _resume_prompt_rx) =
+        tokio::sync::mpsc::unbounded_channel::<NonCliApprovalPrompt>();
+    let result = run_tool_call_loop_with_non_cli_approval_context(
         &provider_turn2,
         &mut resumed_history,
         &tools_registry,
@@ -1221,6 +1224,15 @@ async fn run_tool_call_loop_full_telegram_approval_to_shell_cycle() {
         true,
         Some(approval_mgr.as_ref()),
         "telegram",
+        Some(NonCliApprovalContext {
+            sender: "alice".to_string(),
+            reply_target: "chat-cycle".to_string(),
+            message_id: "msg-cycle".to_string(),
+            content: "create the file".to_string(),
+            timestamp: 2,
+            thread_ts: None,
+            prompt_tx: resume_prompt_tx,
+        }),
         &crate::config::MultimodalConfig::default(),
         4,
         None,
@@ -1244,6 +1256,150 @@ async fn run_tool_call_loop_full_telegram_approval_to_shell_cycle() {
         0,
         "turn grant must be consumed"
     );
+}
+
+#[tokio::test]
+async fn run_tool_call_loop_rejects_resumed_shell_command_mutation() {
+    let workspace = tempfile::tempdir().expect("temp dir should be created");
+    let approved_command = "touch approved-resume-command.txt";
+    let mutated_command = "touch mutated-resume-command.txt";
+
+    let security = Arc::new(SecurityPolicy {
+        autonomy: AutonomyLevel::Supervised,
+        workspace_dir: workspace.path().to_path_buf(),
+        allowed_commands: vec!["touch".into()],
+        ..SecurityPolicy::default()
+    });
+    let tools_registry: Vec<Box<dyn Tool>> = vec![Box::new(crate::tools::ShellTool::new(
+        Arc::clone(&security),
+        Arc::new(NativeRuntime::new()),
+    ))];
+    let approval_mgr = Arc::new(ApprovalManager::from_config(
+        &crate::config::AutonomyConfig::default(),
+    ));
+    let observer = NoopObserver;
+
+    let provider_turn1 = ScriptedProvider::from_text_responses(vec![&format!(
+        r#"<tool_call>
+{{"name":"shell","arguments":{{"command":"{approved_command}"}}}}
+</tool_call>"#
+    )]);
+    let (prompt_tx, mut prompt_rx) = tokio::sync::mpsc::unbounded_channel::<NonCliApprovalPrompt>();
+    let mut history = vec![
+        ChatMessage::system("test-system"),
+        ChatMessage::user("create the approved file"),
+    ];
+
+    let err = run_tool_call_loop_with_non_cli_approval_context(
+        &provider_turn1,
+        &mut history,
+        &tools_registry,
+        &observer,
+        "mock-provider",
+        "mock-model",
+        0.0,
+        true,
+        Some(approval_mgr.as_ref()),
+        "telegram",
+        Some(NonCliApprovalContext {
+            sender: "alice".to_string(),
+            reply_target: "chat-cycle".to_string(),
+            message_id: "msg-cycle".to_string(),
+            content: "create the approved file".to_string(),
+            timestamp: 1,
+            thread_ts: None,
+            prompt_tx,
+        }),
+        &crate::config::MultimodalConfig::default(),
+        4,
+        None,
+        None,
+        None,
+        &[],
+    )
+    .await
+    .expect_err("first turn must request approval");
+    assert!(is_non_cli_approval_pending(&err).is_some());
+    let _prompt = prompt_rx
+        .recv()
+        .await
+        .expect("approval prompt should arrive");
+
+    let pending_req = approval_mgr.list_non_cli_pending_requests(
+        Some("alice"),
+        Some("telegram"),
+        Some("chat-cycle"),
+    );
+    assert_eq!(pending_req.len(), 1);
+    assert_eq!(
+        pending_req[0].approved_shell_metadata[0].command,
+        approved_command
+    );
+
+    let confirmed = approval_mgr
+        .confirm_non_cli_pending_request(
+            &pending_req[0].request_id,
+            "alice",
+            "telegram",
+            "chat-cycle",
+        )
+        .expect("confirm should succeed");
+    approval_mgr.grant_non_cli_turn_grant(
+        crate::approval::NonCliTurnApprovalGrant::from_pending_request(&confirmed),
+    );
+
+    let provider_turn2 = ScriptedProvider::from_text_responses(vec![
+        &format!(
+            r#"<tool_call>
+{{"name":"shell","arguments":{{"command":"{mutated_command}"}}}}
+</tool_call>"#
+        ),
+        "done",
+    ]);
+    let (resume_prompt_tx, _resume_prompt_rx) =
+        tokio::sync::mpsc::unbounded_channel::<NonCliApprovalPrompt>();
+    let mut resumed_history = vec![
+        ChatMessage::system("test-system"),
+        ChatMessage::user("create the approved file"),
+    ];
+
+    let result = run_tool_call_loop_with_non_cli_approval_context(
+        &provider_turn2,
+        &mut resumed_history,
+        &tools_registry,
+        &observer,
+        "mock-provider",
+        "mock-model",
+        0.0,
+        true,
+        Some(approval_mgr.as_ref()),
+        "telegram",
+        Some(NonCliApprovalContext {
+            sender: "alice".to_string(),
+            reply_target: "chat-cycle".to_string(),
+            message_id: "msg-cycle".to_string(),
+            content: "create the approved file".to_string(),
+            timestamp: 2,
+            thread_ts: None,
+            prompt_tx: resume_prompt_tx,
+        }),
+        &crate::config::MultimodalConfig::default(),
+        4,
+        None,
+        None,
+        None,
+        &[],
+    )
+    .await
+    .expect("resumed turn should complete with a tool error, not execute mutation");
+
+    assert_eq!(result, "done");
+    assert!(!workspace
+        .path()
+        .join("approved-resume-command.txt")
+        .exists());
+    assert!(!workspace.path().join("mutated-resume-command.txt").exists());
+    assert_eq!(approval_mgr.non_cli_allow_all_once_remaining(), 0);
 }
 
 /// Proves that denying a pending Telegram approval request prevents shell execution.

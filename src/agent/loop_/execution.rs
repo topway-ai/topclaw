@@ -56,7 +56,12 @@ fn apply_turn_grant_to_tool_args(
         return call_arguments;
     };
 
-    args_obj.insert("approved".to_string(), Value::Bool(true));
+    if !uses_shell_command
+        || !grant.approved_shell_commands.is_empty()
+        || !grant.approved_shell_metadata.is_empty()
+    {
+        args_obj.insert("approved".to_string(), Value::Bool(true));
+    }
 
     if uses_shell_command && !grant.approved_shell_commands.is_empty() {
         args_obj.insert(
@@ -72,6 +77,15 @@ fn apply_turn_grant_to_tool_args(
         );
     }
 
+    if uses_shell_command && !grant.approved_shell_metadata.is_empty() {
+        if let Ok(value) = serde_json::to_value(&grant.approved_shell_metadata) {
+            args_obj.insert(
+                crate::tools::shell::APPROVED_SHELL_SNAPSHOTS_ARG.to_string(),
+                value,
+            );
+        }
+    }
+
     call_arguments
 }
 
@@ -82,6 +96,7 @@ fn strip_internal_approval_fields(mut args: Value) -> Value {
     if let Some(obj) = args.as_object_mut() {
         obj.remove("approved");
         obj.remove(crate::tools::shell::APPROVED_PLAN_SHELL_COMMANDS_ARG);
+        obj.remove(crate::tools::shell::APPROVED_SHELL_SNAPSHOTS_ARG);
     }
     args
 }
@@ -264,7 +279,8 @@ mod tests {
         let args = serde_json::json!({
             "command": "rm -rf /tmp/test",
             "approved": true,
-            crate::tools::shell::APPROVED_PLAN_SHELL_COMMANDS_ARG: ["rm -rf /tmp/test"]
+            crate::tools::shell::APPROVED_PLAN_SHELL_COMMANDS_ARG: ["rm -rf /tmp/test"],
+            crate::tools::shell::APPROVED_SHELL_SNAPSHOTS_ARG: []
         });
 
         let stripped = strip_internal_approval_fields(args);
@@ -272,6 +288,9 @@ mod tests {
         assert!(stripped.get("approved").is_none());
         assert!(stripped
             .get(crate::tools::shell::APPROVED_PLAN_SHELL_COMMANDS_ARG)
+            .is_none());
+        assert!(stripped
+            .get(crate::tools::shell::APPROVED_SHELL_SNAPSHOTS_ARG)
             .is_none());
     }
 
